@@ -12,6 +12,15 @@
 
 from __future__ import annotations
 
+from .basemap import (
+    ESRI_WORLD_IMAGERY,
+    MissingTileError,
+    TileCache,
+    TileProvider,
+    fetch_basemap,
+    get_provider,
+    load_tile,
+)
 from .camera import Camera
 from .geo import (
     EARTH_MEAN_RADIUS_M,
@@ -39,7 +48,14 @@ __all__ = [
     "AKAZEMatcher",
     "Camera",
     "Correspondences",
+    "ESRI_WORLD_IMAGERY",
     "Georef",
+    "MissingTileError",
+    "TileCache",
+    "TileProvider",
+    "fetch_basemap",
+    "get_provider",
+    "load_tile",
     "LocalizationRequest",
     "LocalizationResult",
     "Matcher",
