@@ -51,7 +51,7 @@ def cell(scene, camera, matcher, level, strength, yaws, reference_size):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--matcher", default="sift", choices=["sift", "akaze"])
+    parser.add_argument("--matcher", default="sift", choices=["sift", "akaze", "lightglue", "loftr"])
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--scene-size", type=int, default=2048)
     parser.add_argument("--frame-size", type=int, default=512)

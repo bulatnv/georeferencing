@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 import cv2
 import numpy as np
 import pytest
@@ -14,10 +16,14 @@ import pytest
 from aero_geoloc.matcher import (
     AKAZEMatcher,
     Correspondences,
+    LightGlueMatcher,
+    LoFTRMatcher,
     Matcher,
     SIFTMatcher,
     create_matcher,
 )
+
+_HAS_TORCH = importlib.util.find_spec("torch") is not None
 from aero_geoloc.testbench import make_synthetic_scene
 
 MATCHER_NAMES = ["sift", "akaze"]
@@ -81,7 +87,7 @@ def test_implementations_satisfy_protocol(name):
 
 def test_create_matcher_rejects_unknown_name():
     with pytest.raises(ValueError, match="неизвестный матчер"):
-        create_matcher("loftr")
+        create_matcher("no_such_matcher")
 
 
 def test_create_matcher_passes_through_kwargs():
@@ -164,3 +170,28 @@ def test_rejects_malformed_input(name, texture):
 def test_akaze_is_available():
     """AKAZE переехал в xfeatures2d в OpenCV 5 — шим обязан это скрывать."""
     assert isinstance(AKAZEMatcher(), Matcher)
+
+
+# --- обучаемые матчеры фазы 4 (за тем же интерфейсом, gated по torch) --------
+
+
+@pytest.mark.parametrize("name,cls", [("lightglue", LightGlueMatcher), ("loftr", LoFTRMatcher)])
+def test_learned_matcher_constructs_and_registers_without_torch(name, cls):
+    """Конструктор и реестр работают без torch — тяжёлое ядро грузится лениво."""
+    m = create_matcher(name)
+    assert isinstance(m, cls)
+    assert isinstance(m, Matcher)  # удовлетворяет протоколу
+
+
+@pytest.mark.skipif(_HAS_TORCH, reason="torch установлен — боевой путь проверяется отдельно")
+@pytest.mark.parametrize("name", ["lightglue", "loftr"])
+def test_learned_matcher_without_torch_gives_clear_error(name, texture):
+    with pytest.raises(RuntimeError, match="требует"):
+        create_matcher(name).match(texture, texture)
+
+
+@pytest.mark.skipif(not _HAS_TORCH, reason="нужен torch (+ веса)")
+def test_lightglue_matches_are_well_formed(texture):
+    corr = LightGlueMatcher().match(texture, texture)
+    assert isinstance(corr, Correspondences)
+    assert corr.pts_q.shape == corr.pts_r.shape

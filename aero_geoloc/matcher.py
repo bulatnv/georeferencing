@@ -22,7 +22,15 @@ from typing import Protocol, runtime_checkable
 import cv2
 import numpy as np
 
-__all__ = ["Correspondences", "Matcher", "SIFTMatcher", "AKAZEMatcher", "create_matcher"]
+__all__ = [
+    "Correspondences",
+    "Matcher",
+    "SIFTMatcher",
+    "AKAZEMatcher",
+    "LightGlueMatcher",
+    "LoFTRMatcher",
+    "create_matcher",
+]
 
 
 @dataclass(frozen=True)
@@ -214,14 +222,150 @@ class AKAZEMatcher(_DescriptorMatcher):
         super().__init__(_akaze_create(threshold), cv2.NORM_HAMMING, ratio, max_matches)
 
 
-_REGISTRY = {"sift": SIFTMatcher, "akaze": AKAZEMatcher}
+class _LearnedMatcher:
+    """Общая часть обучаемых матчеров фазы 4: ленивая загрузка тяжёлого ядра.
+
+    Как :class:`~aero_geoloc.retrieval.DinoV2Encoder`, torch грузится **лениво**
+    (только при первом ``match``), веса — один раз. Без зависимостей конструктор
+    работает (пакет импортируется без torch), а ``match`` даёт понятную ошибку.
+    Это и есть смысл сменного ядра: обвязка (pose, quality, стенд, retrieval) не
+    зависит от того, классический матчер внутри или обученный.
+    """
+
+    _requires = "torch"
+
+    def __init__(self, *, device: str | None = None) -> None:
+        self._device = device
+        self._torch = None
+        self._loaded = False
+
+    def _import(self):  # pragma: no cover - зависит от окружения
+        raise NotImplementedError
+
+    def _ensure(self) -> None:
+        if self._loaded:
+            return
+        try:
+            import torch
+        except ImportError as exc:  # pragma: no cover - зависит от окружения
+            raise RuntimeError(
+                f"{type(self).__name__} требует {self._requires}: установите его "
+                "(веса подтянутся при первом запуске)"
+            ) from exc
+        self._torch = torch
+        self._device = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self._import()
+        self._loaded = True
+
+    def _tensor(self, gray: np.ndarray):
+        return self._torch.from_numpy(gray.astype(np.float32) / 255.0)[None, None].to(self._device)
+
+
+class LightGlueMatcher(_LearnedMatcher):
+    """SuperPoint + LightGlue (``lightglue``) за интерфейсом :class:`Matcher` — фаза 4.
+
+    Быстрый и точный на умеренном appearance gap. Смена классики на него —
+    ``create_matcher("lightglue")``, и всё выше матчера не меняется.
+
+    Args:
+        max_keypoints: верхняя граница числа точек SuperPoint.
+        min_score: порог уверенности LightGlue для пары.
+    """
+
+    _requires = "torch и lightglue"
+
+    def __init__(self, *, max_keypoints: int = 2048, min_score: float = 0.0, device: str | None = None) -> None:
+        super().__init__(device=device)
+        self.max_keypoints = max_keypoints
+        self.min_score = min_score
+        self._extractor = None
+        self._matcher = None
+
+    def _import(self) -> None:  # pragma: no cover - требует torch+lightglue
+        from lightglue import LightGlue, SuperPoint
+
+        self._extractor = SuperPoint(max_num_keypoints=self.max_keypoints).eval().to(self._device)
+        self._matcher = LightGlue(features="superpoint").eval().to(self._device)
+
+    def match(self, query_gray: np.ndarray, ref_gray: np.ndarray) -> Correspondences:
+        _check_gray(query_gray, "query_gray")
+        _check_gray(ref_gray, "ref_gray")
+        self._ensure()
+        from lightglue.utils import rbd  # pragma: no cover
+
+        with self._torch.no_grad():  # pragma: no cover - требует torch
+            f0 = self._extractor.extract(self._tensor(query_gray))
+            f1 = self._extractor.extract(self._tensor(ref_gray))
+            out = self._matcher({"image0": f0, "image1": f1})
+        f0, f1, out = (rbd(x) for x in (f0, f1, out))
+        matches = out["matches"]
+        if matches.shape[0] == 0:
+            return Correspondences.empty()
+        pts_q = f0["keypoints"][matches[:, 0]].cpu().numpy().astype(np.float32)
+        pts_r = f1["keypoints"][matches[:, 1]].cpu().numpy().astype(np.float32)
+        scores = out.get("scores")
+        conf = (
+            scores.detach().cpu().numpy().astype(np.float32)
+            if scores is not None
+            else np.ones(len(pts_q), np.float32)
+        )
+        corr = Correspondences(pts_q, pts_r, conf)
+        keep = conf >= self.min_score
+        return corr.take(keep) if not keep.all() else corr
+
+
+class LoFTRMatcher(_LearnedMatcher):
+    """Detector-free матчер LoFTR (``kornia``) за интерфейсом :class:`Matcher` — фаза 4.
+
+    Плотный матчинг без детектора — сильнее на слабо-текстурных сценах, где
+    классике не хватает точек. Args: ``pretrained`` — ``"outdoor"``/``"indoor"``,
+    ``min_conf`` — порог уверенности пары.
+    """
+
+    _requires = "torch и kornia"
+
+    def __init__(self, *, pretrained: str = "outdoor", min_conf: float = 0.5, device: str | None = None) -> None:
+        super().__init__(device=device)
+        self.pretrained = pretrained
+        self.min_conf = min_conf
+        self._model = None
+
+    def _import(self) -> None:  # pragma: no cover - требует torch+kornia
+        import kornia
+
+        self._model = kornia.feature.LoFTR(pretrained=self.pretrained).eval().to(self._device)
+
+    def match(self, query_gray: np.ndarray, ref_gray: np.ndarray) -> Correspondences:
+        _check_gray(query_gray, "query_gray")
+        _check_gray(ref_gray, "ref_gray")
+        self._ensure()
+        with self._torch.no_grad():  # pragma: no cover - требует torch
+            out = self._model({"image0": self._tensor(query_gray), "image1": self._tensor(ref_gray)})
+        pts_q = out["keypoints0"].cpu().numpy().astype(np.float32)
+        pts_r = out["keypoints1"].cpu().numpy().astype(np.float32)
+        conf = out["confidence"].cpu().numpy().astype(np.float32)
+        if len(pts_q) == 0:
+            return Correspondences.empty()
+        corr = Correspondences(pts_q, pts_r, conf)
+        keep = conf >= self.min_conf
+        return corr.take(keep) if not keep.all() else corr
+
+
+_REGISTRY = {
+    "sift": SIFTMatcher,
+    "akaze": AKAZEMatcher,
+    "lightglue": LightGlueMatcher,
+    "loftr": LoFTRMatcher,
+}
 
 
 def create_matcher(name: str = "sift", **kwargs) -> Matcher:
     """Собрать матчер по имени — та самая «одна строка конфигурации».
 
     Args:
-        name: ``"sift"`` или ``"akaze"``. Реализации фазы 4 регистрируются здесь же.
+        name: ``"sift"``/``"akaze"`` (классика, фаза 1) либо ``"lightglue"``/
+            ``"loftr"`` (обучаемые, фаза 4; требуют torch и весов). Смена ядра —
+            это ровно смена ``name``, всё остальное не меняется.
     """
     key = name.lower()
     if key not in _REGISTRY:

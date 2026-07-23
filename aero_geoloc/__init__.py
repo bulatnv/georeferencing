@@ -38,7 +38,15 @@ from .geo import (
     zoom_for_mpp,
 )
 from .localize import localize, localize_against_reference, normalize_gray
-from .matcher import AKAZEMatcher, Correspondences, Matcher, SIFTMatcher, create_matcher
+from .matcher import (
+    AKAZEMatcher,
+    Correspondences,
+    LightGlueMatcher,
+    LoFTRMatcher,
+    Matcher,
+    SIFTMatcher,
+    create_matcher,
+)
 from .pose import PoseEstimate, SimilarityTransform, estimate_similarity
 from .quality import QualityAssessment, assess, center_covariance, error_ellipse
 from .retrieval import (
@@ -66,6 +74,8 @@ __all__ = [
     "fetch_basemap",
     "get_provider",
     "load_tile",
+    "LightGlueMatcher",
+    "LoFTRMatcher",
     "LocalizationRequest",
     "LocalizationResult",
     "Matcher",
