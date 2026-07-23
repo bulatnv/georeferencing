@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Кэш тайлов подложки и артефакты стенда (фазы 2+).
+cache/
+data/
+*.npy
+*.faiss

@@ -99,7 +99,7 @@ class Matcher(Protocol):
     def match(self, query_gray: np.ndarray, ref_gray: np.ndarray) -> Correspondences: ...
 ```
 
-Реализации (подключаются по фазам из [PLAN.md](../PLAN.md)):
+Реализации (подключаются по фазам из [PLAN.md](PLAN.md)):
 
 | Реализация | Фаза | Когда |
 |---|---|---|

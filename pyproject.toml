@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aero-geoloc"
+version = "0.1.0.dev0"
+description = "Аэро-геолокализация надирных снимков по картографической подложке"
+readme = "docs/README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# Фаза 1: классический матчинг и работа с растрами.
+matching = [
+    "opencv-contrib-python>=4.9",
+    "pillow>=10.0",
+]
+# Фаза 2: загрузка XYZ-тайлов подложки.
+basemap = [
+    "requests>=2.31",
+]
+dev = [
+    "pytest>=7.4",
+]
+
+[tool.setuptools.packages.find]
+include = ["aero_geoloc*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

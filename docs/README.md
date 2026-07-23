@@ -4,7 +4,7 @@
 
 По сути это задача **итеративного georeferencing через image registration**: спутниковая подложка вокруг приора → сопоставление кадра с ней → геометрическое преобразование → перевод в координаты.
 
-> Статус: проектная документация. Реализация ведётся по [PLAN.md](PLAN.md) поэтапно, от простого классического пайплайна на синтетике к обученным матчерам на реальных снимках с борта.
+> Статус: **фаза 0 завершена** (геометрия Web Mercator, модель камеры, типы данных — всё офлайн, покрыто тестами). Реализация ведётся по [PLAN.md](PLAN.md) поэтапно, от простого классического пайплайна на синтетике к обученным матчерам на реальных снимках с борта.
 
 ---
 
@@ -14,10 +14,10 @@
 |---|---|
 | [README.md](README.md) | Обзор, возможности, ограничения, дорожная карта (этот файл) |
 | [PLAN.md](PLAN.md) | Поэтапный план реализации (MVP → полный сервис) и стратегия тестирования |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Двухэтажная архитектура, границы модулей, offline vs runtime, форматы данных |
-| [docs/PIPELINE.md](docs/PIPELINE.md) | Стадии обработки 0–7 пошагово: формулы, модель, refinement |
-| [docs/RETRIEVAL.md](docs/RETRIEVAL.md) | «Хеширование местности»: DINOv2-индекс, многомасштабность, ротация, калибровка |
-| [docs/TESTING.md](docs/TESTING.md) | Синтетический стенд, метрики точности, калибровка доверия, точка перелома appearance gap |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Двухэтажная архитектура, границы модулей, offline vs runtime, форматы данных |
+| [PIPELINE.md](PIPELINE.md) | Стадии обработки 0–7 пошагово: формулы, модель, refinement |
+| [RETRIEVAL.md](RETRIEVAL.md) | «Хеширование местности»: DINOv2-индекс, многомасштабность, ротация, калибровка |
+| [TESTING.md](TESTING.md) | Синтетический стенд, метрики точности, калибровка доверия, точка перелома appearance gap |
 
 ---
 
@@ -75,7 +75,7 @@
 - **Фаза «синтетика»** (сейчас): классика — SIFT/AKAZE + RANSAC. На кропах из той же мозаики даёт почти идеальную привязку.
 - **Фаза «борт»** (потом): обученные матчеры под appearance gap — LightGlue/LoFTR, для тяжёлых кросс-сезонных случаев RoMa/DKM или плотные DINOv2-фичи.
 
-Подробнее: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/PIPELINE.md](docs/PIPELINE.md).
+Подробнее: [ARCHITECTURE.md](ARCHITECTURE.md), [PIPELINE.md](PIPELINE.md).
 
 ---
 
@@ -120,7 +120,7 @@
 | Борт, 100–250 м, однородная сцена, приор ±5 км | одиночный кадр | часто `NOT_LOCALIZED` (дефицит информации) |
 | Борт, низкая высота, последовательность | VO + периодическая привязка | стабильная траектория, точность на якорях |
 
-Числа ориентировочные и зависят от местности; итоговый арбитр — [синтетический стенд](docs/TESTING.md) на твоих данных.
+Числа ориентировочные и зависят от местности; итоговый арбитр — [синтетический стенд](TESTING.md) на твоих данных.
 
 ---
 
@@ -138,27 +138,39 @@
 
 ## Структура репозитория (целевая)
 
+Отметка ✅ — реализовано, остальное — целевая раскладка по фазам из [PLAN.md](PLAN.md).
+
 ```
-aero-geoloc/
-├── README.md                 ← этот файл
-├── PLAN.md                   ← план реализации и тестирования
-├── docs/                     ← детальная документация по этапам
-│   ├── ARCHITECTURE.md
-│   ├── PIPELINE.md
-│   ├── RETRIEVAL.md
-│   └── TESTING.md
+image_localization/
+├── pyproject.toml                                                        ✅
+├── docs/                     ← вся документация
+│   ├── README.md             ← этот файл                                 ✅
+│   ├── PLAN.md               ← план реализации и тестирования            ✅
+│   ├── ARCHITECTURE.md                                                   ✅
+│   ├── PIPELINE.md                                                       ✅
+│   ├── RETRIEVAL.md                                                      ✅
+│   └── TESTING.md                                                        ✅
 ├── aero_geoloc/              ← пакет
-│   ├── geo.py                ← Web Mercator, Georef, pixel↔lonlat
-│   ├── camera.py             ← модель камеры: GSD, footprint, ректификация наклона
-│   ├── basemap.py            ← загрузка/сшивка XYZ-тайлов (Esri и др.)
-│   ├── matcher.py            ← СМЕННОЕ ЯДРО: интерфейс match() + реализации
-│   ├── retrieval.py          ← DINOv2-эмбеддинги + ANN-индекс местности
-│   ├── pose.py               ← робастная оценка (similarity/RANSAC) + refinement
-│   ├── quality.py            ← ковариация, доверие, статус/отказ
-│   ├── localize.py           ← оркестрация пайплайна
-│   └── testbench.py          ← генерация синтетики, метрики, калибровка
+│   ├── geo.py                ← Web Mercator, Georef, pixel↔lonlat        ✅ фаза 0
+│   ├── camera.py             ← модель камеры: GSD, footprint, наклон     ✅ фаза 0
+│   ├── types.py              ← Prior, Request, Result, Status            ✅ фаза 0
+│   ├── matcher.py            ← СМЕННОЕ ЯДРО: интерфейс match()              фаза 1
+│   ├── pose.py               ← similarity/RANSAC + refinement               фаза 1
+│   ├── testbench.py          ← синтетика, метрики, калибровка               фаза 1
+│   ├── localize.py           ← оркестрация пайплайна                        фаза 1
+│   ├── basemap.py            ← загрузка/сшивка XYZ-тайлов (Esri и др.)      фаза 2
+│   ├── quality.py            ← ковариация, доверие, статус/отказ            фаза 2
+│   └── retrieval.py          ← DINOv2-эмбеддинги + ANN-индекс               фаза 3
 ├── scripts/                  ← CLI: build_index, localize, run_benchmark
 └── tests/
+    ├── test_geo.py                                                       ✅
+    └── test_camera.py                                                    ✅
+```
+
+Установка для разработки:
+
+```bash
+pip install -e ".[dev]" && pytest
 ```
 
 ---
@@ -183,7 +195,7 @@ print(result.heading_deg, result.altitude_est_m)
 print(result.error_ellipse_m)        # (semi-major, semi-minor, angle)
 ```
 
-Точные сигнатуры фиксируются в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) и уточняются по мере реализации в [PLAN.md](PLAN.md).
+Точные сигнатуры фиксируются в [ARCHITECTURE.md](ARCHITECTURE.md) и уточняются по мере реализации в [PLAN.md](PLAN.md).
 
 ---
 
