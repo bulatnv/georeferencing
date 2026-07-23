@@ -307,3 +307,39 @@ class Georef:
     def contains_pixel(self, px: float, py: float) -> bool:
         """Лежит ли локальная координата внутри растра."""
         return -0.5 <= px <= self.width - 0.5 and -0.5 <= py <= self.height - 0.5
+
+    def crop(self, x0: int, y0: int, width: int, height: int) -> Georef:
+        """Привязка подокна растра, начинающегося с пикселя ``(x0, y0)``.
+
+        Геометрический двойник среза ``img[y0:y0+height, x0:x0+width]``: зум
+        сохраняется, пересчитывается только центр. Выход за границы исходного
+        растра допускается — вызывающий код сам решает, чем добивать поля.
+        """
+        if width <= 0 or height <= 0:
+            raise ValueError(f"размер кропа должен быть > 0, получено {width}×{height}")
+        lon, lat = world_px_to_lonlat(
+            self._origin_x + x0 + width / 2.0,
+            self._origin_y + y0 + height / 2.0,
+            self.zoom,
+        )
+        return Georef(
+            center_lon=float(lon),
+            center_lat=float(lat),
+            zoom=self.zoom,
+            width=width,
+            height=height,
+        )
+
+    def crop_around(self, center_px: float, center_py: float, width: int, height: int) -> Georef:
+        """Привязка подокна ``width × height``, центрированного на локальном пикселе.
+
+        Начало окна округляется до целого пикселя, поэтому фактический центр
+        отстоит от запрошенного **до 0.5 пикселя по каждой оси**. Для чётного
+        размера окна это неустранимо: середина такого окна приходится на границу
+        между пикселями, а не на их центр. Точную позицию всегда даёт
+        :meth:`pixel_to_lonlat` возвращённой привязки — на неё и надо опираться,
+        а не предполагать, что окно центрировано идеально.
+        """
+        x0 = int(round(center_px - (width - 1) / 2.0))
+        y0 = int(round(center_py - (height - 1) / 2.0))
+        return self.crop(x0, y0, width, height)

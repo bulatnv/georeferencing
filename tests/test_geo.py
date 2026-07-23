@@ -358,6 +358,45 @@ def test_georef_rejects_invalid_construction():
         Georef(center_lon=37.0, center_lat=89.0, zoom=18, width=100, height=100)
 
 
+def test_georef_crop_keeps_ground_position_of_kept_pixels():
+    """Кроп — геометрический двойник среза numpy: та же земля, другие индексы."""
+    g = make_georef(18)
+    x0, y0, w, h = 100, 60, 256, 128
+    sub = g.crop(x0, y0, w, h)
+
+    assert (sub.width, sub.height, sub.zoom) == (w, h, g.zoom)
+    for px, py in [(0.0, 0.0), (10.5, 20.25), (w - 1.0, h - 1.0)]:
+        assert sub.pixel_to_lonlat(px, py) == pytest.approx(
+            g.pixel_to_lonlat(px + x0, py + y0), abs=1e-12
+        )
+
+
+def test_georef_crop_around_centres_within_half_a_pixel():
+    """Нечётное окно центрируется точно, чётное — с неустранимым сдвигом 0.5 px."""
+    g = make_georef(17)
+
+    exact = g.crop_around(400.0, 300.0, 65, 65)
+    assert exact.pixel_to_lonlat(*exact.center_pixel) == pytest.approx(
+        g.pixel_to_lonlat(400.0, 300.0), abs=1e-12
+    )
+
+    even = g.crop_around(400.0, 300.0, 64, 64)
+    px, py = even.lonlat_to_pixel(*g.pixel_to_lonlat(400.0, 300.0))
+    cx, cy = even.center_pixel
+    assert abs(px - cx) <= 0.5 + 1e-6 and abs(py - cy) <= 0.5 + 1e-6
+
+
+def test_georef_crop_of_full_extent_is_identity():
+    g = make_georef(16)
+    sub = g.crop(0, 0, g.width, g.height)
+    assert (sub.center_lon, sub.center_lat) == pytest.approx((g.center_lon, g.center_lat), abs=1e-12)
+
+
+def test_georef_crop_rejects_empty_size():
+    with pytest.raises(ValueError, match="размер кропа"):
+        make_georef().crop(0, 0, 0, 10)
+
+
 def test_georef_is_immutable():
     g = make_georef()
     with pytest.raises(Exception):
