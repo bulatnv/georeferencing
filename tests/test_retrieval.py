@@ -210,3 +210,27 @@ def test_calibrate_uniqueness_threshold_degenerate_labels():
     # Все разрешимы (или все нет) — разделять нечего, порог 0 (ничего не отсекаем).
     assert calibrate_uniqueness_threshold([0.1, 0.2, 0.3], [True, True, True]) == 0.0
     assert calibrate_uniqueness_threshold([], []) == 0.0
+
+
+# --- персистентность индекса (offline → runtime) ----------------------------
+
+
+def test_index_save_load_roundtrip(rich_scene, camera, rich_index, tmp_path):
+    path = tmp_path / "index.npz"
+    rich_index.save(path)
+    loaded = TerrainIndex.load(path, AveragePoolEncoder(24))
+
+    assert len(loaded) == len(rich_index)
+    # Загруженный индекс отвечает на запрос идентично исходному.
+    q = _queries(rich_scene, camera, offsets=[0])[0]
+    r0 = rich_index.query(q[0], k=5, prerotate_deg=q[3])
+    r1 = loaded.query(q[0], k=5, prerotate_deg=q[3])
+    assert [c.center_lat for c in r0.cells] == [c.center_lat for c in r1.cells]
+    np.testing.assert_allclose(r0.similarities, r1.similarities, atol=1e-6)
+
+
+def test_index_load_rejects_encoder_mismatch(rich_index, tmp_path):
+    path = tmp_path / "index.npz"
+    rich_index.save(path)
+    with pytest.raises(ValueError, match="не совпадает"):
+        TerrainIndex.load(path, AveragePoolEncoder(16))  # другая размерность

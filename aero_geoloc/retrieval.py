@@ -226,6 +226,45 @@ class TerrainIndex:
                     )
         return self
 
+    # --- персистентность ----------------------------------------------------
+
+    def save(self, path) -> None:
+        """Сохранить индекс (векторы + гео-метаданные клеток) в ``.npz``.
+
+        Энкодер не сохраняется — это код; при загрузке его передают заново (тот
+        же, что при построении, иначе векторы несопоставимы).
+        """
+        np.savez(
+            path,
+            vectors=self._stacked(),
+            center_lon=np.array([c.center_lon for c in self._cells], dtype=np.float64),
+            center_lat=np.array([c.center_lat for c in self._cells], dtype=np.float64),
+            zoom=np.array([c.zoom for c in self._cells], dtype=np.int32),
+            size_px=np.array([c.size_px for c in self._cells], dtype=np.int32),
+            rotation_deg=np.array([c.rotation_deg for c in self._cells], dtype=np.float64),
+        )
+
+    @classmethod
+    def load(cls, path, encoder: Encoder) -> TerrainIndex:
+        """Загрузить индекс из ``.npz`` и привязать энкодер (тот же, что при сборке)."""
+        data = np.load(path)
+        if data["vectors"].shape[1] != encoder.dim:
+            raise ValueError(
+                f"размерность индекса {data['vectors'].shape[1]} не совпадает с "
+                f"энкодером ({encoder.dim}) — вероятно, другой энкодер"
+            )
+        index = cls(encoder)
+        index._matrix = data["vectors"].astype(np.float32)
+        index._vectors = list(index._matrix)
+        index._cells = [
+            Cell(float(lon), float(lat), int(z), int(s), float(r))
+            for lon, lat, z, s, r in zip(
+                data["center_lon"], data["center_lat"], data["zoom"],
+                data["size_px"], data["rotation_deg"],
+            )
+        ]
+        return index
+
     # --- запрос -------------------------------------------------------------
 
     def _stacked(self) -> np.ndarray:

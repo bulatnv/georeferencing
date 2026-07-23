@@ -24,6 +24,7 @@ from .geo import Georef, ground_mpp, haversine_m, zoom_for_mpp
 from .matcher import Matcher, SIFTMatcher
 from .pose import PoseEstimate, estimate_similarity, refine_ecc
 from .quality import aligned_ncc, assess
+from .retrieval import TerrainIndex, should_localize
 from .types import LocalizationResult, Prior, Status
 
 __all__ = ["normalize_gray", "localize_against_reference", "localize"]
@@ -355,6 +356,106 @@ def _fine_pass(
     )
 
 
+def _fine_with_scale_loop(
+    image: np.ndarray,
+    camera: Camera,
+    prior: Prior,
+    cand_lon: float,
+    cand_lat: float,
+    coarse_mpp: float,
+    z_fine: int,
+    basemap: BasemapSource,
+    *,
+    scale_iters: int,
+    matcher: Matcher,
+    refine: bool,
+    trust_yaw: bool,
+    rotation_tolerance_deg: float,
+    ransac_threshold_px: float,
+    min_inliers: int,
+    clahe: bool,
+) -> LocalizationResult:
+    """Точный уровень вокруг одного кандидата + цикл переуточнения масштаба (стадия 5).
+
+    Восстановленный масштаб даёт оценку высоты; если она указывает на ДРУГОЙ зум
+    подложки, растр перетягивается на нём и точный уровень переигрывается уже при
+    ``mpp ≈ GSD`` (масштаб ≈ 1). Триггер — смена зума, а не ``|s−1|``: даже при
+    верной высоте ``s`` гуляет в пределах кванта зума. Множество посещённых зумов
+    гарантирует завершение, а лучший (по инлайерам) проход сохраняется — если
+    проход на новом зуме не сойдётся, остаётся предыдущий.
+    """
+
+    def fine(altitude_m: float, zoom: int) -> LocalizationResult:
+        return _fine_pass(
+            image, camera, prior, cand_lon, cand_lat, altitude_m, zoom, coarse_mpp, basemap,
+            matcher=matcher, refine=refine, trust_yaw=trust_yaw,
+            rotation_tolerance_deg=rotation_tolerance_deg,
+            ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
+        )
+
+    def n_inliers(result: LocalizationResult) -> int:
+        return int(result.diagnostics.get("n_inliers", 0))
+
+    best = fine(prior.altitude_m, z_fine)
+    z_best, visited, scale_iters_done = z_fine, {z_fine}, 0
+    while best.is_localized and scale_iters_done < scale_iters:
+        z_next = zoom_for_mpp(camera.gsd(best.altitude_est_m), prior.lat)
+        if z_next in visited:
+            break
+        visited.add(z_next)
+        scale_iters_done += 1
+        try:
+            retried = fine(best.altitude_est_m, z_next)
+        except (ValueError, MissingTileError):
+            break  # источник не отдаёт этот зум (край данных/детальнее подложки)
+        if not (retried.is_localized and n_inliers(retried) > n_inliers(best)):
+            break
+        best, z_best = retried, z_next
+
+    best.diagnostics["z_fine"] = z_best
+    best.diagnostics["scale_iters_done"] = scale_iters_done
+    return best
+
+
+def _retrieval_candidates(
+    index: TerrainIndex,
+    image_gray: np.ndarray,
+    prior: Prior,
+    *,
+    top_k: int,
+    trust_yaw: bool,
+    min_uniqueness: float,
+    gate_sigma: float,
+) -> tuple[list[tuple[float, float, float]], dict]:
+    """Кандидаты грубого уровня из retrieval-индекса (Этаж 1).
+
+    Возвращает список ``(lon, lat, coarse_mpp)`` внутри диска приора и диагностику.
+    Пустой список — либо низкая уникальность (самоподобие), либо все клетки вне
+    диска; причина в диагностике под ключом ``retrieval_reason``.
+    """
+    prerotate = -prior.yaw_deg if trust_yaw else 0.0
+    result = index.query(image_gray, k=top_k, prerotate_deg=prerotate)
+    diag = {
+        "retrieval_uniqueness": result.uniqueness,
+        "retrieval_returned": len(result.cells),
+    }
+    if not should_localize(result, min_uniqueness=min_uniqueness):
+        diag["retrieval_reason"] = "низкая уникальность (самоподобие)"
+        return [], diag
+
+    candidates = []
+    for cell in result.cells:
+        offset_m = float(haversine_m(prior.lat, prior.lon, cell.center_lat, cell.center_lon))
+        if offset_m <= gate_sigma * prior.sigma_m:
+            # coarse_mpp кандидата задаёт запас точного окна: 6·coarse_mpp = полклетки
+            # (истинный центр может лежать где угодно в клетке retrieval).
+            cell_footprint_m = cell.size_px * ground_mpp(cell.center_lat, cell.zoom)
+            candidates.append((cell.center_lon, cell.center_lat, cell_footprint_m / 12.0))
+    if not candidates:
+        diag["retrieval_reason"] = "все клетки вне диска приора"
+    return candidates, diag
+
+
 def localize(
     image: np.ndarray,
     camera: Camera,
@@ -371,6 +472,9 @@ def localize(
     coarse_target_px: int = 2048,
     coarse_min_inliers: int = 6,
     scale_iters: int = 2,
+    index: TerrainIndex | None = None,
+    retrieval_top_k: int = 5,
+    min_uniqueness: float = 0.0,
     gate_sigma: float = PRIOR_GATE_SIGMA,
 ) -> LocalizationResult:
     """Полная одиночная локализация: подложка из источника + coarse-to-fine.
@@ -400,11 +504,20 @@ def localize(
             перетягивается на нём (``mpp`` снова ≈ ``GSD``) и точный уровень
             переигрывается при масштабе ≈ 1. ``0`` отключает цикл. Обычно хватает
             одной итерации; цикл сходится, как только зум перестаёт меняться.
+        index: предпостроенный :class:`~aero_geoloc.retrieval.TerrainIndex`. Если
+            задан — грубый уровень идёт **retrieval-запросом** (Этаж 1) вместо
+            перебора окна вокруг приора: индекс отдаёт top-K клеток, точный
+            уровень пробегает их и берёт лучшую по инлайерам (мультигипотезность
+            против самоподобия). Если ``None`` — прежний матч по окну.
+        retrieval_top_k: сколько кандидатных клеток брать у индекса.
+        min_uniqueness: порог сигнала уникальности retrieval; ниже него —
+            честный отказ по самоподобию ещё до матчинга (см.
+            :func:`~aero_geoloc.retrieval.calibrate_uniqueness_threshold`).
         gate_sigma: во сколько σ приора укладывается допустимое отклонение центра.
 
     Returns:
-        :class:`~aero_geoloc.types.LocalizationResult`. Как и раньше, статус
-        ``LOW_CONFIDENCE`` не выдаётся до ``quality.py`` (следующий шаг фазы 2).
+        :class:`~aero_geoloc.types.LocalizationResult` со статусом, ковариацией и
+        эллипсом из :mod:`aero_geoloc.quality`.
     """
     matcher = matcher if matcher is not None else SIFTMatcher()
     image_gray = normalize_gray(image, clahe=clahe)
@@ -440,85 +553,69 @@ def localize(
         "confidence_calibrated": False,
     }
 
-    coarse_ref, coarse_georef = basemap(prior.lon, prior.lat, z_coarse, coarse_size, coarse_size)
-    coarse_gray = normalize_gray(coarse_ref, clahe=clahe)
-    candidate = _coarse_center(
-        image_gray,
-        camera,
-        prior,
-        coarse_gray,
-        coarse_georef,
-        matcher=matcher,
-        trust_yaw=trust_yaw,
-        rotation_tolerance_deg=rotation_tolerance_deg,
-        ransac_threshold_px=ransac_threshold_px,
-        min_inliers=coarse_min_inliers,
-    )
-    if candidate is None:
-        return LocalizationResult.failed("грубый уровень не нашёл кандидата", **base_diagnostics)
+    base_diagnostics["retrieval"] = index is not None
 
-    cand_lon, cand_lat = candidate
-    coarse_offset_m = float(haversine_m(prior.lat, prior.lon, cand_lat, cand_lon))
-    base_diagnostics["coarse_offset_m"] = coarse_offset_m
-    # Кандидат обязан лежать в диске приора — иначе это не он (инвариант 3).
-    if coarse_offset_m > gate_sigma * prior.sigma_m:
-        return LocalizationResult.failed("кандидат вне диска приора", **base_diagnostics)
+    # Грубый уровень «ГДЕ примерно»: retrieval-запрос к индексу (Этаж 1) либо
+    # прежний матч по окну вокруг приора. На выходе — кандидаты (lon, lat, coarse_mpp).
+    if index is not None:
+        candidates, retrieval_diag = _retrieval_candidates(
+            index, image_gray, prior,
+            top_k=retrieval_top_k, trust_yaw=trust_yaw,
+            min_uniqueness=min_uniqueness, gate_sigma=gate_sigma,
+        )
+        base_diagnostics.update(retrieval_diag)
+        if not candidates:
+            return LocalizationResult.failed(
+                retrieval_diag.get("retrieval_reason", "retrieval не дал кандидатов"),
+                **base_diagnostics,
+            )
+    else:
+        coarse_ref, coarse_georef = basemap(prior.lon, prior.lat, z_coarse, coarse_size, coarse_size)
+        coarse_gray = normalize_gray(coarse_ref, clahe=clahe)
+        candidate = _coarse_center(
+            image_gray, camera, prior, coarse_gray, coarse_georef,
+            matcher=matcher, trust_yaw=trust_yaw, rotation_tolerance_deg=rotation_tolerance_deg,
+            ransac_threshold_px=ransac_threshold_px, min_inliers=coarse_min_inliers,
+        )
+        if candidate is None:
+            return LocalizationResult.failed("грубый уровень не нашёл кандидата", **base_diagnostics)
+        cand_lon, cand_lat = candidate
+        coarse_offset_m = float(haversine_m(prior.lat, prior.lon, cand_lat, cand_lon))
+        base_diagnostics["coarse_offset_m"] = coarse_offset_m
+        if coarse_offset_m > gate_sigma * prior.sigma_m:  # инвариант 3
+            return LocalizationResult.failed("кандидат вне диска приора", **base_diagnostics)
+        candidates = [(cand_lon, cand_lat, coarse_mpp)]
 
-    # Точный уровень + цикл переуточнения масштаба (стадия 5). Восстановленный
-    # масштаб даёт оценку высоты; если она указывает на ДРУГОЙ зум подложки, чем
-    # текущий, растр перетягивается на нём и точный уровень переигрывается уже
-    # при mpp ≈ GSD (масштаб ≈ 1). Триггер — смена зума, а не |s−1|: даже при
-    # верной высоте s гуляет в пределах кванта зума (nearest → до √2), и на это
-    # реагировать не нужно. Последний успешный результат сохраняется: если проход
-    # на новом зуме вдруг не сойдётся, возвращаем предыдущий.
-    def fine(alt: float, z: int) -> LocalizationResult:
-        return _fine_pass(
-            image, camera, prior, cand_lon, cand_lat, alt, z, coarse_mpp, basemap,
-            matcher=matcher, refine=refine, trust_yaw=trust_yaw,
+    # Точный уровень + цикл масштаба по каждому кандидату; берём лучший по инлайерам
+    # (мультигипотезность ловит неоднозначность на самоподобной местности).
+    best: LocalizationResult | None = None
+    for cand_lon, cand_lat, cand_coarse_mpp in candidates:
+        r = _fine_with_scale_loop(
+            image, camera, prior, cand_lon, cand_lat, cand_coarse_mpp, z_fine, basemap,
+            scale_iters=scale_iters, matcher=matcher, refine=refine, trust_yaw=trust_yaw,
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
         )
-
-    def n_inliers(r: LocalizationResult) -> int:
-        return int(r.diagnostics.get("n_inliers", 0))
-
-    best = fine(prior.altitude_m, z_fine)
-    z_best, visited, scale_iters_done = z_fine, {z_fine}, 0
-    while best.is_localized and scale_iters_done < scale_iters:
-        est_alt = best.altitude_est_m
-        z_next = zoom_for_mpp(camera.gsd(est_alt), prior.lat)
-        # Множество посещённых зумов гарантирует завершение: у самой границы зума
-        # (GSD ≈ mpp) ceil может дрожать между двумя уровнями из-за округления —
-        # без этого цикл бы осциллировал до упора scale_iters.
-        if z_next in visited:
-            break
-        visited.add(z_next)
-        scale_iters_done += 1
-        try:
-            retried = fine(est_alt, z_next)
-        except (ValueError, MissingTileError):
-            break  # источник не отдаёт этот зум (край данных/детальнее подложки)
-        # Принимаем новый зум, только если он реально лучше (больше инлайеров при
-        # согласованном масштабе). Иначе оставляем лучший и прекращаем.
-        if not (retried.is_localized and n_inliers(retried) > n_inliers(best)):
-            break
-        best, z_best = retried, z_next
-
-    result = best
-    base_diagnostics["z_fine"] = z_best
-    base_diagnostics["z_fine_initial"] = z_fine
-    base_diagnostics["scale_iters_done"] = scale_iters_done
-    result.diagnostics.update(base_diagnostics)
-
-    # Финальный гейт против ИСХОДНОГО приора: точный уровень гейтил против
-    # кандидата, но решение обязано укладываться и в исходный диск ±σ.
-    if result.is_localized:
-        final_offset_m = float(
-            haversine_m(prior.lat, prior.lon, result.center_lat, result.center_lon)
+        if r.is_localized and (
+            best is None
+            or int(r.diagnostics.get("n_inliers", 0)) > int(best.diagnostics.get("n_inliers", 0))
+        ):
+            best = r
+    if best is None:
+        return LocalizationResult.failed(
+            "точный уровень не сошёлся ни на одном кандидате", **base_diagnostics
         )
-        result.diagnostics["prior_offset_m"] = final_offset_m
-        result.diagnostics["prior_offset_sigma"] = final_offset_m / prior.sigma_m
-        if final_offset_m > gate_sigma * prior.sigma_m:
-            return LocalizationResult.failed("решение вне диска приора", **result.diagnostics)
 
-    return result
+    # z_fine поставил цикл масштаба; сохраняем его поверх base_diagnostics.
+    z_best = best.diagnostics.get("z_fine", z_fine)
+    best.diagnostics.update(base_diagnostics)
+    best.diagnostics["z_fine"] = z_best
+    best.diagnostics["z_fine_initial"] = z_fine
+
+    # Финальный гейт против ИСХОДНОГО приора (инвариант 3).
+    final_offset_m = float(haversine_m(prior.lat, prior.lon, best.center_lat, best.center_lon))
+    best.diagnostics["prior_offset_m"] = final_offset_m
+    best.diagnostics["prior_offset_sigma"] = final_offset_m / prior.sigma_m
+    if final_offset_m > gate_sigma * prior.sigma_m:
+        return LocalizationResult.failed("решение вне диска приора", **best.diagnostics)
+    return best
