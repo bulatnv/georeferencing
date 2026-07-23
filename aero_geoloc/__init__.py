@@ -58,6 +58,14 @@ from .retrieval import (
     TerrainIndex,
     recall_at_k,
 )
+from .sequence import (
+    AbsoluteFix,
+    EKFState,
+    TrajectoryEKF,
+    VOStep,
+    estimate_vo,
+    localize_sequence,
+)
 from .types import LocalizationRequest, LocalizationResult, Prior, Status
 
 __version__ = "0.2.0.dev0"
@@ -80,11 +88,17 @@ __all__ = [
     "LocalizationResult",
     "Matcher",
     "PoseEstimate",
+    "AbsoluteFix",
     "AveragePoolEncoder",
     "Cell",
     "DinoV2Encoder",
+    "EKFState",
     "Encoder",
     "Prior",
+    "TrajectoryEKF",
+    "VOStep",
+    "estimate_vo",
+    "localize_sequence",
     "QualityAssessment",
     "RetrievalResult",
     "TerrainIndex",

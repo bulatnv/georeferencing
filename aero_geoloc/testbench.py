@@ -39,6 +39,7 @@ __all__ = [
     "iter_specs",
     "Sample",
     "generate_sample",
+    "generate_trajectory",
     "SampleMetrics",
     "evaluate",
     "GridSummary",
@@ -494,6 +495,39 @@ def generate_sample(
         true_center_ref_px=(float(true_ref_px[0]), float(true_ref_px[1])),
         reference_mpp=ref_georef.mpp,
     )
+
+
+def generate_trajectory(
+    scene: Scene,
+    camera: Camera,
+    waypoints: Sequence[tuple[float, float, float]],
+    *,
+    altitude_ratio: float = 1.0,
+    appearance_level: int = 0,
+    appearance_strength: float = 1.0,
+    reference_size: int = 1000,
+) -> list[Sample]:
+    """Синтетическая траектория: кадр на каждый путевой пункт (для VO/EKF, фаза 5).
+
+    Args:
+        waypoints: список ``(offset_x_px, offset_y_px, yaw_deg)`` — сдвиг центра
+            от центра сцены (в пикселях подложки) и курс на каждом кадре. Соседние
+            пункты должны заметно перекрываться, иначе кадр-к-кадру матч не сойдётся.
+
+    Истинное ENU-положение кадра выводится из сдвига: ``east = offset_x·mpp``,
+    ``north = −offset_y·mpp`` (север — это ``−y``).
+    """
+    return [
+        generate_sample(
+            scene, camera,
+            SampleSpec(
+                yaw_deg=yaw, altitude_ratio=altitude_ratio, center_offset_px=(ox, oy),
+                appearance_level=appearance_level, appearance_strength=appearance_strength,
+            ),
+            reference_size=reference_size,
+        )
+        for ox, oy, yaw in waypoints
+    ]
 
 
 # --- метрики ----------------------------------------------------------------
