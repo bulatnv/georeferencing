@@ -46,6 +46,8 @@ __all__ = [
     "RetrievalResult",
     "TerrainIndex",
     "recall_at_k",
+    "should_localize",
+    "calibrate_uniqueness_threshold",
 ]
 
 
@@ -278,6 +280,45 @@ class TerrainIndex:
         return RetrievalResult(
             cells=[self._cells[i] for i in top], similarities=sims[top], uniqueness=uniqueness
         )
+
+
+def should_localize(result: RetrievalResult, *, min_uniqueness: float) -> bool:
+    """Стоит ли вообще пытаться локализоваться, или отказать по самоподобию.
+
+    Флаг отказа Этажа 1 ([RETRIEVAL.md]): если лучший кандидат не выделяется на
+    фоне далёкого двойника (``uniqueness < min_uniqueness``), сцена самоподобна,
+    и матчинг с большой вероятностью даст уверенно-неверную точку — честнее
+    отказать заранее. Порог берётся из :func:`calibrate_uniqueness_threshold`.
+    """
+    return bool(result.cells) and result.uniqueness >= min_uniqueness
+
+
+def calibrate_uniqueness_threshold(
+    uniqueness: Sequence[float], resolvable: Sequence[bool]
+) -> float:
+    """Подобрать порог уникальности, разделяющий разрешимые и неразрешимые места.
+
+    Максимизирует индекс Юдена ``TPR − FPR`` по кандидатным порогам — классика
+    для выбора точки среза, не завязанная на баланс классов. ``resolvable`` —
+    признак фактической разрешимости (успех локализации / богатая vs однородная
+    местность) на калибровочном наборе.
+
+    Returns:
+        Порог: решения с ``uniqueness ≥ порог`` считаются разрешимыми.
+    """
+    u = np.asarray(uniqueness, dtype=float)
+    y = np.asarray(resolvable, dtype=bool)
+    if u.size == 0 or y.all() or (~y).all():
+        return 0.0  # нечего разделять — не отсекаем
+    n_pos, n_neg = int(y.sum()), int((~y).sum())
+    best_threshold, best_j = 0.0, -np.inf
+    for threshold in np.unique(u):
+        predicted = u >= threshold
+        tpr = int((predicted & y).sum()) / n_pos
+        fpr = int((predicted & ~y).sum()) / n_neg
+        if tpr - fpr > best_j:
+            best_j, best_threshold = tpr - fpr, float(threshold)
+    return best_threshold
 
 
 def recall_at_k(

@@ -15,7 +15,9 @@ from aero_geoloc.retrieval import (
     Cell,
     RetrievalResult,
     TerrainIndex,
+    calibrate_uniqueness_threshold,
     recall_at_k,
+    should_localize,
 )
 from aero_geoloc.testbench import (
     SampleSpec,
@@ -168,3 +170,43 @@ def test_query_on_empty_index_returns_empty():
     r = idx.query(np.zeros((64, 64), np.uint8), k=5)
     assert r.cells == [] and r.similarities.size == 0
     assert r.best is None
+
+
+# --- уникальность → флаг отказа (шаг 2) -------------------------------------
+
+
+def test_uniqueness_threshold_separates_resolvable_terrain(rich_scene, camera, rich_index):
+    """Калиброванный порог уникальности отделяет разрешимую местность от самоподобной."""
+    homo = make_homogeneous_scene(3072, seed=0)
+    hidx = TerrainIndex(AveragePoolEncoder(24)).build(
+        SceneBasemap(homo), homo.georef, cell_size_px=CELL, overlap=0.5
+    )
+    offsets = [-500, -250, 0, 250, 500]
+    rich_u = [rich_index.query(q, k=5, prerotate_deg=p).uniqueness
+              for q, _, _, p in _queries(rich_scene, camera, offsets=offsets, seed=0)]
+    homo_u = [hidx.query(q, k=5, prerotate_deg=p).uniqueness
+              for q, _, _, p in _queries(homo, camera, offsets=offsets, seed=1)]
+
+    u = np.array(rich_u + homo_u)
+    y = np.array([True] * len(rich_u) + [False] * len(homo_u))
+    threshold = calibrate_uniqueness_threshold(u, y)
+
+    predicted = u >= threshold
+    tpr = (predicted & y).sum() / y.sum()
+    tnr = (~predicted & ~y).sum() / (~y).sum()
+    assert (tpr + tnr) / 2.0 > 0.75  # балансная точность заметно выше случая
+    assert np.median(homo_u) < threshold <= np.median(rich_u)
+
+
+def test_should_localize_gate():
+    cells = [Cell(0, 0, 18, CELL)]
+    sims = np.array([0.9], np.float32)
+    assert should_localize(RetrievalResult(cells, sims, uniqueness=0.3), min_uniqueness=0.1)
+    assert not should_localize(RetrievalResult(cells, sims, uniqueness=0.05), min_uniqueness=0.1)
+    assert not should_localize(RetrievalResult([], np.empty((0,), np.float32)), min_uniqueness=0.1)
+
+
+def test_calibrate_uniqueness_threshold_degenerate_labels():
+    # Все разрешимы (или все нет) — разделять нечего, порог 0 (ничего не отсекаем).
+    assert calibrate_uniqueness_threshold([0.1, 0.2, 0.3], [True, True, True]) == 0.0
+    assert calibrate_uniqueness_threshold([], []) == 0.0
