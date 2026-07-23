@@ -10,17 +10,17 @@ readme = "docs/README.md"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
+    # Требуется начиная с фазы 1: matcher/pose/localize/testbench. Пакет
+    # импортирует их из __init__, поэтому зависимость основная, а не опциональная.
+    # OpenCV 5 перенёс AKAZE в xfeatures2d — отсюда сборка contrib, см. matcher.py.
+    "opencv-contrib-python>=4.9",
 ]
 
 [project.optional-dependencies]
-# Фаза 1: классический матчинг и работа с растрами.
-matching = [
-    "opencv-contrib-python>=4.9",
-    "pillow>=10.0",
-]
 # Фаза 2: загрузка XYZ-тайлов подложки.
 basemap = [
     "requests>=2.31",
+    "pillow>=10.0",
 ]
 dev = [
     "pytest>=7.4",

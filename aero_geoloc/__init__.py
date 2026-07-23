@@ -3,9 +3,11 @@
 Реализация ведётся по фазам, см. ``docs/PLAN.md``.
 Готово: фаза 0 (геометрия, камера) и фаза 1 (сквозной скелет на синтетике).
 
-Матчинг, pose, оркестрация и стенд требуют OpenCV и импортируются отсюда же;
-:mod:`aero_geoloc.geo`, :mod:`aero_geoloc.camera` и :mod:`aero_geoloc.types`
-остаются свободными от тяжёлых зависимостей и доступны напрямую.
+Пакет целиком требует OpenCV — он импортируется из :mod:`aero_geoloc.matcher`,
+:mod:`aero_geoloc.pose`, :mod:`aero_geoloc.localize` и
+:mod:`aero_geoloc.testbench`. Сами модули фундамента (:mod:`aero_geoloc.geo`,
+:mod:`aero_geoloc.camera`, :mod:`aero_geoloc.types`) от OpenCV не зависят и
+переносимы как есть, но импорт через пакет всё равно потянет cv2.
 """
 
 from __future__ import annotations
