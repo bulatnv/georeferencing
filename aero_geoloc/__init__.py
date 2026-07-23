@@ -44,6 +44,7 @@ from .quality import QualityAssessment, assess, center_covariance, error_ellipse
 from .retrieval import (
     AveragePoolEncoder,
     Cell,
+    DinoV2Encoder,
     Encoder,
     RetrievalResult,
     TerrainIndex,
@@ -71,6 +72,7 @@ __all__ = [
     "PoseEstimate",
     "AveragePoolEncoder",
     "Cell",
+    "DinoV2Encoder",
     "Encoder",
     "Prior",
     "QualityAssessment",

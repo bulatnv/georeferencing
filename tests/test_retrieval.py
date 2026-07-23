@@ -10,15 +10,21 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import importlib.util
+
 from aero_geoloc.retrieval import (
     AveragePoolEncoder,
     Cell,
+    DinoV2Encoder,
+    Encoder,
     RetrievalResult,
     TerrainIndex,
     calibrate_uniqueness_threshold,
     recall_at_k,
     should_localize,
 )
+
+_HAS_TORCH = importlib.util.find_spec("torch") is not None
 from aero_geoloc.testbench import (
     SampleSpec,
     SceneBasemap,
@@ -234,3 +240,30 @@ def test_index_load_rejects_encoder_mismatch(rich_index, tmp_path):
     rich_index.save(path)
     with pytest.raises(ValueError, match="не совпадает"):
         TerrainIndex.load(path, AveragePoolEncoder(16))  # другая размерность
+
+
+# --- DINOv2-энкодер (боевое ядро за интерфейсом Encoder) ---------------------
+
+
+def test_dinov2_encoder_metadata_and_validation():
+    enc = DinoV2Encoder()  # конструктор и dim не требуют torch
+    assert enc.dim == 384
+    assert isinstance(enc, Encoder)  # удовлетворяет протоколу
+    with pytest.raises(ValueError, match="неизвестная модель"):
+        DinoV2Encoder("resnet50")
+    with pytest.raises(ValueError, match="кратен патчу 14"):
+        DinoV2Encoder(image_size=100)
+
+
+@pytest.mark.skipif(_HAS_TORCH, reason="torch установлен — боевой путь проверяется отдельно")
+def test_dinov2_encode_without_torch_gives_clear_error():
+    with pytest.raises(RuntimeError, match="torch"):
+        DinoV2Encoder().encode(np.zeros((64, 64), np.uint8))
+
+
+@pytest.mark.skipif(not _HAS_TORCH, reason="нужен torch (+ веса DINOv2 через torch.hub)")
+def test_dinov2_encode_produces_normalized_vector():
+    enc = DinoV2Encoder()
+    v = enc.encode(make_synthetic_scene(256, seed=0).image)
+    assert v.shape == (enc.dim,)
+    assert np.linalg.norm(v) == pytest.approx(1.0, abs=1e-4)

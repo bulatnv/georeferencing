@@ -42,6 +42,7 @@ from .geo import Georef, ground_mpp, haversine_m
 __all__ = [
     "Encoder",
     "AveragePoolEncoder",
+    "DinoV2Encoder",
     "Cell",
     "RetrievalResult",
     "TerrainIndex",
@@ -92,6 +93,78 @@ class AveragePoolEncoder:
         vec -= vec.mean()
         norm = float(np.linalg.norm(vec))
         return vec / norm if norm > 0.0 else vec
+
+
+#: Размерность CLS-токена по варианту DINOv2.
+_DINOV2_DIMS = {
+    "dinov2_vits14": 384,
+    "dinov2_vitb14": 768,
+    "dinov2_vitl14": 1024,
+    "dinov2_vitg14": 1536,
+}
+
+
+class DinoV2Encoder:
+    """Сильный self-supervised энкодер (DINOv2) за тем же интерфейсом :class:`Encoder`.
+
+    Это «боевое ядро» retrieval-этажа: глобальный CLS-токен DINOv2 устойчив к
+    appearance gap куда лучше стенд-энкодера, и подключается **одной заменой
+    энкодера** — вся обвязка (индекс, ANN, уникальность, интеграция) не меняется.
+
+    torch грузится **лениво** (только при первом кодировании), а веса тянутся
+    через ``torch.hub`` один раз. Без torch конструктор и :attr:`dim` работают
+    (размерность известна по имени модели), а :meth:`encode` даёт понятную
+    ошибку — как сетевые тесты, тяжёлая зависимость не требуется для импорта
+    пакета. Валидацию Recall@K на DINOv2 запускать при установленном torch.
+    """
+
+    def __init__(
+        self, model_name: str = "dinov2_vits14", *, image_size: int = 224, device: str | None = None
+    ) -> None:
+        if model_name not in _DINOV2_DIMS:
+            raise ValueError(f"неизвестная модель {model_name!r}, доступны {sorted(_DINOV2_DIMS)}")
+        if image_size % 14 != 0:
+            raise ValueError(f"image_size должен быть кратен патчу 14, получено {image_size}")
+        self.model_name = model_name
+        self.image_size = image_size
+        self._device = device
+        self._model = None
+        self._torch = None
+
+    @property
+    def dim(self) -> int:
+        return _DINOV2_DIMS[self.model_name]
+
+    def _ensure_model(self) -> None:
+        if self._model is not None:
+            return
+        try:
+            import torch
+        except ImportError as exc:  # pragma: no cover - зависит от окружения
+            raise RuntimeError(
+                "DinoV2Encoder требует torch: установите `pip install torch torchvision` "
+                "(и веса DINOv2 подтянутся через torch.hub при первом запуске)"
+            ) from exc
+        self._torch = torch
+        self._device = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self._model = torch.hub.load("facebookresearch/dinov2", self.model_name)
+        self._model = self._model.to(self._device).eval()
+
+    def encode(self, gray: np.ndarray) -> np.ndarray:
+        if gray.ndim != 2:
+            raise ValueError(f"энкодер ждёт grayscale, получено {gray.ndim}D {gray.shape}")
+        self._ensure_model()
+        torch = self._torch
+        small = cv2.resize(gray, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
+        rgb = np.repeat(small[:, :, None], 3, axis=2).astype(np.float32) / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        rgb = (rgb - mean) / std
+        tensor = torch.from_numpy(rgb.transpose(2, 0, 1)[None]).to(self._device)
+        with torch.no_grad():
+            feat = self._model(tensor).cpu().numpy().ravel().astype(np.float32)
+        norm = float(np.linalg.norm(feat))
+        return feat / norm if norm > 0.0 else feat
 
 
 @dataclass(frozen=True)
