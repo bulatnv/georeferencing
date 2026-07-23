@@ -41,6 +41,14 @@ from .localize import localize, localize_against_reference, normalize_gray
 from .matcher import AKAZEMatcher, Correspondences, Matcher, SIFTMatcher, create_matcher
 from .pose import PoseEstimate, SimilarityTransform, estimate_similarity
 from .quality import QualityAssessment, assess, center_covariance, error_ellipse
+from .retrieval import (
+    AveragePoolEncoder,
+    Cell,
+    Encoder,
+    RetrievalResult,
+    TerrainIndex,
+    recall_at_k,
+)
 from .types import LocalizationRequest, LocalizationResult, Prior, Status
 
 __version__ = "0.2.0.dev0"
@@ -61,8 +69,14 @@ __all__ = [
     "LocalizationResult",
     "Matcher",
     "PoseEstimate",
+    "AveragePoolEncoder",
+    "Cell",
+    "Encoder",
     "Prior",
     "QualityAssessment",
+    "RetrievalResult",
+    "TerrainIndex",
+    "recall_at_k",
     "SIFTMatcher",
     "SimilarityTransform",
     "Status",
