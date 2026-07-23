@@ -167,12 +167,17 @@ def zoom_for_mpp(
         Целый уровень зума XYZ-пирамиды.
     """
     exact = exact_zoom_for_mpp(target_mpp, lat)
+    # Эпсилон-допуск для finer/coarser: когда target ровно попадает на уровень
+    # зума, exact — целое лишь с точностью до float, и ceil/floor без допуска
+    # перескочили бы на соседний уровень (GSD = mpp давало бы зум±1). Снимаем
+    # это, притягивая почти-целое к целому перед округлением.
+    eps = 1e-6
     if mode == "nearest":
         zoom = round(exact)
     elif mode == "finer":  # больше зум → меньше mpp
-        zoom = math.ceil(exact)
+        zoom = math.ceil(exact - eps)
     elif mode == "coarser":
-        zoom = math.floor(exact)
+        zoom = math.floor(exact + eps)
     else:
         raise ValueError(f"неизвестный mode={mode!r}, ожидается nearest/finer/coarser")
     return int(min(max(zoom, min_zoom), max_zoom))

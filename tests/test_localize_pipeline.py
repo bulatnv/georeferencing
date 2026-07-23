@@ -138,6 +138,60 @@ def test_localize_wide_prior_selects_coarser_zoom(scene, camera):
     assert result.diagnostics["z_coarse"] < result.diagnostics["z_fine"]
 
 
+# --- localize: цикл переуточнения масштаба ----------------------------------
+
+
+def test_scale_loop_rescues_large_altitude_error(scene, camera):
+    """Крупная ошибка высоты (ratio 2.0): цикл перетягивает подложку на верный зум.
+
+    Приор высоты широкий (altitude_sigma=400), поэтому scale-гейт пропускает
+    s≈2; без цикла матч идёт при s≈2 (подложка вдвое детальнее кадра) и
+    деградирует, с циклом — переуточняется до s≈1 на зуме ниже.
+    """
+    spec = SampleSpec(yaw_deg=25.0, altitude_ratio=2.0, prior_offset_m=20.0)
+    sample = generate_sample(
+        scene, camera, spec, prior_sigma_m=40.0, altitude_sigma_m=400.0, reference_size=2400
+    )
+    bm = SceneBasemap(scene)
+
+    without = localize(sample.query, camera, sample.prior, bm, scale_iters=0)
+    withloop = localize(sample.query, camera, sample.prior, bm, scale_iters=2)
+
+    assert without.is_localized and withloop.is_localized
+    # Без цикла зум не трогается; с циклом уходит на уровень ниже (mpp ≈ GSD_true).
+    assert without.diagnostics["z_fine"] == without.diagnostics["z_fine_initial"]
+    assert withloop.diagnostics["z_fine"] < withloop.diagnostics["z_fine_initial"]
+    assert withloop.diagnostics["scale_iters_done"] >= 1
+    # Восстановленная высота и субпиксельная точность на согласованном масштабе.
+    assert withloop.altitude_est_m == pytest.approx(1200.0, rel=0.05)
+    err_px = haversine_m(
+        sample.true_lat, sample.true_lon, withloop.center_lat, withloop.center_lon
+    ) / ground_mpp(sample.true_lat, withloop.diagnostics["z_fine"])
+    assert err_px < 0.2
+
+
+def test_scale_loop_keeps_best_and_does_not_regress(scene, camera):
+    """При умеренной ошибке (ratio 1.5) цикл не портит уже хорошее решение."""
+    spec = SampleSpec(yaw_deg=25.0, altitude_ratio=1.5, prior_offset_m=20.0)
+    sample = generate_sample(
+        scene, camera, spec, prior_sigma_m=40.0, altitude_sigma_m=400.0, reference_size=2200
+    )
+    bm = SceneBasemap(scene)
+
+    without = localize(sample.query, camera, sample.prior, bm, scale_iters=0)
+    withloop = localize(sample.query, camera, sample.prior, bm, scale_iters=2)
+
+    assert without.is_localized and withloop.is_localized
+    # Соседний зум даёт s<1 (подложка грубее кадра) и меньше инлайеров — цикл его
+    # отвергает по числу инлайеров и оставляет исходный зум.
+    assert withloop.diagnostics["z_fine"] == without.diagnostics["z_fine"]
+    assert withloop.diagnostics["n_inliers"] >= without.diagnostics["n_inliers"] - 2
+    err_px = haversine_m(
+        sample.true_lat, sample.true_lon, withloop.center_lat, withloop.center_lon
+    ) / ground_mpp(sample.true_lat, withloop.diagnostics["z_fine"])
+    assert err_px < 0.2
+
+
 # --- localize: честный отказ ------------------------------------------------
 
 

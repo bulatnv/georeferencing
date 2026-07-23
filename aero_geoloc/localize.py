@@ -18,7 +18,7 @@ import math
 
 import numpy as np
 
-from .basemap import BasemapSource
+from .basemap import BasemapSource, MissingTileError
 from .camera import Camera
 from .geo import Georef, ground_mpp, haversine_m, zoom_for_mpp
 from .matcher import Matcher, SIFTMatcher
@@ -284,6 +284,69 @@ def _coarse_center(
     return float(lon), float(lat)
 
 
+def _fine_pass(
+    image: np.ndarray,
+    camera: Camera,
+    prior: Prior,
+    cand_lon: float,
+    cand_lat: float,
+    altitude_m: float,
+    z_fine: int,
+    coarse_mpp: float,
+    basemap: BasemapSource,
+    *,
+    matcher: Matcher,
+    refine: bool,
+    trust_yaw: bool,
+    rotation_tolerance_deg: float,
+    ransac_threshold_px: float,
+    min_inliers: int,
+    clahe: bool,
+) -> LocalizationResult:
+    """Точный уровень (стадии 3–6): окно нативного разрешения вокруг кандидата.
+
+    Зум ``z_fine`` и высота ``altitude_m`` — то, что цикл переуточнения масштаба
+    может менять между итерациями; размер окна зависит от footprint на этой
+    высоте. Всё остальное делегируется :func:`localize_against_reference`, которой
+    и принадлежит вся геометрия точного уровня.
+
+    В точный уровень отдаётся ИСХОДНЫЙ кадр (не предварительно нормализованный):
+    нормализацию — включая CLAHE — делает ``localize_against_reference`` одинаково
+    для кадра и подложки. Иначе при ``clahe=True`` кадр выравнивался бы дважды.
+    """
+    footprint_max = max(camera.footprint_m(altitude_m))
+    # Запас вокруг кандидата покрывает неопределённость грубого уровня (единицы
+    # его пикселей); нижняя граница — доля footprint, чтобы окно не выродилось.
+    fine_margin_m = max(6.0 * coarse_mpp, 0.15 * footprint_max)
+    fine_size = _even(2.0 * (0.5 * footprint_max + fine_margin_m) / ground_mpp(cand_lat, z_fine))
+    fine_ref, fine_georef = basemap(cand_lon, cand_lat, z_fine, fine_size, fine_size)
+
+    prior_fine = Prior(
+        lat=cand_lat,
+        lon=cand_lon,
+        sigma_m=fine_margin_m,
+        altitude_m=altitude_m,
+        altitude_sigma_m=prior.altitude_sigma_m,
+        yaw_deg=prior.yaw_deg,
+        pitch_deg=prior.pitch_deg,
+        roll_deg=prior.roll_deg,
+    )
+    return localize_against_reference(
+        image,
+        camera,
+        prior_fine,
+        fine_ref,
+        fine_georef,
+        matcher=matcher,
+        ransac_threshold_px=ransac_threshold_px,
+        min_inliers=min_inliers,
+        trust_yaw=trust_yaw,
+        rotation_tolerance_deg=rotation_tolerance_deg,
+        clahe=clahe,
+        refine=refine,
+    )
+
+
 def localize(
     image: np.ndarray,
     camera: Camera,
@@ -299,6 +362,7 @@ def localize(
     clahe: bool = False,
     coarse_target_px: int = 2048,
     coarse_min_inliers: int = 6,
+    scale_iters: int = 2,
     gate_sigma: float = PRIOR_GATE_SIGMA,
 ) -> LocalizationResult:
     """Полная одиночная локализация: подложка из источника + coarse-to-fine.
@@ -323,6 +387,11 @@ def localize(
             перепроверяет точный уровень (``min_inliers``) и финальный гейт по
             исходному приору — ложняк так не проходит, а бедные текстурой места
             не отсекаются раньше времени.
+        scale_iters: сколько раз переуточнять масштаб (стадия 5). Восстановленный
+            масштаб даёт оценку высоты; если она меняет зум подложки, растр
+            перетягивается на нём (``mpp`` снова ≈ ``GSD``) и точный уровень
+            переигрывается при масштабе ≈ 1. ``0`` отключает цикл. Обычно хватает
+            одной итерации; цикл сходится, как только зум перестаёт меняться.
         gate_sigma: во сколько σ приора укладывается допустимое отклонение центра.
 
     Returns:
@@ -337,7 +406,12 @@ def localize(
             f"с камерой {camera.image_width}×{camera.image_height}"
         )
 
-    # Стадия 0/1: приведение масштабов. Зум точного уровня — чтобы mpp ≈ GSD.
+    # Стадия 0/1: приведение масштабов. Зум точного уровня — ближайший к GSD.
+    # «Ближайший», а не «детальнее»: у границы зума требование mpp ≤ GSD
+    # перепрыгивало бы на целый уровень выше из-за долей процента разницы (а на
+    # краю данных подложки такого уровня может и не быть). Какой из двух
+    # соседних зумов реально лучше для матчинга, решает цикл ниже по числу
+    # инлайеров, а не априорное правило.
     gsd = camera.gsd(prior.altitude_m)
     z_fine = zoom_for_mpp(gsd, prior.lat)
     footprint_max = max(camera.footprint_m(prior.altitude_m))
@@ -382,39 +456,50 @@ def localize(
     if coarse_offset_m > gate_sigma * prior.sigma_m:
         return LocalizationResult.failed("кандидат вне диска приора", **base_diagnostics)
 
-    # Точный уровень: маленькое окно нативного разрешения вокруг кандидата.
-    # Запас покрывает неопределённость грубого уровня (единицы его пикселей).
-    fine_margin_m = max(6.0 * coarse_mpp, 0.15 * footprint_max)
-    fine_size = _even(2.0 * (0.5 * footprint_max + fine_margin_m) / ground_mpp(cand_lat, z_fine))
-    fine_ref, fine_georef = basemap(cand_lon, cand_lat, z_fine, fine_size, fine_size)
+    # Точный уровень + цикл переуточнения масштаба (стадия 5). Восстановленный
+    # масштаб даёт оценку высоты; если она указывает на ДРУГОЙ зум подложки, чем
+    # текущий, растр перетягивается на нём и точный уровень переигрывается уже
+    # при mpp ≈ GSD (масштаб ≈ 1). Триггер — смена зума, а не |s−1|: даже при
+    # верной высоте s гуляет в пределах кванта зума (nearest → до √2), и на это
+    # реагировать не нужно. Последний успешный результат сохраняется: если проход
+    # на новом зуме вдруг не сойдётся, возвращаем предыдущий.
+    def fine(alt: float, z: int) -> LocalizationResult:
+        return _fine_pass(
+            image, camera, prior, cand_lon, cand_lat, alt, z, coarse_mpp, basemap,
+            matcher=matcher, refine=refine, trust_yaw=trust_yaw,
+            rotation_tolerance_deg=rotation_tolerance_deg,
+            ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
+        )
 
-    prior_fine = Prior(
-        lat=cand_lat,
-        lon=cand_lon,
-        sigma_m=fine_margin_m,
-        altitude_m=prior.altitude_m,
-        altitude_sigma_m=prior.altitude_sigma_m,
-        yaw_deg=prior.yaw_deg,
-        pitch_deg=prior.pitch_deg,
-        roll_deg=prior.roll_deg,
-    )
-    # В точный уровень отдаём ИСХОДНЫЙ кадр (не image_gray): нормализацию —
-    # включая CLAHE — сделает localize_against_reference, одинаково для кадра и
-    # подложки. Иначе при clahe=True кадр выравнивался бы дважды, а подложка раз.
-    result = localize_against_reference(
-        image,
-        camera,
-        prior_fine,
-        fine_ref,
-        fine_georef,
-        matcher=matcher,
-        ransac_threshold_px=ransac_threshold_px,
-        min_inliers=min_inliers,
-        trust_yaw=trust_yaw,
-        rotation_tolerance_deg=rotation_tolerance_deg,
-        clahe=clahe,
-        refine=refine,
-    )
+    def n_inliers(r: LocalizationResult) -> int:
+        return int(r.diagnostics.get("n_inliers", 0))
+
+    best = fine(prior.altitude_m, z_fine)
+    z_best, visited, scale_iters_done = z_fine, {z_fine}, 0
+    while best.is_localized and scale_iters_done < scale_iters:
+        est_alt = best.altitude_est_m
+        z_next = zoom_for_mpp(camera.gsd(est_alt), prior.lat)
+        # Множество посещённых зумов гарантирует завершение: у самой границы зума
+        # (GSD ≈ mpp) ceil может дрожать между двумя уровнями из-за округления —
+        # без этого цикл бы осциллировал до упора scale_iters.
+        if z_next in visited:
+            break
+        visited.add(z_next)
+        scale_iters_done += 1
+        try:
+            retried = fine(est_alt, z_next)
+        except (ValueError, MissingTileError):
+            break  # источник не отдаёт этот зум (край данных/детальнее подложки)
+        # Принимаем новый зум, только если он реально лучше (больше инлайеров при
+        # согласованном масштабе). Иначе оставляем лучший и прекращаем.
+        if not (retried.is_localized and n_inliers(retried) > n_inliers(best)):
+            break
+        best, z_best = retried, z_next
+
+    result = best
+    base_diagnostics["z_fine"] = z_best
+    base_diagnostics["z_fine_initial"] = z_fine
+    base_diagnostics["scale_iters_done"] = scale_iters_done
     result.diagnostics.update(base_diagnostics)
 
     # Финальный гейт против ИСХОДНОГО приора: точный уровень гейтил против
