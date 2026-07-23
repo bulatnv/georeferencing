@@ -9,7 +9,10 @@
 решение, не проходящее по масштабу или повороту, отвергается целиком — это
 дешевле, чем потом объяснять уверенно-неверную точку.
 
-Субпиксельный refinement (ECC/flow) — фаза 2, здесь только RANSAC.
+Субпиксельный refinement (:func:`refine_ecc`) — стадия 5 из ``docs/PIPELINE.md``,
+главный рычаг точности фазы 2: RANSAC садится на локализацию ключевых точек
+(~0.5 px, потолок из решения №1 в ``docs/STATUS.md``), а ECC дотягивает
+преобразование **фотометрически по всем пикселям** до субпикселя.
 """
 
 from __future__ import annotations
@@ -22,7 +25,12 @@ import numpy as np
 
 from .matcher import Correspondences
 
-__all__ = ["SimilarityTransform", "PoseEstimate", "estimate_similarity"]
+__all__ = [
+    "SimilarityTransform",
+    "PoseEstimate",
+    "estimate_similarity",
+    "refine_ecc",
+]
 
 
 def _wrap_deg(angle: float) -> float:
@@ -123,6 +131,21 @@ class PoseEstimate:
             "rotation_deg": self.transform.rotation_deg,
         }
 
+    def with_transform(
+        self, transform: SimilarityTransform, corr: Correspondences
+    ) -> PoseEstimate:
+        """Та же оценка с заменённым преобразованием (после refinement).
+
+        Инлайеры остаются прежними — их отбирал RANSAC по геометрии, — а RMSE
+        пересчитывается против нового преобразования: после ECC невязки на тех
+        же инлайерах меняются, и честнее показать именно их.
+        """
+        return PoseEstimate(
+            transform=transform,
+            inlier_mask=self.inlier_mask,
+            reprojection_rmse_px=_reprojection_rmse(transform, corr, self.inlier_mask),
+        )
+
 
 def _reprojection_rmse(
     transform: SimilarityTransform, corr: Correspondences, mask: np.ndarray
@@ -202,3 +225,88 @@ def estimate_similarity(
         inlier_mask=mask,
         reprojection_rmse_px=_reprojection_rmse(transform, corr, mask),
     )
+
+
+def _as_ecc_input(image: np.ndarray) -> np.ndarray:
+    """Привести изображение к одноканальному float32 — формату, удобному ECC."""
+    if image.ndim != 2:
+        raise ValueError(f"ECC ждёт grayscale, получено {image.ndim}D {image.shape}")
+    return image.astype(np.float32)
+
+
+def refine_ecc(
+    query_gray: np.ndarray,
+    ref_gray: np.ndarray,
+    transform: SimilarityTransform,
+    *,
+    max_iters: int = 100,
+    eps: float = 1e-6,
+    gauss_filt_size: int = 5,
+    max_center_shift_px: float = 8.0,
+    max_scale_ratio: float = 1.05,
+    max_rotation_deg: float = 2.0,
+) -> SimilarityTransform | None:
+    """Субпиксельный фотометрический refinement подобия через ECC (стадия 5).
+
+    Максимизирует ``cv2.findTransformECC`` корреляцию яркостей кадра и подложки,
+    засеявшись RANSAC-моделью. Уточнение идёт в режиме ``MOTION_AFFINE`` (6 DoF),
+    после чего результат **проецируется на ближайшее подобие** — так мы получаем
+    фотометрическую точность, но не выходим за 4 DoF (инвариант 1): для надира
+    шир и разномасштабность по осям физически невозможны, и удерживать их в
+    модели нельзя.
+
+    Направление warp совпадает с нашим ``transform`` (кадр → подложка): для ECC
+    ``query`` — это template, ``ref`` — input, поэтому найденный warp отображает
+    пиксели кадра в пиксели подложки, как и ``transform``.
+
+    Refinement — это **полировка, а не новый поиск**: результат принимается
+    только если он близок к исходной модели (сдвиг центра, масштаб, поворот в
+    заданных допусках). Большой скачок означает, что ECC ушёл вразнос на
+    неудачной текстуре, и такой результат честнее отбросить, вернув ``None`` —
+    наверху останется RANSAC-модель.
+
+    Args:
+        query_gray, ref_gray: кадр и окно подложки, grayscale.
+        transform: стартовое преобразование от :func:`estimate_similarity`.
+        max_iters, eps: критерий остановки ECC.
+        gauss_filt_size: сглаживание градиентов в ECC (нечётное).
+        max_center_shift_px: макс. допустимый сдвиг центра кадра при refinement.
+        max_scale_ratio: масштаб после refinement должен лежать в
+            ``[1/r, r]`` относительно исходного.
+        max_rotation_deg: макс. допустимое изменение поворота, градусы.
+
+    Returns:
+        Уточнённое :class:`SimilarityTransform` либо ``None``, если ECC не сошёлся
+        или результат не прошёл проверку близости к исходной модели.
+    """
+    q = _as_ecc_input(query_gray)
+    r = _as_ecc_input(ref_gray)
+    warp = transform.matrix.astype(np.float32).copy()
+    criteria = (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, int(max_iters), float(eps))
+    try:
+        cv2.findTransformECC(q, r, warp, cv2.MOTION_AFFINE, criteria, None, gauss_filt_size)
+    except cv2.error:
+        return None
+    if not np.all(np.isfinite(warp)):
+        return None
+
+    # Проекция аффинной матрицы на ближайшее (в норме Фробениуса) подобие:
+    # a = (A00+A11)/2, b = (A10−A01)/2 — это точное решение МНК на подпространстве
+    # матриц вида [[a,−b],[b,a]]. Перенос берём как есть.
+    a = float((warp[0, 0] + warp[1, 1]) / 2.0)
+    b = float((warp[1, 0] - warp[0, 1]) / 2.0)
+    refined = SimilarityTransform(np.array([[a, -b, warp[0, 2]], [b, a, warp[1, 2]]], dtype=float))
+    if refined.scale <= 0.0:
+        return None
+
+    # Сан-гейт близости к исходной модели.
+    if not (1.0 / max_scale_ratio <= refined.scale / transform.scale <= max_scale_ratio):
+        return None
+    if abs(_wrap_deg(refined.rotation_deg - transform.rotation_deg)) > max_rotation_deg:
+        return None
+    h, w = query_gray.shape[:2]
+    center = np.array([(w - 1) / 2.0, (h - 1) / 2.0])
+    if float(np.linalg.norm(refined.apply(center) - transform.apply(center))) > max_center_shift_px:
+        return None
+
+    return refined

@@ -184,3 +184,20 @@ def test_rotation_constraint_handles_wraparound():
         make_corr(truth, seed=9), expected_rotation_deg=355.0, rotation_tolerance_deg=15.0
     )
     assert pose is not None
+
+
+def test_with_transform_keeps_inliers_and_recomputes_rmse():
+    """Подмена преобразования (после refinement): инлайеры те же, RMSE пересчитан."""
+    truth = SimilarityTransform.from_params(1.0, 30.0, 10.0, -5.0)
+    corr = make_corr(truth, outlier_fraction=0.2, noise_px=0.3, seed=11)
+    pose = estimate_similarity(corr, ransac_threshold_px=2.0)
+    assert pose is not None and pose.reprojection_rmse_px < 1.0
+
+    # Сдвинутое на 3 px преобразование обязано дать больший RMSE на тех же инлайерах.
+    tx, ty = pose.transform.translation
+    shifted = SimilarityTransform.from_params(pose.transform.scale, pose.transform.rotation_deg, tx + 3.0, ty)
+    updated = pose.with_transform(shifted, corr)
+
+    np.testing.assert_array_equal(updated.inlier_mask, pose.inlier_mask)
+    assert updated.n_inliers == pose.n_inliers
+    assert updated.reprojection_rmse_px == pytest.approx(3.0, abs=0.2)

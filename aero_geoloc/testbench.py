@@ -490,8 +490,14 @@ def run_grid(
     prior_sigma_m: float = 200.0,
     reference_size: int = 1280,
     trust_yaw: bool = True,
+    refine: bool = False,
 ) -> GridSummary:
-    """Сгенерировать примеры по сетке, прогнать пайплайн и собрать метрики."""
+    """Сгенерировать примеры по сетке, прогнать пайплайн и собрать метрики.
+
+    Args:
+        refine: включить субпиксельный ECC-refinement в пайплайне — то самое
+            A/B «с refinement и без» для проверки решения №1 из ``docs/STATUS.md``.
+    """
     metrics = []
     for spec in specs:
         sample = generate_sample(
@@ -510,6 +516,7 @@ def run_grid(
             sample.reference_georef,
             matcher=matcher,
             trust_yaw=trust_yaw,
+            refine=refine,
         )
         metrics.append(evaluate(result, sample))
     return _summarize(metrics)

@@ -44,6 +44,9 @@ def main() -> int:
     parser.add_argument(
         "--no-trust-yaw", action="store_true", help="не использовать yaw как ограничение"
     )
+    parser.add_argument(
+        "--refine", action="store_true", help="включить субпиксельный ECC-refinement (стадия 5)"
+    )
     args = parser.parse_args()
 
     scene = make_synthetic_scene(args.scene_size, seed=args.seed)
@@ -57,7 +60,8 @@ def main() -> int:
     )
 
     print(f"матчер: {args.matcher}, сцена {args.scene_size}px seed={args.seed}, "
-          f"кадр {args.frame_size}px, окно {args.reference_size}px")
+          f"кадр {args.frame_size}px, окно {args.reference_size}px, "
+          f"refine={'вкл' if args.refine else 'выкл'}")
     print(f"сетка: {len(specs)} примеров")
 
     started = time.perf_counter()
@@ -68,6 +72,7 @@ def main() -> int:
         matcher=create_matcher(args.matcher),
         reference_size=args.reference_size,
         trust_yaw=not args.no_trust_yaw,
+        refine=args.refine,
     )
     elapsed = time.perf_counter() - started
 

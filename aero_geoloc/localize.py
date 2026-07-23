@@ -19,7 +19,7 @@ import numpy as np
 from .camera import Camera
 from .geo import Georef, haversine_m
 from .matcher import Matcher, SIFTMatcher
-from .pose import PoseEstimate, estimate_similarity
+from .pose import PoseEstimate, estimate_similarity, refine_ecc
 from .types import LocalizationResult, Prior, Status
 
 __all__ = ["normalize_gray", "localize_against_reference"]
@@ -106,6 +106,7 @@ def localize_against_reference(
     trust_yaw: bool = True,
     rotation_tolerance_deg: float = 15.0,
     clahe: bool = False,
+    refine: bool = False,
 ) -> LocalizationResult:
     """Локализовать кадр по заранее данному георефренцированному растру подложки.
 
@@ -121,6 +122,10 @@ def localize_against_reference(
             только в диагностику (две стратегии из ``docs/PIPELINE.md``).
         rotation_tolerance_deg: допуск на отклонение от yaw при ``trust_yaw``.
         clahe: выравнивание освещения на входе.
+        refine: субпиксельный ECC-refinement поверх RANSAC-модели (стадия 5).
+            По умолчанию выключен: в фазе 1 его не было, и включение не должно
+            менять её поведение молча. Успех/отказ refinement — в диагностике
+            под ключом ``refined_ecc``.
 
     Returns:
         :class:`~aero_geoloc.types.LocalizationResult`. В фазе 1 статус только
@@ -180,7 +185,17 @@ def localize_against_reference(
             "нет устойчивой модели подобия", n_correspondences=len(corr), **base_diagnostics
         )
 
-    diagnostics = {**base_diagnostics, **pose.diagnostics()}
+    # Стадия 5: субпиксельный refinement поверх робастной модели. Считывание
+    # координат ниже пойдёт уже по уточнённой позе, поэтому refinement здесь, до
+    # чтения центра и до гейта по приору.
+    refined_ecc = False
+    if refine:
+        refined_transform = refine_ecc(query_gray, ref_gray, pose.transform)
+        if refined_transform is not None:
+            pose = pose.with_transform(refined_transform, corr)
+            refined_ecc = True
+
+    diagnostics = {**base_diagnostics, **pose.diagnostics(), "refined_ecc": refined_ecc}
 
     # Стадия 6: считывание результата через Georef.
     center_lat, center_lon, heading_deg, altitude_est_m, footprint = _read_result(
