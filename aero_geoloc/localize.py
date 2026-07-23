@@ -23,6 +23,7 @@ from .camera import Camera
 from .geo import Georef, ground_mpp, haversine_m, zoom_for_mpp
 from .matcher import Matcher, SIFTMatcher
 from .pose import PoseEstimate, estimate_similarity, refine_ecc
+from .quality import aligned_ncc, assess
 from .types import LocalizationResult, Prior, Status
 
 __all__ = ["normalize_gray", "localize_against_reference", "localize"]
@@ -131,11 +132,10 @@ def localize_against_reference(
             под ключом ``refined_ecc``.
 
     Returns:
-        :class:`~aero_geoloc.types.LocalizationResult`. В фазе 1 статус только
-        ``LOCALIZED`` или ``NOT_LOCALIZED``: ``LOW_CONFIDENCE`` требует
-        откалиброванного порога, а он появляется вместе с ``quality.py`` в
-        фазе 2. По той же причине ``confidence`` здесь — сырая доля инлайеров,
-        и в диагностике честно помечена как неоткалиброванная.
+        :class:`~aero_geoloc.types.LocalizationResult`. Статус, ``confidence``,
+        ковариация центра и эллипс ошибки приходят из :mod:`aero_geoloc.quality`
+        (стадия 7): ``LOCALIZED`` при малом эллипсе, иначе ``LOW_CONFIDENCE``;
+        ``NOT_LOCALIZED`` — это провал матча/позы или выход за диск приора.
     """
     matcher = matcher if matcher is not None else SIFTMatcher()
 
@@ -212,15 +212,23 @@ def localize_against_reference(
     if prior_offset_m > PRIOR_GATE_SIGMA * prior.sigma_m:
         return LocalizationResult.failed("решение вне диска приора", **diagnostics)
 
+    # Стадия 7: качество — ковариация центра, эллипс, статус LOCALIZED/LOW_CONFIDENCE.
+    ncc = aligned_ncc(query_gray, ref_gray, pose.transform)
+    quality = assess(pose, corr, camera.principal_point(), mpp, photometric_ncc=ncc)
+    diagnostics.update(quality.signals)
+    diagnostics["confidence_calibrated"] = True  # эллипс выведен строго (см. quality.py)
+
     return LocalizationResult(
-        status=Status.LOCALIZED,
+        status=quality.status,
         center_lat=center_lat,
         center_lon=center_lon,
         heading_deg=heading_deg,
         altitude_est_m=altitude_est_m,
         footprint_lonlat=footprint,
         transform=pose.transform.matrix,
-        confidence=pose.inlier_ratio,
+        error_ellipse_m=quality.error_ellipse_m,
+        covariance_m2=quality.covariance_m2,
+        confidence=quality.confidence,
         diagnostics=diagnostics,
     )
 

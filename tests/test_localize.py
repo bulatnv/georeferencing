@@ -120,8 +120,11 @@ def test_result_carries_full_payload(sample):
     assert len(result.footprint_lonlat) == 4
     assert 0.0 <= result.heading_deg < 360.0
     assert result.altitude_est_m == pytest.approx(sample.true_altitude_m, rel=0.01)
-    # Фаза 1 не калибрует доверие и обязана признавать это в диагностике.
-    assert result.diagnostics["confidence_calibrated"] is False
+    # Фаза 2: quality.py даёт калиброванную неопределённость — эллипс и ковариация.
+    assert result.diagnostics["confidence_calibrated"] is True
+    assert result.covariance_m2.shape == (2, 2)
+    assert len(result.error_ellipse_m) == 3
+    assert result.error_ellipse_m[0] >= result.error_ellipse_m[1] >= 0.0  # major ≥ minor ≥ 0
     for key in ("n_inliers", "inlier_ratio", "reprojection_rmse_px", "scale", "rotation_deg"):
         assert key in result.diagnostics
 

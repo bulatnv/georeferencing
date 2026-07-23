@@ -40,6 +40,7 @@ from .geo import (
 from .localize import localize, localize_against_reference, normalize_gray
 from .matcher import AKAZEMatcher, Correspondences, Matcher, SIFTMatcher, create_matcher
 from .pose import PoseEstimate, SimilarityTransform, estimate_similarity
+from .quality import QualityAssessment, assess, center_covariance, error_ellipse
 from .types import LocalizationRequest, LocalizationResult, Prior, Status
 
 __version__ = "0.2.0.dev0"
@@ -61,10 +62,14 @@ __all__ = [
     "Matcher",
     "PoseEstimate",
     "Prior",
+    "QualityAssessment",
     "SIFTMatcher",
     "SimilarityTransform",
     "Status",
+    "assess",
+    "center_covariance",
     "create_matcher",
+    "error_ellipse",
     "estimate_similarity",
     "localize",
     "localize_against_reference",
