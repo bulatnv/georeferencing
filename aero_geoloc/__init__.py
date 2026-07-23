@@ -68,7 +68,7 @@ from .sequence import (
 )
 from .types import LocalizationRequest, LocalizationResult, Prior, Status
 
-__version__ = "0.2.0.dev0"
+__version__ = "0.5.0.dev0"
 
 __all__ = [
     "AKAZEMatcher",
