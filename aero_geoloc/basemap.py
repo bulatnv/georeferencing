@@ -41,6 +41,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import cv2
 import numpy as np
@@ -62,6 +63,8 @@ __all__ = [
     "MissingTileError",
     "load_tile",
     "fetch_basemap",
+    "BasemapSource",
+    "TileBasemap",
 ]
 
 #: User-Agent для запросов к тайл-серверам — вежливость и опознаваемость клиента.
@@ -298,3 +301,52 @@ def fetch_basemap(
         height=height,
     )
     return image, georef
+
+
+# --- источник подложки для оркестрации ---------------------------------------
+
+
+class BasemapSource(Protocol):
+    """Откуда ``localize`` берёт окно подложки — сменный источник.
+
+    Абстракция ровно та же по духу, что и сменный матчер: оркестрация не должна
+    зависеть от того, тянется ли подложка из сети (:class:`TileBasemap`) или
+    режется из уже данного растра (стенд). Сигнатура повторяет
+    :func:`fetch_basemap`: «дай растр ``width × height`` вокруг ``(lon, lat)`` на
+    зуме ``zoom`` вместе с его :class:`~aero_geoloc.geo.Georef`».
+    """
+
+    def __call__(
+        self, center_lon: float, center_lat: float, zoom: int, width: int, height: int
+    ) -> tuple[np.ndarray, Georef]:
+        ...
+
+
+@dataclass(frozen=True)
+class TileBasemap:
+    """:class:`BasemapSource` поверх XYZ-тайлов через :func:`fetch_basemap`.
+
+    Хранит провайдера, кэш и политику сети, чтобы оркестрация вызывала источник
+    единообразно, не зная про тайлы. Промах кэша при ``allow_network=False``
+    поднимает :class:`MissingTileError`.
+    """
+
+    provider: str | TileProvider = ESRI_WORLD_IMAGERY
+    cache: TileCache | None = None
+    allow_network: bool = True
+    timeout: float = 15.0
+
+    def __call__(
+        self, center_lon: float, center_lat: float, zoom: int, width: int, height: int
+    ) -> tuple[np.ndarray, Georef]:
+        return fetch_basemap(
+            center_lon,
+            center_lat,
+            zoom,
+            width,
+            height,
+            provider=self.provider,
+            cache=self.cache,
+            allow_network=self.allow_network,
+            timeout=self.timeout,
+        )

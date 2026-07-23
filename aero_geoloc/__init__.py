@@ -37,7 +37,7 @@ from .geo import (
     world_size_px,
     zoom_for_mpp,
 )
-from .localize import localize_against_reference, normalize_gray
+from .localize import localize, localize_against_reference, normalize_gray
 from .matcher import AKAZEMatcher, Correspondences, Matcher, SIFTMatcher, create_matcher
 from .pose import PoseEstimate, SimilarityTransform, estimate_similarity
 from .types import LocalizationRequest, LocalizationResult, Prior, Status
@@ -66,6 +66,7 @@ __all__ = [
     "Status",
     "create_matcher",
     "estimate_similarity",
+    "localize",
     "localize_against_reference",
     "normalize_gray",
     "EARTH_MEAN_RADIUS_M",

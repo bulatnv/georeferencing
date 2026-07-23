@@ -30,6 +30,7 @@ from .types import LocalizationResult, Prior, Status
 __all__ = [
     "Scene",
     "make_synthetic_scene",
+    "SceneBasemap",
     "default_camera",
     "SampleSpec",
     "iter_specs",
@@ -136,6 +137,70 @@ def make_synthetic_scene(
         center_lon=center_lon, center_lat=center_lat, zoom=zoom, width=size, height=size
     )
     return Scene(image=image, georef=georef)
+
+
+@dataclass(frozen=True)
+class SceneBasemap:
+    """:class:`~aero_geoloc.basemap.BasemapSource` поверх процедурной сцены.
+
+    Позволяет прогонять полноценный ``localize`` (с coarse-to-fine) **офлайн**:
+    оркестрация запрашивает окно как у сети, а данные режутся из сцены.
+
+    На **родном зуме сцены** — точный целочисленный кроп (пиксель-в-пиксель,
+    чтобы ground truth точного уровня оставался честным). На **более грубом
+    зуме** — кроп соответствующего геоучастка и даунсемпл до запрошенного
+    размера (грубому уровню субпиксельная точность не нужна). Зум детальнее
+    сцены недоступен — данных детальнее у процедурной сцены нет.
+    """
+
+    scene: Scene
+
+    def _crop_bounds(self, center_px: float, size: int) -> int:
+        """Левая/верхняя координата целочисленного кропа сцены по центру."""
+        return int(round(center_px - (size - 1) / 2.0))
+
+    def _check_inside(self, x0: int, y0: int, w: int, h: int) -> None:
+        sh, sw = self.scene.image.shape[:2]
+        if not (0 <= x0 and 0 <= y0 and x0 + w <= sw and y0 + h <= sh):
+            raise ValueError(
+                f"окно {w}×{h} в ({x0}, {y0}) не помещается в сцену {sw}×{sh}: "
+                "увеличьте сцену либо сузьте приор/грубый уровень"
+            )
+
+    def __call__(
+        self, center_lon: float, center_lat: float, zoom: int, width: int, height: int
+    ) -> tuple[np.ndarray, Georef]:
+        gr = self.scene.georef
+        if zoom > gr.zoom:
+            raise ValueError(
+                f"SceneBasemap: запрошен зум {zoom} детальнее сцены {gr.zoom} — нет данных"
+            )
+        scx, scy = gr.lonlat_to_pixel(center_lon, center_lat)
+
+        if zoom == gr.zoom:
+            x0 = self._crop_bounds(scx, width)
+            y0 = self._crop_bounds(scy, height)
+            self._check_inside(x0, y0, width, height)
+            image = self.scene.image[y0 : y0 + height, x0 : x0 + width].copy()
+            return image, gr.crop(x0, y0, width, height)
+
+        # Грубее сцены: берём в 2^Δ раз больший участок сцены и даунсемплим.
+        factor = 2 ** (gr.zoom - zoom)
+        w_src, h_src = width * factor, height * factor
+        x0 = self._crop_bounds(scx, w_src)
+        y0 = self._crop_bounds(scy, h_src)
+        self._check_inside(x0, y0, w_src, h_src)
+        src = self.scene.image[y0 : y0 + h_src, x0 : x0 + w_src]
+        src_georef = gr.crop(x0, y0, w_src, h_src)
+        coarse = cv2.resize(src, (width, height), interpolation=cv2.INTER_AREA)
+        georef = Georef(
+            center_lon=src_georef.center_lon,
+            center_lat=src_georef.center_lat,
+            zoom=zoom,
+            width=width,
+            height=height,
+        )
+        return coarse, georef
 
 
 # --- генерация примера ------------------------------------------------------
