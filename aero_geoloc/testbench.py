@@ -30,9 +30,12 @@ from .types import LocalizationResult, Prior, Status
 __all__ = [
     "Scene",
     "make_synthetic_scene",
+    "make_homogeneous_scene",
     "SceneBasemap",
     "default_camera",
     "SampleSpec",
+    "APPEARANCE_LEVELS",
+    "apply_appearance",
     "iter_specs",
     "Sample",
     "generate_sample",
@@ -139,6 +142,32 @@ def make_synthetic_scene(
     return Scene(image=image, georef=georef)
 
 
+def make_homogeneous_scene(
+    size: int = 2048,
+    *,
+    seed: int = 0,
+    center_lon: float = 37.6173,
+    center_lat: float = 55.7558,
+    zoom: int = 18,
+) -> Scene:
+    """Бедная текстурой, почти самоподобная «подложка» — поле/лес/вода.
+
+    Гладкий низкоконтрастный шум без дорог и построек: устойчивых особых точек
+    почти нет, локализация обязана честно отказать (``NOT_LOCALIZED``), а не
+    выдать уверенно-неверную точку. Это регресс на однородной местности из
+    ``docs/TESTING.md``, антипод богатой :func:`make_synthetic_scene`.
+    """
+    rng = np.random.default_rng(seed)
+    coarse = rng.random((8, 8), dtype=np.float32)
+    field_ = cv2.resize(coarse, (size, size), interpolation=cv2.INTER_CUBIC)
+    field_ = cv2.GaussianBlur(field_, (0, 0), sigmaX=size / 64.0, sigmaY=size / 64.0)
+    image = cv2.normalize(field_, None, 100.0, 155.0, cv2.NORM_MINMAX).astype(np.uint8)
+    georef = Georef(
+        center_lon=center_lon, center_lat=center_lat, zoom=zoom, width=size, height=size
+    )
+    return Scene(image=image, georef=georef)
+
+
 @dataclass(frozen=True)
 class SceneBasemap:
     """:class:`~aero_geoloc.basemap.BasemapSource` поверх процедурной сцены.
@@ -217,7 +246,10 @@ class SampleSpec:
         center_offset_px: сдвиг истинного центра от центра сцены, пиксели подложки.
         prior_offset_m: насколько промахивается приор позиции, метры.
         appearance_level: уровень лестницы возмущений внешнего вида
-            (``docs/TESTING.md``). В фазе 1 поддержан только L0.
+            (``docs/TESTING.md``): L0 нет, L1 яркость/контраст/гамма, L2 блюр/
+            шум/JPEG, L3 спектральный сдвиг, L4 локальные изменения объектов.
+        appearance_strength: сила возмущения выбранного уровня (0 = нет, 1 =
+            номинал). Ею свипается «лестница» до точки перелома матчера.
     """
 
     yaw_deg: float = 0.0
@@ -226,6 +258,80 @@ class SampleSpec:
     prior_offset_m: float = 0.0
     prior_offset_bearing_deg: float = 0.0
     appearance_level: int = 0
+    appearance_strength: float = 1.0
+
+
+APPEARANCE_LEVELS = (0, 1, 2, 3, 4)
+
+
+def _appearance_seed(spec: SampleSpec) -> int:
+    """Детерминированный seed возмущений из содержимого spec — воспроизводимо и разнообразно."""
+    raw = (
+        spec.yaw_deg * 1000.0
+        + spec.altitude_ratio * 733.0
+        + spec.prior_offset_m * 13.0
+        + spec.appearance_level * 7919.0
+        + spec.appearance_strength * 131.0
+    )
+    return int(abs(raw)) & 0xFFFFFFFF
+
+
+def apply_appearance(
+    image: np.ndarray, level: int, strength: float, rng: np.random.Generator
+) -> np.ndarray:
+    """Наложить возмущение внешнего вида уровня L``level`` на кадр (grayscale uint8).
+
+    Возмущения имитируют разрыв «борт ↔ спутник» и накладываются ТОЛЬКО на query:
+    подложка остаётся эталонной, отсюда и appearance gap. ``strength`` масштабирует
+    силу (0 → тождество). Уровни — из таблицы ``docs/TESTING.md``.
+    """
+    if level == 0 or strength <= 0.0:
+        return image
+    out = image.astype(np.float32)
+
+    if level == 1:  # экспозиция/время суток: гамма, контраст, яркость
+        gamma = 2.0 ** (0.7 * strength * (2.0 * rng.random() - 1.0))
+        out = 255.0 * np.power(np.clip(out / 255.0, 0.0, 1.0), gamma)
+        alpha = 1.0 + 0.35 * strength * (2.0 * rng.random() - 1.0)
+        beta = 30.0 * strength * (2.0 * rng.random() - 1.0)
+        out = alpha * out + beta
+
+    elif level == 2:  # оптика/сжатие/сенсор: блюр, шум, JPEG
+        sigma = 1.8 * strength
+        if sigma > 0.3:
+            out = cv2.GaussianBlur(out, (0, 0), sigmaX=sigma, sigmaY=sigma)
+        out = out + rng.normal(0.0, 14.0 * strength, size=out.shape).astype(np.float32)
+        out = np.clip(out, 0.0, 255.0).astype(np.uint8)
+        quality = int(np.clip(95.0 - 75.0 * strength, 12.0, 95.0))
+        ok, enc = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        out = cv2.imdecode(enc, cv2.IMREAD_GRAYSCALE).astype(np.float32)
+
+    elif level == 3:  # сезон/другой сенсор: нелинейный спектральный ремап тона
+        # Синусоидальный сдвиг тона (фиксированная частота, амплитуда ∝ strength)
+        # локально разворачивает градиенты, как смена спектрального канала —
+        # к чему градиентные дескрипторы заведомо чувствительны. Монотонен по силе.
+        x = out / 255.0
+        x = np.clip(x + strength * 0.35 * np.sin(2.0 * np.pi * 1.5 * x), 0.0, 1.0)
+        out = 255.0 * x
+
+    elif level == 4:  # возраст подложки: подрисованные/убранные объекты
+        out = out.copy()
+        h, w = out.shape
+        for _ in range(int(round(6.0 * strength))):  # новые объекты
+            x, y = int(rng.integers(0, w)), int(rng.integers(0, h))
+            bw, bh = int(rng.integers(w // 20, w // 6)), int(rng.integers(h // 20, h // 6))
+            cv2.rectangle(out, (x, y), (min(x + bw, w - 1), min(y + bh, h - 1)),
+                          float(rng.uniform(0.0, 255.0)), -1)
+        for _ in range(int(round(4.0 * strength))):  # стёртые объекты → локальное среднее
+            x, y = int(rng.integers(0, w)), int(rng.integers(0, h))
+            bw, bh = int(rng.integers(w // 20, w // 8)), int(rng.integers(h // 20, h // 8))
+            patch = out[y : min(y + bh, h), x : min(x + bw, w)]
+            if patch.size:
+                out[y : min(y + bh, h), x : min(x + bw, w)] = float(patch.mean())
+    else:
+        raise ValueError(f"неизвестный уровень возмущения L{level}, доступны {APPEARANCE_LEVELS}")
+
+    return np.clip(out, 0.0, 255.0).astype(np.uint8)
 
 
 @dataclass(frozen=True)
@@ -296,10 +402,9 @@ def generate_sample(
         prior_sigma_m: σ приора позиции (в фазе 1 приор узкий).
         reference_size: размер вырезаемого окна подложки.
     """
-    if spec.appearance_level != 0:
-        raise NotImplementedError(
-            f"уровень внешних возмущений L{spec.appearance_level} появится в фазе 2; "
-            "в фазе 1 поддержан только L0"
+    if spec.appearance_level not in APPEARANCE_LEVELS:
+        raise ValueError(
+            f"неизвестный уровень L{spec.appearance_level}, доступны {APPEARANCE_LEVELS}"
         )
 
     scene_cx, scene_cy = scene.georef.center_pixel
@@ -352,6 +457,12 @@ def generate_sample(
         (camera.image_width, camera.image_height),
         flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
         borderMode=cv2.BORDER_REFLECT_101,
+    )
+
+    # Возмущение внешнего вида — только на query (подложка эталонна → appearance gap).
+    query = apply_appearance(
+        query, spec.appearance_level, spec.appearance_strength,
+        np.random.default_rng(_appearance_seed(spec)),
     )
 
     true_lon, true_lat = scene.georef.pixel_to_lonlat(true_cx, true_cy)

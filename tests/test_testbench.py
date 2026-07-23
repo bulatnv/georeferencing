@@ -132,10 +132,19 @@ def test_generator_refuses_when_frame_leaves_the_window(scene):
         )
 
 
-def test_appearance_levels_are_not_supported_yet(scene):
-    with pytest.raises(NotImplementedError, match="фазе 2"):
+def test_appearance_perturbs_query_but_not_reference(scene):
+    """Возмущение внешнего вида ложится только на кадр — подложка эталонна (gap)."""
+    cam = default_camera(256)
+    clean = generate_sample(scene, cam, SampleSpec(yaw_deg=20.0, appearance_level=0), reference_size=640)
+    dirty = generate_sample(scene, cam, SampleSpec(yaw_deg=20.0, appearance_level=2), reference_size=640)
+    assert not np.array_equal(clean.query, dirty.query)  # кадр возмущён
+    np.testing.assert_array_equal(clean.reference, dirty.reference)  # подложка та же
+
+
+def test_unknown_appearance_level_rejected(scene):
+    with pytest.raises(ValueError, match="неизвестный уровень"):
         generate_sample(
-            scene, default_camera(256), SampleSpec(appearance_level=2), reference_size=640
+            scene, default_camera(256), SampleSpec(appearance_level=9), reference_size=640
         )
 
 
