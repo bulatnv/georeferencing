@@ -12,3 +12,9 @@ cache/
 data/
 *.npy
 *.faiss
+
+# IDE.
+.idea/
+
+# Слепок окружения, не артефакт проекта.
+freeze.txt
