@@ -23,6 +23,7 @@ from .camera import Camera
 from .geo import Georef, ground_mpp, haversine_m, zoom_for_mpp
 from .matcher import Correspondences, Matcher, SIFTMatcher
 from .pose import PoseEstimate, estimate_similarity, refine_ecc
+from .quality import MIN_NCC as quality_min_ncc
 from .quality import aligned_ncc, assess
 from .retrieval import TerrainIndex, should_localize
 from .types import LocalizationResult, Prior, Status
@@ -31,6 +32,11 @@ __all__ = ["normalize_gray", "localize_against_reference", "localize"]
 
 #: Во сколько σ приора укладывается допустимое отклонение центра (инвариант 3).
 PRIOR_GATE_SIGMA = 3.0
+
+#: Порог NCC в связке качества — переэкспорт калиброванной константы из
+#: :mod:`aero_geoloc.quality`, чтобы дефолт оркестрации не мог разойтись с тем,
+#: по которому реально решает ``assess``. Обоснование значения — там же.
+MIN_NCC = quality_min_ncc
 
 
 def normalize_gray(image: np.ndarray, *, clahe: bool = False) -> np.ndarray:
@@ -139,7 +145,7 @@ def localize_against_reference(
     clahe: bool = False,
     refine: bool = False,
     prerotate_deg: float = 0.0,
-    min_ncc: float = 0.3,
+    min_ncc: float = MIN_NCC,
 ) -> LocalizationResult:
     """Локализовать кадр по заранее данному георефренцированному растру подложки.
 
@@ -341,7 +347,7 @@ def _fine_pass(
     min_inliers: int,
     clahe: bool,
     prerotate_deg: float = 0.0,
-    min_ncc: float = 0.3,
+    min_ncc: float,
 ) -> LocalizationResult:
     """Точный уровень (стадии 3–6): окно нативного разрешения вокруг кандидата.
 
@@ -409,7 +415,7 @@ def _fine_with_scale_loop(
     clahe: bool,
     max_zoom: int = 22,
     prerotate_deg: float = 0.0,
-    min_ncc: float = 0.3,
+    min_ncc: float,
 ) -> LocalizationResult:
     """Точный уровень вокруг одного кандидата + цикл переуточнения масштаба (стадия 5).
 
@@ -514,7 +520,7 @@ def localize(
     min_uniqueness: float = 0.0,
     max_zoom: int = 22,
     prerotate: bool = False,
-    min_ncc: float = 0.3,
+    min_ncc: float = MIN_NCC,
     gate_sigma: float = PRIOR_GATE_SIGMA,
 ) -> LocalizationResult:
     """Полная одиночная локализация: подложка из источника + coarse-to-fine.
@@ -553,12 +559,15 @@ def localize(
         min_uniqueness: порог сигнала уникальности retrieval; ниже него —
             честный отказ по самоподобию ещё до матчинга (см.
             :func:`~aero_geoloc.retrieval.calibrate_uniqueness_threshold`).
-        min_ncc: порог фотометрического NCC для статуса ``LOCALIZED`` (``quality.py``).
-            Дефолт 0.3 годится для same-domain (кадр из той же подложки). Для
-            **дрон↔спутник** NCC низок даже у верных матчей (калибровка на реальных
-            кадрах: 0.04–0.45), поэтому там его снижают до ~0 — иначе верные
-            локализации ложно помечаются ``LOW_CONFIDENCE``; статус тогда держат
-            инлайеры и откалиброванный эллипс.
+        min_ncc: порог фотометрического NCC в связке качества (``quality.py``).
+            Дефолт :data:`MIN_NCC` (0.12) откалиброван на реальных дрон↔Esri
+            матчах и совпадает с дефолтом ``assess``. NCC — **равноправное
+            условие связки** ``инлайеры ≥ 8 И NCC ≥ 0.12``, а не необязательная
+            добавка: калибровка показала, что по отдельности ни инлайеры, ни NCC
+            не делят верный слабый матч и ложный (JOURNAL, веха калибровки).
+            Поднимать имеет смысл на same-domain, где NCC верных матчей близок к
+            единице; для кросс-домена он низок даже у верных (0.04–0.45), и
+            прежний порог 0.3 ложно уводил верные локализации в ``LOW_CONFIDENCE``.
         gate_sigma: во сколько σ приора укладывается допустимое отклонение центра.
 
     Returns:

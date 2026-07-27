@@ -44,12 +44,23 @@ from .pose import PoseEstimate, SimilarityTransform
 from .types import Status
 
 __all__ = [
+    "MIN_NCC",
+    "MIN_INLIERS_HARD",
     "center_covariance",
     "error_ellipse",
     "aligned_ncc",
     "QualityAssessment",
     "assess",
 ]
+
+#: Калиброванные пороги связки качества — оба условия обязательны (см. :func:`assess`).
+#: Значения получены на реальных дрон↔Esri матчах (``docs/JOURNAL.md``, веха
+#: калибровки дискриминатора): связка «инлайеры ≥ 8 И NCC ≥ 0.12» даёт ~96%
+#: точности. Вынесены в константы, потому что оркестрация (:mod:`aero_geoloc.localize`)
+#: прокидывает порог NCC через свои уровни — с литералом в каждом дефолт
+#: разъезжался бы молча.
+MIN_NCC = 0.12
+MIN_INLIERS_HARD = 8
 
 
 def center_covariance(
@@ -188,8 +199,8 @@ def assess(
     photometric_ncc: float | None = None,
     systematic_floor_m: float = 0.0,
     max_semi_major_m: float = 3.0,
-    min_inliers_hard: int = 8,
-    min_ncc: float = 0.12,
+    min_inliers_hard: int = MIN_INLIERS_HARD,
+    min_ncc: float = MIN_NCC,
     inlier_saturation: int = 30,
 ) -> QualityAssessment:
     """Свести геометрию решения и сигналы в ковариацию, доверие и статус.
