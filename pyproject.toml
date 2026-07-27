@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aero-geoloc"
-version = "0.1.0.dev0"
+# Держать в согласии с `__version__` в aero_geoloc/__init__.py.
+version = "0.5.0.dev0"
 description = "Аэро-геолокализация надирных снимков по картографической подложке"
 readme = "docs/README.md"
 requires-python = ">=3.10"
@@ -23,8 +24,9 @@ dependencies = [
 real = [
     "pillow>=10.0",
 ]
-# Обучаемые матчеры фазы 4 и DINOv2-энкодер фазы 3 (нужен GPU-torch). LightGlue
-# ставится из GitHub: pip install "git+https://github.com/cvg/LightGlue.git".
+# Обучаемые матчеры фазы 4 и энкодеры Этажа 1 (DINOv2/MegaLoc; нужен GPU-torch).
+# LightGlue на PyPI не публикуется и потому здесь не указан — он идёт отдельной
+# строкой в requirements-real.txt, где допустимы ссылки на git.
 # MegaLoc-энкодер тянет веса через torch.hub → нужны huggingface_hub + safetensors.
 learned = [
     "torch>=2.0",

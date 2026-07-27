@@ -1,0 +1,39 @@
+# Боевой конвейер на реальных бортовых кадрах: оба обучаемых этажа + FAISS.
+# Собирает extras `real` (Pillow — EXIF/XMP), `learned` (torch-стек) и `faiss`,
+# плюс LightGlue, которого нет на PyPI.
+#
+#     pip install -r requirements-real.txt
+#
+# Что этим включается:
+#   Этаж 1  MegaLoc (torch.hub → huggingface_hub + safetensors), PCA, FAISS/HNSW
+#   Этаж 2  LightGlue — основной матчер: на дрон↔Esri даёт 54 инлайера там,
+#           где SIFT и LoFTR дают 0 (docs/JOURNAL.md)
+#   drone.py  чтение EXIF/XMP бортового снимка (Pillow)
+#
+# --- Два места, где pip сам не справится -------------------------------------
+#
+# 1. CUDA. Wheel-ы torch с PyPI собраны не под всякую версию CUDA, а Этаж 1
+#    без GPU считает индекс мучительно долго (кодирование клетки ~16 мс на GPU).
+#    Под GPU ставьте torch с индекса PyTorch ДО этого файла, подобрав версию CUDA
+#    под свой драйвер, например:
+#
+#        pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#        pip install -r requirements-real.txt
+#
+#    Уже установленный torch pip не станет заменять. Без этого шага поставится
+#    сборка с PyPI — рабочая, но, возможно, без нужной поддержки GPU.
+#
+# 2. LightGlue не публикуется на PyPI и тянется из GitHub (строка ниже) — нужен
+#    установленный git. Одноимённый пакет на PyPI к cvg/LightGlue отношения не
+#    имеет, ставить его не надо.
+#
+# Веса моделей (MegaLoc, DINOv2, LightGlue) скачиваются при первом запуске и
+# кэшируются в ~/.cache/torch — первая локализация будет заметно дольше.
+#
+# faiss-cpu держится по умолчанию: на 6 тыс. клеток он по времени равен numpy,
+# выигрыш O(log N) начинается на 1e5..1e6 (docs/JOURNAL.md). Под GPU-сборку
+# замените на faiss-gpu, доступную для вашей платформы.
+
+-e .[real,learned,faiss]
+
+lightglue @ git+https://github.com/cvg/LightGlue.git

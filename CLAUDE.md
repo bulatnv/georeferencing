@@ -23,8 +23,12 @@ Python 3.12 в `.venv` (Windows). Оболочка PowerShell, но доступ
 
 - Вывод в консоль русскоязычный: при запуске `python -c` через bash нужен
   префикс `PYTHONIOENCODING=utf-8`, иначе `UnicodeEncodeError` на cp1252.
-- `pip install -e '.[dev]'` работает из bash; в PowerShell квадратные скобки
-  ломают путь — ставить оттуда как `pip install -e .` и `pip install pytest`.
+- Зависимости — через `requirements*.txt`, а не через extras в командной строке:
+  `-r` работает и в bash, и в PowerShell (там `pip install -e '.[dev]'` ломается
+  на квадратных скобках). Наборы: `requirements-dev.txt` (тесты и стенд),
+  `requirements-real.txt` (torch, LightGlue, FAISS), `requirements-lock.txt`
+  (точные версии проверенного оффлайн-окружения). Источник истины по версиям —
+  `pyproject.toml`; requirements-файлы только собирают его extras по задачам.
 - OpenCV 5.0: AKAZE живёт в `cv2.xfeatures2d`, отсюда `opencv-contrib-python`.
 
 ## Как здесь принято работать

@@ -39,17 +39,26 @@ ECC-refinement + цикл переуточнения масштаба → счи
 
 ## Установка
 
-Python 3.10+. Ядро тянет только NumPy и OpenCV (`opencv-contrib-python`):
+Python 3.10+. Наборы зависимостей разложены по задачам:
 
 ```bash
-pip install -e .
+pip install -r requirements-dev.txt
 ```
 
-- В **PowerShell** квадратные скобки ломают путь — ставить как `pip install -e .`
-  и отдельно `pip install pytest`; в **bash** работает `pip install -e '.[dev]'`.
-- Загрузка тайлов подложки — через stdlib (без доп. зависимостей).
-- Обучаемые ядра (опционально): `pip install torch torchvision lightglue kornia` —
-  веса подтянутся при первом запуске.
+| Файл | Для чего | Что тянет |
+|---|---|---|
+| `requirements.txt` | только ядро | NumPy, OpenCV (`opencv-contrib-python`) |
+| `requirements-dev.txt` | тесты и синтетический стенд | + pytest |
+| `requirements-real.txt` | боевой конвейер на реальных кадрах | + torch, LightGlue, FAISS, Pillow |
+| `requirements-lock.txt` | воспроизведение измерений | точные версии оффлайн-окружения |
+
+- Работает одинаково в **bash** и **PowerShell** (в последнем `pip install -e '.[dev]'`
+  ломается на квадратных скобках, а `-r` — нет).
+- Загрузка тайлов подложки — через stdlib, без доп. зависимостей.
+- Для GPU ставьте `torch`/`torchvision` с индекса PyTorch **до** установки
+  `requirements-real.txt`; **LightGlue** тянется из GitHub (на PyPI его нет),
+  поэтому нужен `git`. Подробности и подводные камни — в шапке того файла.
+- Веса моделей (MegaLoc, DINOv2, LightGlue) скачиваются при первом запуске.
 
 ## Быстрый старт
 

@@ -184,12 +184,16 @@ image_localization/
 Установка для разработки и прогон стенда:
 
 ```bash
-pip install -e ".[dev,matching]" && pytest
+pip install -r requirements-dev.txt && pytest
 ```
 
 ```bash
-python scripts/run_benchmark.py --matcher sift --yaw-step 30
+python scripts/run_benchmark.py --matcher sift --yaw-step 30 --refine
 ```
+
+Боевой конвейер на реальных кадрах (torch, LightGlue, FAISS) — из
+`requirements-real.txt`; полный разбор наборов зависимостей в
+[корневом README](../README.md#установка).
 
 ---
 

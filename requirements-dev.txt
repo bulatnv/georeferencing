@@ -1,0 +1,14 @@
+# Разработка: ядро + pytest. Ни сети, ни torch, ни GPU не требуется.
+#
+#     pip install -r requirements-dev.txt
+#     pytest
+#     python scripts/run_benchmark.py --matcher sift --yaw-step 30 --refine
+#
+# В этом наборе зелёный весь оффлайн-контур (340 тестов). Тесты, которым нужны
+# torch / faiss / сеть / реальные снимки, честно помечаются skip — их набор
+# ставится из requirements-real.txt.
+#
+# Сетевые тесты (тайлы Esri) выключены по умолчанию, включаются переменной:
+#     AERO_GEOLOC_NETWORK_TESTS=1 pytest
+
+-e .[dev]
