@@ -32,14 +32,18 @@ from aero_geoloc.localize import localize_against_reference  # noqa: E402
 LEVEL_NAMES = {1: "L1 экспозиция", 2: "L2 блюр/шум/JPEG", 3: "L3 спектр", 4: "L4 объекты"}
 
 
-def cell(scene, camera, matcher, level, strength, yaws, reference_size):
+def cell(scene, camera, matcher, level, strength, yaws, reference_size, prerotate):
     ok, errs = 0, []
     for yaw in yaws:
         spec = SampleSpec(yaw_deg=float(yaw), appearance_level=level, appearance_strength=strength)
         sample = generate_sample(scene, camera, spec, reference_size=reference_size)
+        # Обучаемые матчеры (LightGlue/LoFTR) не инвариантны к повороту — кадр
+        # предповорачивается к северу на −yaw (иначе провал был бы по повороту,
+        # а не по appearance gap, и сравнение с классикой было бы нечестным).
+        prerotate_deg = -sample.prior.yaw_deg if prerotate else 0.0
         result = localize_against_reference(
             sample.query, camera, sample.prior, sample.reference, sample.reference_georef,
-            matcher=matcher, refine=True,
+            matcher=matcher, refine=True, prerotate_deg=prerotate_deg, min_ncc=0.05,
         )
         if result.is_localized:
             ok += 1
@@ -65,9 +69,10 @@ def main() -> int:
     camera = default_camera(args.frame_size)
     yaws = np.arange(0.0, 360.0, args.yaw_step)
     matcher = create_matcher(args.matcher)
+    prerotate = args.matcher in ("lightglue", "loftr")  # не инвариантны к повороту
 
     print(f"матчер: {args.matcher}, сцена {args.scene_size}px, кадр {args.frame_size}px, "
-          f"{len(yaws)} курсов, порог перелома {args.breakpoint_rate:.0%}")
+          f"{len(yaws)} курсов, предповорот={prerotate}, порог перелома {args.breakpoint_rate:.0%}")
     header = "  сила | " + " | ".join(f"{LEVEL_NAMES[lv]:>16}" for lv in (1, 2, 3, 4))
     print("\n" + header)
     print("-" * len(header))
@@ -76,7 +81,8 @@ def main() -> int:
     for strength in args.strengths:
         cells = []
         for level in (1, 2, 3, 4):
-            rate, med = cell(scene, camera, matcher, level, strength, yaws, args.frame_size * 2 + 256)
+            rate, med = cell(scene, camera, matcher, level, strength, yaws,
+                             args.frame_size * 2 + 256, prerotate)
             rates[level][strength] = rate
             cells.append(f"{rate * 100:3.0f}% {med * 100:6.1f}см" if rate else f"{rate * 100:3.0f}%      —")
         print(f"  {strength:4.1f} | " + " | ".join(f"{c:>16}" for c in cells))
