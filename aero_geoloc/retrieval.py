@@ -43,6 +43,7 @@ __all__ = [
     "Encoder",
     "AveragePoolEncoder",
     "DinoV2Encoder",
+    "MegaLocEncoder",
     "Cell",
     "RetrievalResult",
     "TerrainIndex",
@@ -148,6 +149,83 @@ class DinoV2Encoder:
         self._torch = torch
         self._device = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
         self._model = torch.hub.load("facebookresearch/dinov2", self.model_name)
+        self._model = self._model.to(self._device).eval()
+
+    def encode(self, gray: np.ndarray) -> np.ndarray:
+        if gray.ndim != 2:
+            raise ValueError(f"энкодер ждёт grayscale, получено {gray.ndim}D {gray.shape}")
+        self._ensure_model()
+        torch = self._torch
+        small = cv2.resize(gray, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
+        rgb = np.repeat(small[:, :, None], 3, axis=2).astype(np.float32) / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        rgb = (rgb - mean) / std
+        tensor = torch.from_numpy(rgb.transpose(2, 0, 1)[None]).to(self._device)
+        with torch.no_grad():
+            feat = self._model(tensor).cpu().numpy().ravel().astype(np.float32)
+        norm = float(np.linalg.norm(feat))
+        return feat / norm if norm > 0.0 else feat
+
+
+class MegaLocEncoder:
+    """VPR-энкодер MegaLoc (DINOv2-B + SALAD-агрегация) за интерфейсом :class:`Encoder`.
+
+    Обученная агрегация мест поверх сильного бэкбона — против сырого CLS-токена
+    DINOv2, который на кросс-дате (кадр↔спутник) топит верную клетку в хвост
+    ранжирования (замерено: DRZ_19206 — ранг 506/2116). MegaLoc обучен на пяти
+    разнородных датасетах и в литературе — топ zero-shot на надир↔ортоспутнике,
+    поэтому должен поднять верную клетку в top-K, не меняя ничего вокруг (тот же
+    протокол ``encode(gray)→вектор``, та же обвязка индекса/ANN/уникальности).
+
+    Вход, как у ViT-VPR: серый кадр реплицируется в 3 канала, ресайз до кратного
+    патчу 14 (322×322 по умолчанию), ImageNet-нормализация; выход — L2-нормированный
+    дескриптор размерности 8448. torch и веса грузятся **лениво** через
+    ``torch.hub`` (репозиторий ``gmberton/MegaLoc``); без torch конструктор и
+    :attr:`dim` работают, а :meth:`encode` даёт понятную ошибку — как DINOv2,
+    тяжёлая зависимость не нужна для импорта пакета.
+
+    Замечание для ±5 км с ротационной аугментацией: dim 8448 требует PCA→~1024
+    перед FAISS-индексом (иначе память индекса неподъёмна). Для A/B на компактном
+    регионе (тысячи клеток) numpy-kNN по полному вектору годится напрямую.
+    """
+
+    _DIM = 8448  #: финальная размерность дескриптора MegaLoc (64×128 + 256).
+
+    def __init__(
+        self,
+        repo: str = "gmberton/MegaLoc",
+        entry: str = "get_trained_model",
+        *,
+        image_size: int = 322,
+        device: str | None = None,
+    ) -> None:
+        if image_size % 14 != 0:
+            raise ValueError(f"image_size должен быть кратен патчу 14, получено {image_size}")
+        self.repo = repo
+        self.entry = entry
+        self.image_size = image_size
+        self._device = device
+        self._model = None
+        self._torch = None
+
+    @property
+    def dim(self) -> int:
+        return self._DIM
+
+    def _ensure_model(self) -> None:
+        if self._model is not None:
+            return
+        try:
+            import torch
+        except ImportError as exc:  # pragma: no cover - зависит от окружения
+            raise RuntimeError(
+                "MegaLocEncoder требует torch: установите `pip install torch torchvision` "
+                "(веса MegaLoc подтянутся через torch.hub при первом запуске)"
+            ) from exc
+        self._torch = torch
+        self._device = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self._model = torch.hub.load(self.repo, self.entry, trust_repo=True)
         self._model = self._model.to(self._device).eval()
 
     def encode(self, gray: np.ndarray) -> np.ndarray:

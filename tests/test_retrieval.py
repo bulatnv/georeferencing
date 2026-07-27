@@ -17,6 +17,7 @@ from aero_geoloc.retrieval import (
     Cell,
     DinoV2Encoder,
     Encoder,
+    MegaLocEncoder,
     RetrievalResult,
     TerrainIndex,
     calibrate_uniqueness_threshold,
@@ -264,6 +265,37 @@ def test_dinov2_encode_without_torch_gives_clear_error():
 @pytest.mark.skipif(not _HAS_TORCH, reason="нужен torch (+ веса DINOv2 через torch.hub)")
 def test_dinov2_encode_produces_normalized_vector():
     enc = DinoV2Encoder()
+    v = enc.encode(make_synthetic_scene(256, seed=0).image)
+    assert v.shape == (enc.dim,)
+    assert np.linalg.norm(v) == pytest.approx(1.0, abs=1e-4)
+
+
+# --- MegaLoc (VPR-энкодер Этажа 1) ------------------------------------------
+
+_HAS_MEGALOC_DEPS = all(
+    importlib.util.find_spec(m) is not None for m in ("torch", "huggingface_hub", "safetensors")
+)
+
+
+def test_megaloc_encoder_metadata_and_validation():
+    enc = MegaLocEncoder()  # конструктор и dim не требуют torch
+    assert enc.dim == 8448
+    assert isinstance(enc, Encoder)  # удовлетворяет тому же протоколу, что DINOv2
+    with pytest.raises(ValueError, match="кратен патчу 14"):
+        MegaLocEncoder(image_size=100)
+
+
+@pytest.mark.skipif(_HAS_TORCH, reason="torch установлен — боевой путь проверяется отдельно")
+def test_megaloc_encode_without_torch_gives_clear_error():
+    with pytest.raises(RuntimeError, match="torch"):
+        MegaLocEncoder().encode(np.zeros((64, 64), np.uint8))
+
+
+@pytest.mark.skipif(
+    not _HAS_MEGALOC_DEPS, reason="нужны torch + huggingface_hub + safetensors (веса MegaLoc через torch.hub)"
+)
+def test_megaloc_encode_produces_normalized_vector():
+    enc = MegaLocEncoder()
     v = enc.encode(make_synthetic_scene(256, seed=0).image)
     assert v.shape == (enc.dim,)
     assert np.linalg.norm(v) == pytest.approx(1.0, abs=1e-4)

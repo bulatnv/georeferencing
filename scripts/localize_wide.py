@@ -29,7 +29,9 @@ from aero_geoloc.drone import basemap_zoom_for, frame_at_mpp, load_drone_shot  #
 from aero_geoloc.geo import Georef, ground_mpp, haversine_m, zoom_for_mpp  # noqa: E402
 from aero_geoloc.localize import localize, normalize_gray  # noqa: E402
 from aero_geoloc.matcher import LightGlueMatcher  # noqa: E402
-from aero_geoloc.retrieval import DinoV2Encoder, TerrainIndex  # noqa: E402
+from aero_geoloc.retrieval import DinoV2Encoder, MegaLocEncoder, TerrainIndex  # noqa: E402
+
+_ENCODERS = {"dinov2": DinoV2Encoder, "megaloc": MegaLocEncoder}
 
 
 def _offset_lonlat(lat, lon, distance_m, bearing_deg):
@@ -51,6 +53,10 @@ def main() -> int:
     parser.add_argument("--index-mpp", type=float, default=0.75, help="разрешение клеток индекса (грубее = меньше клеток)")
     parser.add_argument("--overlap", type=float, default=0.5)
     parser.add_argument("--margin-km", type=float, default=0.6, help="запас региона сверх сдвига")
+    parser.add_argument("--encoder", default="dinov2", choices=sorted(_ENCODERS),
+                        help="ядро Этажа 1: dinov2 (сырой) или megaloc (VPR)")
+    parser.add_argument("--min-inliers", type=int, default=10,
+                        help="порог similarity-инлайеров точного уровня (низкая высота/кросс-дата → 6)")
     parser.add_argument("--dem", action="store_true")
     parser.add_argument("--declination", type=float, default=0.0)
     parser.add_argument("--cache", default="tiles")
@@ -87,11 +93,11 @@ def main() -> int:
 
     print(f"{Path(args.image).name}: истина ({shot.true_lat:.5f},{shot.true_lon:.5f}), "
           f"приор сдвинут на {args.offset_km} км@{args.bearing:.0f}°, σ={sigma_m/1000:.1f}км")
-    print(f"индекс: регион {region_px}px @z{z_index} (mpp {mpp_index:.2f}), клетка {cell_px}px≈{cell_px*mpp_index:.0f}м, "
+    print(f"индекс[{args.encoder}]: регион {region_px}px @z{z_index} (mpp {mpp_index:.2f}), клетка {cell_px}px≈{cell_px*mpp_index:.0f}м, "
           f"~{int((region_px/(cell_px*(1-args.overlap)))**2)} клеток")
 
     t0 = time.perf_counter()
-    index = TerrainIndex(DinoV2Encoder()).build(
+    index = TerrainIndex(_ENCODERS[args.encoder]()).build(
         basemap, region, cell_size_px=cell_px, overlap=args.overlap, rotations_deg=(0.0,)
     )
     print(f"индекс построен: {len(index)} клеток за {time.perf_counter()-t0:.0f} с")
@@ -103,7 +109,8 @@ def main() -> int:
 
     t0 = time.perf_counter()
     result = localize(frame, camera, prior, basemap, index=index, matcher=LightGlueMatcher(),
-                      prerotate=True, max_zoom=mz, min_ncc=0.05, min_inliers=10, ransac_threshold_px=6.0)
+                      prerotate=True, max_zoom=mz, min_ncc=0.05, min_inliers=args.min_inliers,
+                      ransac_threshold_px=6.0)
     dt = time.perf_counter() - t0
     if result.is_localized:
         err = haversine_m(shot.true_lat, shot.true_lon, result.center_lat, result.center_lon)
