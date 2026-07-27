@@ -32,6 +32,7 @@ def main() -> int:
     parser.add_argument("--matcher", default="lightglue", choices=["sift", "akaze", "lightglue", "loftr"])
     parser.add_argument("--cache", default="tiles", help="каталог кэша тайлов")
     parser.add_argument("--sigma-m", type=float, default=25.0, help="σ приора позиции (GPS точен)")
+    parser.add_argument("--dem", action="store_true", help="считать AGL survey-камер через DEM (сеть)")
     args = parser.parse_args()
 
     max_zoom = ESRI_WORLD_IMAGERY.max_zoom
@@ -43,7 +44,7 @@ def main() -> int:
     print(f"матчер: {args.matcher}, предповорот: {prerotate}, снимков: {len(paths)}\n")
     for path in paths:
         try:
-            shot = load_drone_shot(path)
+            shot = load_drone_shot(path, use_dem=args.dem)
         except ValueError as exc:
             print(f"  пропуск — {exc}")
             continue

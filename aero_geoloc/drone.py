@@ -23,10 +23,18 @@ from .camera import Camera
 from .geo import ground_mpp, zoom_for_mpp
 from .types import Prior
 
-__all__ = ["DroneShot", "load_drone_shot", "frame_at_mpp", "basemap_zoom_for"]
+__all__ = [
+    "DroneShot",
+    "load_drone_shot",
+    "frame_at_mpp",
+    "basemap_zoom_for",
+    "lookup_ground_elevation",
+]
 
 #: 35-мм кадр: полная ширина 36 мм. f_px = f35 · W / 36, отсюда HFOV = 2·atan(18/f35).
 _FILM_WIDTH_MM = 36.0
+#: User-Agent для DEM-запросов.
+USER_AGENT = "aero-geoloc/0.5 (UAV visual localization)"
 
 
 @dataclass(frozen=True)
@@ -37,9 +45,12 @@ class DroneShot:
         image_bgr: кадр (BGR, полный размер).
         camera: модель камеры (FOV из 35-мм эквивалента фокуса).
         true_lat, true_lon: GPS-позиция камеры — ground truth И центр приора.
-        altitude_m: высота над точкой взлёта (``RelativeAltitude``).
-        yaw_deg: курс подвеса относительно севера (``GimbalYawDegree``).
-        pitch_from_nadir_deg: отклонение оптической оси от надира (0 = строго вниз).
+        altitude_m: высота над землёй (AGL). У DJI — ``RelativeAltitude``; у
+            survey-камер — ``абс. высота − рельеф`` (см. :func:`load_drone_shot`).
+        yaw_deg: курс камеры относительно севера (DJI ``GimbalYawDegree`` либо
+            фотограмметрический ``Camera:Yaw``).
+        pitch_from_nadir_deg, roll_deg: отклонение оптической оси от надира
+            (0 = строго вниз) и крен, градусы.
         model: модель камеры из EXIF.
     """
 
@@ -50,10 +61,11 @@ class DroneShot:
     altitude_m: float
     yaw_deg: float
     pitch_from_nadir_deg: float
+    roll_deg: float
     model: str
 
     def prior(self, *, sigma_m: float = 25.0, altitude_sigma_m: float = 20.0) -> Prior:
-        """Приор из метаданных: центр = GPS, курс = yaw подвеса.
+        """Приор из метаданных: центр = GPS, курс = yaw камеры.
 
         GPS точен (единицы метров), поэтому ``sigma_m`` по умолчанию узкий —
         и грубое окно остаётся небольшим, что важно для обучаемых матчеров
@@ -62,7 +74,7 @@ class DroneShot:
         return Prior(
             lat=self.true_lat, lon=self.true_lon, sigma_m=sigma_m,
             altitude_m=self.altitude_m, altitude_sigma_m=altitude_sigma_m,
-            yaw_deg=self.yaw_deg, pitch_deg=self.pitch_from_nadir_deg,
+            yaw_deg=self.yaw_deg, pitch_deg=self.pitch_from_nadir_deg, roll_deg=self.roll_deg,
         )
 
     @property
@@ -89,19 +101,73 @@ def _dms_to_deg(value, ref: str) -> float:
     return -deg if ref in ("S", "W") else deg
 
 
-def _xmp_float(xmp: str, key: str) -> float | None:
-    m = re.search(rf'drone-dji:{key}="([^"]+)"', xmp) or re.search(rf"<drone-dji:{key}>([^<]+)<", xmp)
+def _xmp_num(xmp: str, name: str) -> float | None:
+    """Число из XMP по локальному имени тега в любом пространстве имён."""
+    m = re.search(rf'[\w-]+:{name}="([^"]+)"', xmp) or re.search(rf"<[\w-]+:{name}>([^<]+)<", xmp)
     return float(m.group(1)) if m else None
 
 
-def load_drone_shot(path: str | Path) -> DroneShot:
-    """Прочитать снимок и метаданные в :class:`DroneShot`.
+def _orientation(xmp: str) -> tuple[float, float, float, float | None]:
+    """Курс, наклон от надира, крен и относительная высота из XMP.
 
-    Курс/высота берутся из XMP DJI (``GimbalYawDegree``/``RelativeAltitude``),
-    GPS — из EXIF, FOV — из 35-мм эквивалента фокуса (``FocalLengthIn35mmFilm``).
+    Поддержаны два формата: **DJI** (``drone-dji:Gimbal*``/``RelativeAltitude``,
+    где питч подвеса −90° = надир) и **фотограмметрический** (``Camera:Yaw/Pitch/
+    Roll`` у senseFly/S.O.D.A., где Pitch уже отсчитан от надира, а высоты в XMP
+    нет). Возвращает ``(yaw, pitch_from_nadir, roll, rel_alt|None)``.
+    """
+    if _xmp_num(xmp, "GimbalYawDegree") is not None:  # DJI
+        gp = _xmp_num(xmp, "GimbalPitchDegree")
+        return (
+            _xmp_num(xmp, "GimbalYawDegree"),
+            (gp + 90.0) if gp is not None else 0.0,
+            _xmp_num(xmp, "GimbalRollDegree") or 0.0,
+            _xmp_num(xmp, "RelativeAltitude"),
+        )
+    yaw = _xmp_num(xmp, "Yaw")  # Camera:Yaw (survey)
+    if yaw is None:
+        raise ValueError("нет курса: ни DJI GimbalYawDegree, ни Camera:Yaw")
+    return (yaw, _xmp_num(xmp, "Pitch") or 0.0, _xmp_num(xmp, "Roll") or 0.0, None)
+
+
+def lookup_ground_elevation(lat: float, lon: float, *, timeout: float = 20.0) -> float:
+    """Высота рельефа в точке [м] через открытый DEM-сервис (open-elevation).
+
+    Нужна для survey-камер, у которых в EXIF только **абсолютная** высота над
+    уровнем моря: AGL = абс. высота − рельеф. Требует сеть.
+    """
+    import json
+    import urllib.parse
+    import urllib.request
+
+    url = "https://api.open-elevation.com/api/v1/lookup?" + urllib.parse.urlencode(
+        {"locations": f"{lat},{lon}"}
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        return float(json.loads(resp.read())["results"][0]["elevation"])
+
+
+def load_drone_shot(
+    path: str | Path,
+    *,
+    ground_elevation_m: float | None = None,
+    altitude_override_m: float | None = None,
+    use_dem: bool = False,
+) -> DroneShot:
+    """Прочитать снимок и метаданные в :class:`DroneShot` (DJI и survey-камеры).
+
+    GPS и фокус (FOV из ``FocalLengthIn35mmFilm``) — из EXIF; курс/наклон/высота —
+    из XMP (DJI ``drone-dji:*`` либо фотограмметрический ``Camera:*``, см.
+    :func:`_orientation`).
+
+    Высота над землёй (AGL): у DJI — из ``RelativeAltitude``. У survey-камер её в
+    XMP нет, поэтому её берут из ``altitude_override_m``, либо считают как
+    ``абс. высота (EXIF) − ground_elevation_m``, либо (``use_dem=True``) рельеф
+    запрашивается из DEM автоматически (:func:`lookup_ground_elevation`, сеть).
 
     Raises:
-        ValueError: если в снимке нет нужных полей (не DJI / нет GPS / нет фокуса).
+        ValueError: нет GPS/фокуса/курса, либо для survey не задана высота над
+            землёй (ни ``ground_elevation_m``/``altitude_override_m``, ни ``use_dem``).
     """
     import cv2
 
@@ -119,20 +185,34 @@ def load_drone_shot(path: str | Path) -> DroneShot:
     lat = _dms_to_deg(gps_ifd[2], gps_ifd.get(1, "N"))
     lon = _dms_to_deg(gps_ifd[4], gps_ifd.get(3, "E"))
 
-    alt = _xmp_float(xmp, "RelativeAltitude")
-    yaw = _xmp_float(xmp, "GimbalYawDegree")
-    pitch = _xmp_float(xmp, "GimbalPitchDegree")
-    if alt is None or yaw is None:
-        raise ValueError(f"{path.name}: нет DJI XMP (RelativeAltitude/GimbalYawDegree)")
-    # Питч подвеса: −90° = строго вниз (надир). Отклонение от надира = pitch + 90.
-    pitch_from_nadir = (pitch + 90.0) if pitch is not None else 0.0
+    try:
+        yaw, pitch_from_nadir, roll, rel_alt = _orientation(xmp)
+    except ValueError as exc:
+        raise ValueError(f"{path.name}: {exc}") from exc
+
+    if rel_alt is not None:
+        altitude = rel_alt
+    elif altitude_override_m is not None:
+        altitude = altitude_override_m
+    elif ground_elevation_m is not None or use_dem:
+        gps_alt = gps_ifd.get(6)
+        if gps_alt is None:
+            raise ValueError(f"{path.name}: нет абс. высоты в EXIF для расчёта AGL")
+        ground = ground_elevation_m if ground_elevation_m is not None else lookup_ground_elevation(lat, lon)
+        altitude = float(gps_alt) - ground
+    else:
+        raise ValueError(
+            f"{path.name}: нет высоты над землёй — для survey-камеры передайте "
+            "ground_elevation_m/altitude_override_m или use_dem=True"
+        )
 
     bgr = cv2.cvtColor(np.array(img.convert("RGB")), cv2.COLOR_RGB2BGR)
     model = str(tags.get("Model", "")).strip("\x00 ")
     return DroneShot(
         image_bgr=bgr, camera=Camera(W, H, fov_deg=fov_deg),
-        true_lat=lat, true_lon=lon, altitude_m=float(alt),
-        yaw_deg=float(yaw), pitch_from_nadir_deg=float(pitch_from_nadir), model=model,
+        true_lat=lat, true_lon=lon, altitude_m=float(altitude),
+        yaw_deg=float(yaw), pitch_from_nadir_deg=float(pitch_from_nadir),
+        roll_deg=float(roll), model=model,
     )
 
 

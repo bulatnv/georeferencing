@@ -51,9 +51,9 @@ def collect(args) -> list[dict]:
             files = files[:: args.step]
         for path in files:
             try:
-                shot = load_drone_shot(path)
+                shot = load_drone_shot(path, use_dem=args.dem)
             except ValueError:
-                continue  # нет GPS/фокуса/DJI-XMP — не наш кадр
+                continue  # нет GPS/фокуса/курса — не наш кадр
             if not shot.is_nadir:
                 continue
             z = basemap_zoom_for(shot, max_zoom=max_zoom)
@@ -143,6 +143,7 @@ def main() -> int:
     parser.add_argument("--matcher", default="lightglue", choices=["sift", "akaze", "lightglue", "loftr"])
     parser.add_argument("--cache", default="tiles")
     parser.add_argument("--sigma-m", type=float, default=25.0)
+    parser.add_argument("--dem", action="store_true", help="считать AGL survey-камер через DEM (сеть)")
     parser.add_argument("--step", type=int, default=1, help="прореживание больших датасетов (каждый N-й)")
     parser.add_argument("--correct-m", type=float, default=30.0, help="порог ошибки для «верно»")
     parser.add_argument("--min-ncc", type=float, default=0.3,

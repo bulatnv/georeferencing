@@ -14,9 +14,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-IMAGES = Path(__file__).resolve().parents[1] / "test_images"
+ROOT = Path(__file__).resolve().parents[1]
+IMAGES = ROOT / "test_images"
 NADIR_IMG = IMAGES / "00049.JPG"
 OBLIQUE_IMG = IMAGES / "DJI_0058.JPG"
+
+
+def _first_jpg(directory: Path) -> Path | None:
+    return next(iter(sorted(directory.glob("*.JPG"))), None) if directory.exists() else None
+
+
+SENSEFLY = _first_jpg(ROOT / "for_binding" / "images")  # survey: Camera:Yaw/Pitch/Roll, только абс. высота
 
 _HAS_PIL = importlib.util.find_spec("PIL") is not None
 _HAS_LIGHTGLUE = importlib.util.find_spec("lightglue") is not None
@@ -68,6 +76,45 @@ def test_oblique_shot_flagged_non_nadir():
 
     shot = load_drone_shot(OBLIQUE_IMG)
     assert not shot.is_nadir  # gimbal pitch 0° = горизонт, ~90° от надира
+
+
+# --- survey-камеры (senseFly/S.O.D.A.: Camera:Yaw/Pitch/Roll, только абс. высота) ---
+
+
+@pytest.mark.skipif(SENSEFLY is None or not _HAS_PIL, reason="нет survey-снимка для теста")
+def test_survey_camera_metadata_and_altitude_override():
+    """Survey-камера: курс/наклон из Camera:*; высота — из явного override."""
+    from aero_geoloc.drone import load_drone_shot
+
+    shot = load_drone_shot(SENSEFLY, altitude_override_m=150.0)
+    assert shot.altitude_m == 150.0  # override, т.к. в XMP нет AGL
+    assert "senseFly" in shot.model
+    assert isinstance(shot.yaw_deg, float)  # Camera:Yaw
+    assert isinstance(shot.pitch_from_nadir_deg, float) and isinstance(shot.roll_deg, float)
+
+
+@pytest.mark.skipif(SENSEFLY is None or not _HAS_PIL, reason="нет survey-снимка для теста")
+def test_survey_without_ground_elevation_raises():
+    """У survey-камеры нет AGL в XMP — без рельефа/override загрузчик честно падает."""
+    from aero_geoloc.drone import load_drone_shot
+
+    with pytest.raises(ValueError, match="высот"):
+        load_drone_shot(SENSEFLY)
+
+
+@pytest.mark.skipif(
+    SENSEFLY is None or not _NET, reason="нужны survey-снимок + сеть (DEM)",
+)
+def test_survey_agl_from_dem():
+    """AGL = абс. высота (EXIF) − рельеф (DEM) даёт разумную survey-высоту."""
+    from aero_geoloc.drone import load_drone_shot, lookup_ground_elevation
+    from PIL import Image, ExifTags
+
+    g = Image.open(SENSEFLY).getexif().get_ifd(ExifTags.IFD.GPSInfo)
+    lat = float(g[2][0]) + float(g[2][1]) / 60 + float(g[2][2]) / 3600
+    lon = float(g[4][0]) + float(g[4][1]) / 60 + float(g[4][2]) / 3600
+    shot = load_drone_shot(SENSEFLY, ground_elevation_m=lookup_ground_elevation(lat, lon))
+    assert 50.0 < shot.altitude_m < 400.0  # правдоподобная высота полёта survey
 
 
 @pytest.mark.skipif(
