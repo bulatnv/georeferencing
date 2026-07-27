@@ -26,3 +26,4 @@ for_binding/
 # Слепок окружения, не артефакт проекта.
 freeze.txt
 maps/
+eval_out/
