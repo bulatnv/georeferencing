@@ -44,6 +44,10 @@ __all__ = [
     "AveragePoolEncoder",
     "DinoV2Encoder",
     "MegaLocEncoder",
+    "PCAReducer",
+    "AnnBackend",
+    "NumpyAnn",
+    "FaissAnn",
     "Cell",
     "RetrievalResult",
     "TerrainIndex",
@@ -298,20 +302,235 @@ def _rotate(image: np.ndarray, deg: float) -> np.ndarray:
     )
 
 
+def _randomized_svd(
+    xc: np.ndarray, k: int, *, seed: int = 0, n_oversamples: int = 10, n_iter: int = 4
+) -> tuple[np.ndarray, np.ndarray]:
+    """Рандомизированный усечённый SVD центрированной матрицы (алгоритм Halko).
+
+    Полный SVD матрицы (N × 8448) неподъёмен; здесь нужны только top-k правых
+    сингулярных векторов. Случайная проекция + степенные итерации + малый точный
+    SVD дают их за O(N·D·k), детерминированно (фиксированный seed). Возвращает
+    ``(components (k, D), singular_values (k,))``.
+    """
+    n, d = xc.shape
+    k = min(k, n, d)
+    rng = np.random.default_rng(seed)
+    sketch = min(k + n_oversamples, min(n, d))
+    omega = rng.standard_normal((d, sketch)).astype(np.float32)
+    y = xc @ omega  # (N, sketch)
+    for _ in range(n_iter):  # степенные итерации — прижимают спектр к главному
+        y = xc @ (xc.T @ y)
+    q, _ = np.linalg.qr(y)  # ортонормированный базис диапазона (N, sketch)
+    b = q.T @ xc  # (sketch, D) — проекция в малое подпространство
+    _ub, sv, vt = np.linalg.svd(b, full_matrices=False)
+    return vt[:k].astype(np.float32), sv[:k].astype(np.float32)
+
+
+class PCAReducer:
+    """PCA-редукция дескриптора Этажа 1 (опц. whitening) — сжатие без потери сути.
+
+    Зачем ([JOURNAL.md], веха PCA+FAISS): dim 8448 × десятки тысяч клеток ×
+    аугментация не влезает в память, и каждое сравнение дорого. PCA проецирует в
+    ~1024-мерное подпространство максимальной дисперсии (память ÷8, сравнение ×8
+    дешевле). **Whitening** дополнительно уравнивает анизотропные оси сырого
+    дескриптора (несколько направлений с огромной дисперсией иначе «забивают»
+    косинус) — известный приём VPR, немного поднимает Recall. Выход L2-нормируется,
+    чтобы скалярное произведение оставалось косинусом (для FAISS IP/HNSW).
+
+    Обучается на векторах индекса (``fit``), применяется и к клеткам, и к запросу
+    (тот же редуктор — иначе координаты несопоставимы, как и один энкодер).
+    """
+
+    def __init__(self, n_components: int = 1024, *, whiten: bool = True, seed: int = 0) -> None:
+        if n_components < 1:
+            raise ValueError(f"n_components должно быть >= 1, получено {n_components}")
+        self.n_components = int(n_components)
+        self.whiten = bool(whiten)
+        self.seed = int(seed)
+        self.mean_: np.ndarray | None = None
+        self.components_: np.ndarray | None = None  # (k, D)
+        self.scale_: np.ndarray | None = None  # (k,)
+
+    @property
+    def dim(self) -> int:
+        return 0 if self.components_ is None else int(self.components_.shape[0])
+
+    @property
+    def input_dim(self) -> int | None:
+        return None if self.components_ is None else int(self.components_.shape[1])
+
+    def fit(self, x: np.ndarray) -> PCAReducer:
+        x = np.asarray(x, dtype=np.float32)
+        if x.ndim != 2:
+            raise ValueError(f"fit ждёт матрицу (N, D), получено {x.ndim}D {x.shape}")
+        n = x.shape[0]
+        self.mean_ = x.mean(axis=0)
+        xc = x - self.mean_
+        components, sv = _randomized_svd(xc, self.n_components, seed=self.seed)
+        self.components_ = components
+        if self.whiten:
+            # координата i делится на std вдоль i-й компоненты (std = σ_i/√(N−1))
+            self.scale_ = (np.sqrt(max(n - 1, 1)) / (sv + 1e-8)).astype(np.float32)
+        else:
+            self.scale_ = np.ones(components.shape[0], dtype=np.float32)
+        return self
+
+    def transform(self, x: np.ndarray) -> np.ndarray:
+        if self.components_ is None:
+            raise RuntimeError("PCAReducer не обучен — вызовите fit")
+        single = x.ndim == 1
+        xm = np.atleast_2d(np.asarray(x, dtype=np.float32)) - self.mean_
+        proj = (xm @ self.components_.T) * self.scale_  # (n, k), whitened
+        norms = np.linalg.norm(proj, axis=1, keepdims=True)
+        proj = np.divide(proj, norms, out=np.zeros_like(proj), where=norms > 0.0)
+        return proj[0] if single else proj
+
+    def state(self) -> dict[str, np.ndarray]:
+        """Массивы для персистентности (совместно с индексом)."""
+        return {"pca_mean": self.mean_, "pca_components": self.components_, "pca_scale": self.scale_}
+
+    @classmethod
+    def from_state(cls, mean: np.ndarray, components: np.ndarray, scale: np.ndarray) -> PCAReducer:
+        red = cls(int(components.shape[0]))
+        red.mean_ = mean.astype(np.float32)
+        red.components_ = components.astype(np.float32)
+        red.scale_ = scale.astype(np.float32)
+        return red
+
+
+@runtime_checkable
+class AnnBackend(Protocol):
+    """Сменный движок поиска ближайших соседей за неизменным ``TerrainIndex.query``.
+
+    Инвариант ([RETRIEVAL.md]): «ANN сейчас — точный numpy-kNN… для больших
+    территорий его заменит FAISS/HNSW; интерфейс query при этом не изменится».
+    """
+
+    uniqueness_pool: int  # сколько кандидатов тянуть для сигнала уникальности
+
+    def build(self, matrix: np.ndarray) -> None:
+        """Проиндексировать матрицу (N, dim) нормированных векторов."""
+        ...
+
+    def search(self, query: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+        """top-k: ``(индексы, близости)`` по убыванию близости."""
+        ...
+
+
+class NumpyAnn:
+    """Точный kNN по косинусу (numpy) — поведение по умолчанию, как было.
+
+    ``uniqueness_pool`` фактически вся выборка → сигнал уникальности считается по
+    полному ранжированию (точно, как в исходной реализации).
+    """
+
+    uniqueness_pool = 1_000_000_000
+
+    def __init__(self) -> None:
+        self._matrix: np.ndarray | None = None
+
+    def build(self, matrix: np.ndarray) -> None:
+        self._matrix = matrix
+
+    def search(self, query: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+        sims = self._matrix @ query
+        k = min(k, sims.shape[0])
+        # argpartition даёт top-k за O(N), затем сортируем только их
+        part = np.argpartition(sims, -k)[-k:]
+        order = part[np.argsort(sims[part])[::-1]]
+        return order, sims[order]
+
+
+class FaissAnn:
+    """ANN на FAISS (HNSW по умолчанию) — сублинейный поиск для больших территорий.
+
+    HNSW-граф даёт O(log N) на запрос независимо от размера индекса и делает
+    ротационную аугментацию/рост территории бесплатными по поиску (в отличие от
+    линейного скана numpy). Метрика — inner product по нормированным векторам =
+    косинус. Тяжёлая зависимость грузится **лениво**; без ``faiss`` конструктор
+    работает, а ``build`` даёт понятную ошибку.
+
+    ``uniqueness_pool`` ограничен (не тянуть весь индекс на каждый запрос):
+    далёкий двойник самоподобия высокоближен по определению → попадает в top-пул.
+    """
+
+    def __init__(
+        self,
+        *,
+        kind: str = "hnsw",
+        hnsw_m: int = 32,
+        ef_construction: int = 200,
+        ef_search: int = 64,
+        uniqueness_pool: int = 128,
+    ) -> None:
+        if kind not in ("hnsw", "flat"):
+            raise ValueError(f"kind ∈ {{'hnsw','flat'}}, получено {kind!r}")
+        self.kind = kind
+        self.hnsw_m = hnsw_m
+        self.ef_construction = ef_construction
+        self.ef_search = ef_search
+        self.uniqueness_pool = int(uniqueness_pool)
+        self._index = None
+        self._faiss = None
+
+    def _ensure_faiss(self):
+        if self._faiss is None:
+            try:
+                import faiss
+            except ImportError as exc:  # pragma: no cover - зависит от окружения
+                raise RuntimeError(
+                    "FaissAnn требует faiss: установите `pip install faiss-cpu` "
+                    "(или faiss-gpu). Без него используйте NumpyAnn (по умолчанию)."
+                ) from exc
+            self._faiss = faiss
+        return self._faiss
+
+    def build(self, matrix: np.ndarray) -> None:
+        faiss = self._ensure_faiss()
+        mat = np.ascontiguousarray(matrix, dtype=np.float32)
+        d = int(mat.shape[1])
+        if self.kind == "flat":
+            index = faiss.IndexFlatIP(d)  # точный IP — эталон/малые индексы
+        else:
+            index = faiss.IndexHNSWFlat(d, self.hnsw_m, faiss.METRIC_INNER_PRODUCT)
+            index.hnsw.efConstruction = self.ef_construction
+            index.hnsw.efSearch = self.ef_search
+        index.add(mat)
+        self._index = index
+
+    def search(self, query: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+        if self._index is None:
+            raise RuntimeError("FaissAnn не построен — вызовите build")
+        q = np.ascontiguousarray(np.atleast_2d(query), dtype=np.float32)
+        k = min(k, int(self._index.ntotal))
+        sims, idx = self._index.search(q, k)
+        idx, sims = idx[0], sims[0]
+        keep = idx >= 0  # FAISS помечает недостающих −1
+        return idx[keep], sims[keep]
+
+
 class TerrainIndex:
     """Многомасштабный индекс клеток подложки + ANN-запрос кадром.
 
     Строится офлайн из источника подложки (:class:`BasemapSource`), в рантайме
-    отвечает на запрос кадром top-K клетками. Векторы хранятся нормированными,
-    поиск — точный kNN по косинусу (numpy); для больших территорий заменяется на
-    FAISS/HNSW без изменения интерфейса.
+    отвечает на запрос кадром top-K клетками. По умолчанию — сырые нормированные
+    векторы + точный numpy-kNN (как было). Для больших территорий:
+    :meth:`compress` сжимает дескриптор PCA→~1024 (память/скорость), :meth:`use_faiss`
+    переключает поиск на FAISS/HNSW (сублинейно) — оба **не меняют** интерфейс
+    :meth:`query`. Порядок для ±5 км: ``build(...).compress().use_faiss()``.
     """
 
-    def __init__(self, encoder: Encoder) -> None:
+    def __init__(
+        self, encoder: Encoder, *, reducer: PCAReducer | None = None, ann: AnnBackend | None = None
+    ) -> None:
         self.encoder = encoder
         self._vectors: list[np.ndarray] = []
         self._cells: list[Cell] = []
-        self._matrix: np.ndarray | None = None  # (N, dim), собирается лениво
+        self._matrix: np.ndarray | None = None  # (N, dim) сырых векторов, лениво
+        self._reducer = reducer
+        self._reduced: np.ndarray | None = None  # (N, k) после PCA, лениво
+        self._ann_backend = ann
+        self._ann: AnnBackend | None = None  # построенный движок, лениво
 
     def __len__(self) -> int:
         return len(self._cells)
@@ -323,6 +542,8 @@ class TerrainIndex:
         self._vectors.append(self.encoder.encode(_rotate(cell_gray, cell.rotation_deg)))
         self._cells.append(cell)
         self._matrix = None
+        self._reduced = None
+        self._ann = None
 
     def build(
         self,
@@ -377,36 +598,82 @@ class TerrainIndex:
                     )
         return self
 
+    # --- сжатие и движок поиска (масштаб на большие территории) --------------
+
+    def compress(self, n_components: int = 1024, *, whiten: bool = True, seed: int = 0) -> TerrainIndex:
+        """Сжать дескриптор клеток PCA→``n_components`` (опц. whitening). После build.
+
+        Обучает :class:`PCAReducer` на сырых векторах индекса и переводит поиск на
+        сжатое подпространство — память ÷(dim/k), сравнение дешевле. Запрос будет
+        проходить тот же редуктор. Не меняет интерфейс :meth:`query`.
+        """
+        reducer = PCAReducer(n_components, whiten=whiten, seed=seed).fit(self._stacked())
+        self._reducer = reducer
+        self._reduced = None
+        self._ann = None
+        return self
+
+    def use_faiss(self, **kwargs) -> TerrainIndex:
+        """Переключить поиск на FAISS/HNSW (сублинейно). После build/compress.
+
+        Аргументы — в :class:`FaissAnn` (``kind``, ``hnsw_m``, ``ef_search``…).
+        Без пакета ``faiss`` первый запрос даст понятную ошибку.
+        """
+        self._ann_backend = FaissAnn(**kwargs)
+        self._ann = None
+        return self
+
     # --- персистентность ----------------------------------------------------
 
     def save(self, path) -> None:
-        """Сохранить индекс (векторы + гео-метаданные клеток) в ``.npz``.
+        """Сохранить индекс (поисковые векторы + метаданные, + PCA если сжат) в ``.npz``.
 
         Энкодер не сохраняется — это код; при загрузке его передают заново (тот
-        же, что при построении, иначе векторы несопоставимы).
+        же, что при построении, иначе векторы несопоставимы). Если индекс сжат PCA,
+        сохраняются **сжатые** векторы и состояние редуктора; движок поиска (FAISS)
+        не сохраняется — строится заново лениво при первом запросе.
         """
-        np.savez(
-            path,
-            vectors=self._stacked(),
+        arrays = dict(
+            vectors=self._search_matrix(),
             center_lon=np.array([c.center_lon for c in self._cells], dtype=np.float64),
             center_lat=np.array([c.center_lat for c in self._cells], dtype=np.float64),
             zoom=np.array([c.zoom for c in self._cells], dtype=np.int32),
             size_px=np.array([c.size_px for c in self._cells], dtype=np.int32),
             rotation_deg=np.array([c.rotation_deg for c in self._cells], dtype=np.float64),
         )
+        if self._reducer is not None:
+            arrays.update(self._reducer.state())
+        np.savez(path, **arrays)
 
     @classmethod
     def load(cls, path, encoder: Encoder) -> TerrainIndex:
-        """Загрузить индекс из ``.npz`` и привязать энкодер (тот же, что при сборке)."""
+        """Загрузить индекс из ``.npz`` и привязать энкодер (тот же, что при сборке).
+
+        Распознаёт сжатые индексы (наличие ключей ``pca_*``): восстанавливает
+        редуктор и сжатую матрицу; совместимость энкодера проверяется по входной
+        размерности PCA. Несжатые — как раньше, по размерности векторов.
+        """
         data = np.load(path)
-        if data["vectors"].shape[1] != encoder.dim:
-            raise ValueError(
-                f"размерность индекса {data['vectors'].shape[1]} не совпадает с "
-                f"энкодером ({encoder.dim}) — вероятно, другой энкодер"
-            )
+        vectors = data["vectors"].astype(np.float32)
         index = cls(encoder)
-        index._matrix = data["vectors"].astype(np.float32)
-        index._vectors = list(index._matrix)
+        if "pca_components" in data:
+            if data["pca_components"].shape[1] != encoder.dim:
+                raise ValueError(
+                    f"вход PCA {data['pca_components'].shape[1]} не совпадает с энкодером "
+                    f"({encoder.dim}) — вероятно, другой энкодер"
+                )
+            index._reducer = PCAReducer.from_state(
+                data["pca_mean"], data["pca_components"], data["pca_scale"]
+            )
+            index._reduced = vectors  # уже сжатые
+        else:
+            if vectors.shape[1] != encoder.dim:
+                raise ValueError(
+                    f"размерность индекса {vectors.shape[1]} не совпадает с "
+                    f"энкодером ({encoder.dim}) — вероятно, другой энкодер"
+                )
+            index._matrix = vectors
+            index._vectors = list(vectors)
         index._cells = [
             Cell(float(lon), float(lat), int(z), int(s), float(r))
             for lon, lat, z, s, r in zip(
@@ -426,6 +693,21 @@ class TerrainIndex:
                 else np.empty((0, self.encoder.dim), np.float32)
             )
         return self._matrix
+
+    def _search_matrix(self) -> np.ndarray:
+        """Матрица, по которой идёт поиск: сжатая (если PCA) или сырая."""
+        if self._reducer is None:
+            return self._stacked()
+        if self._reduced is None:
+            self._reduced = self._reducer.transform(self._stacked())
+        return self._reduced
+
+    def _ensure_ann(self) -> AnnBackend:
+        if self._ann is None:
+            backend = self._ann_backend if self._ann_backend is not None else NumpyAnn()
+            backend.build(self._search_matrix())
+            self._ann = backend
+        return self._ann
 
     def query(
         self,
@@ -452,23 +734,31 @@ class TerrainIndex:
         if len(self) == 0:
             return RetrievalResult(cells=[], similarities=np.empty((0,), np.float32))
         vec = self.encoder.encode(_rotate(frame_gray, prerotate_deg))
-        sims = self._stacked() @ vec
+        if self._reducer is not None:
+            vec = self._reducer.transform(vec)
+        ann = self._ensure_ann()
+        # Пул под сигнал уникальности: точный движок (numpy) отдаёт полное ранжирование,
+        # приближённый (FAISS) — ограниченный top-пул (далёкий двойник высокоближен →
+        # попадает в него). ``idx``/``sims`` выровнены и убывают по близости.
+        pool = min(len(self), max(k, ann.uniqueness_pool))
+        idx, sims = ann.search(vec, pool)
 
-        order = np.argsort(sims)[::-1]
-        best = self._cells[order[0]]
+        best = self._cells[int(idx[0])]
         if suppress_radius_m is None:
             suppress_radius_m = best.size_px * ground_mpp(best.center_lat, best.zoom)
         # Уникальность: top-1 минус лучший далёкий конкурент (пространственный NMS).
         uniqueness = 1.0
-        for i in order[1:]:
-            cell = self._cells[i]
+        for pos in range(1, idx.size):
+            cell = self._cells[int(idx[pos])]
             if haversine_m(best.center_lat, best.center_lon, cell.center_lat, cell.center_lon) > suppress_radius_m:
-                uniqueness = float(sims[order[0]] - sims[i])
+                uniqueness = float(sims[0] - sims[pos])
                 break
 
-        top = order[: min(k, sims.size)]
+        top = min(k, idx.size)
         return RetrievalResult(
-            cells=[self._cells[i] for i in top], similarities=sims[top], uniqueness=uniqueness
+            cells=[self._cells[int(i)] for i in idx[:top]],
+            similarities=sims[:top],
+            uniqueness=uniqueness,
         )
 
 

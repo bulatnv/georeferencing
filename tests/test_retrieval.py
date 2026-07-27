@@ -18,6 +18,7 @@ from aero_geoloc.retrieval import (
     DinoV2Encoder,
     Encoder,
     MegaLocEncoder,
+    PCAReducer,
     RetrievalResult,
     TerrainIndex,
     calibrate_uniqueness_threshold,
@@ -241,6 +242,105 @@ def test_index_load_rejects_encoder_mismatch(rich_index, tmp_path):
     rich_index.save(path)
     with pytest.raises(ValueError, match="не совпадает"):
         TerrainIndex.load(path, AveragePoolEncoder(16))  # другая размерность
+
+
+# --- PCA-редукция (память/скорость Этажа 1, масштаб на большие территории) ---
+
+
+def test_pca_reducer_shapes_normalized_deterministic():
+    rng = np.random.default_rng(0)
+    x = rng.standard_normal((200, 128)).astype(np.float32)
+    x /= np.linalg.norm(x, axis=1, keepdims=True)
+    red = PCAReducer(32, whiten=True, seed=0).fit(x)
+    assert red.dim == 32 and red.input_dim == 128
+    reduced = red.transform(x)
+    assert reduced.shape == (200, 32)
+    np.testing.assert_allclose(np.linalg.norm(reduced, axis=1), 1.0, atol=1e-5)  # L2-норма
+    # Одиночный вектор — тот же путь, что строка матрицы.
+    np.testing.assert_allclose(red.transform(x[0]), reduced[0], atol=1e-6)
+    # Детерминизм по seed.
+    np.testing.assert_allclose(PCAReducer(32, seed=0).fit(x).transform(x[0]), reduced[0], atol=1e-6)
+
+
+def test_pca_reducer_clamps_components_to_rank():
+    red = PCAReducer(1000).fit(np.eye(20, 40, dtype=np.float32))  # ранг ≤ 20
+    assert red.dim <= 20
+
+
+def test_pca_transform_before_fit_raises():
+    with pytest.raises(RuntimeError, match="не обучен"):
+        PCAReducer(8).transform(np.zeros((4,), np.float32))
+
+
+def test_compress_preserves_recall(rich_scene, camera, rich_index):
+    """PCA-сжатие индекса не роняет Recall — обвязка сохраняет различительность.
+
+    Проверяем именно интеграцию редукции (plain PCA сохраняет топ-дисперсию).
+    Whitening здесь выключен: на слабом стенд-энкодере с малой выборкой (121
+    клетка) деление на плохо оценённые малые сингулярные значения раздувает шум —
+    его выигрыш дескриптор-зависим и меряется на реальном MegaLoc, а не тут.
+    """
+    queries = _queries(rich_scene, camera, offsets=[-600, -300, 0, 300, 600])
+    base = recall_at_k(rich_index, queries, k=5, radius_m=130.0)
+    compressed = TerrainIndex(AveragePoolEncoder(grid=24)).build(
+        SceneBasemap(rich_scene), rich_scene.georef, cell_size_px=CELL, overlap=0.5
+    ).compress(48, whiten=False)
+    assert compressed._reducer is not None and compressed._reducer.dim == 48
+    assert recall_at_k(compressed, queries, k=5, radius_m=130.0) >= base - 0.1
+
+
+def test_compressed_index_save_load_roundtrip(rich_scene, camera, tmp_path):
+    idx = TerrainIndex(AveragePoolEncoder(grid=24)).build(
+        SceneBasemap(rich_scene), rich_scene.georef, cell_size_px=CELL, overlap=0.5
+    ).compress(48)
+    path = tmp_path / "index_pca.npz"
+    idx.save(path)
+    loaded = TerrainIndex.load(path, AveragePoolEncoder(24))
+    assert loaded._reducer is not None and loaded._reducer.dim == 48
+    q = _queries(rich_scene, camera, offsets=[0])[0]
+    r0 = idx.query(q[0], k=5, prerotate_deg=q[3])
+    r1 = loaded.query(q[0], k=5, prerotate_deg=q[3])
+    assert [c.center_lat for c in r0.cells] == [c.center_lat for c in r1.cells]
+    np.testing.assert_allclose(r0.similarities, r1.similarities, atol=1e-5)
+
+
+def test_compressed_load_rejects_encoder_mismatch(rich_scene, tmp_path):
+    idx = TerrainIndex(AveragePoolEncoder(grid=24)).build(
+        SceneBasemap(rich_scene), rich_scene.georef, cell_size_px=CELL, overlap=0.5
+    ).compress(48)
+    path = tmp_path / "index_pca.npz"
+    idx.save(path)
+    with pytest.raises(ValueError, match="не совпадает"):
+        TerrainIndex.load(path, AveragePoolEncoder(16))  # другой вход PCA
+
+
+# --- FAISS-движок поиска (сублинейно, для больших территорий) ----------------
+
+_HAS_FAISS = importlib.util.find_spec("faiss") is not None
+
+
+@pytest.mark.skipif(not _HAS_FAISS, reason="нужен faiss (pip install faiss-cpu)")
+def test_faiss_flat_matches_numpy_exact(rich_scene, camera, rich_index):
+    """FAISS Flat (точный IP) даёт то же top-K, что numpy-kNN — эталонная сверка."""
+    idx = TerrainIndex(AveragePoolEncoder(grid=24)).build(
+        SceneBasemap(rich_scene), rich_scene.georef, cell_size_px=CELL, overlap=0.5
+    ).use_faiss(kind="flat")
+    for q in _queries(rich_scene, camera, offsets=[-300, 0, 300]):
+        r_np = rich_index.query(q[0], k=5, prerotate_deg=q[3])
+        r_fa = idx.query(q[0], k=5, prerotate_deg=q[3])
+        assert [c.center_lat for c in r_fa.cells] == [c.center_lat for c in r_np.cells]
+        np.testing.assert_allclose(r_fa.similarities, r_np.similarities, atol=1e-5)
+
+
+@pytest.mark.skipif(not _HAS_FAISS, reason="нужен faiss (pip install faiss-cpu)")
+def test_faiss_hnsw_keeps_recall_with_pca(rich_scene, camera, rich_index):
+    """Полный масштаб-стек PCA+FAISS/HNSW не роняет Recall против точного numpy."""
+    queries = _queries(rich_scene, camera, offsets=[-600, -300, 0, 300, 600])
+    base = recall_at_k(rich_index, queries, k=5, radius_m=130.0)
+    idx = TerrainIndex(AveragePoolEncoder(grid=24)).build(
+        SceneBasemap(rich_scene), rich_scene.georef, cell_size_px=CELL, overlap=0.5
+    ).compress(48, whiten=False).use_faiss(kind="hnsw", ef_search=128)
+    assert recall_at_k(idx, queries, k=5, radius_m=130.0) >= base - 0.1
 
 
 # --- DINOv2-энкодер (боевое ядро за интерфейсом Encoder) ---------------------
