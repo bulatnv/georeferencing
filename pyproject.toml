@@ -17,10 +17,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Фаза 2: загрузка XYZ-тайлов подложки.
-basemap = [
-    "requests>=2.31",
+# Реальные бортовые снимки: чтение EXIF/XMP (модуль drone.py). Загрузка тайлов
+# подложки идёт через stdlib, а декод — через ядровой OpenCV, так что basemap
+# доп. зависимостей не требует.
+real = [
     "pillow>=10.0",
+]
+# Обучаемые матчеры фазы 4 и DINOv2-энкодер фазы 3 (нужен GPU-torch). LightGlue
+# ставится из GitHub: pip install "git+https://github.com/cvg/LightGlue.git".
+learned = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "kornia>=0.7",
 ]
 dev = [
     "pytest>=7.4",
