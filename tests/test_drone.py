@@ -95,3 +95,39 @@ def test_localize_real_image_against_esri():
     assert result.is_localized
     err = haversine_m(shot.true_lat, shot.true_lon, result.center_lat, result.center_lon)
     assert err < 25.0  # георефа Esri + GPS + наклон ≈ единицы метров
+
+
+@pytest.mark.skipif(
+    not (importlib.util.find_spec("torch") and _NET),
+    reason="нужны torch (DINOv2 через torch.hub) + сеть",
+)
+def test_dinov2_retrieval_finds_real_region():
+    """DINOv2-индекс над реальным регионом Esri находит место кадра через season gap.
+
+    Стенд-энкодер (AveragePool) на настоящем appearance gap промахивается —
+    DINOv2 опознаёт клетку. Проверяем именно это (Recall), сигнал уникальности
+    на почти-однородном пригороде слаб и здесь не утверждается.
+    """
+    from aero_geoloc.basemap import ESRI_WORLD_IMAGERY, TileBasemap, TileCache
+    from aero_geoloc.drone import basemap_zoom_for, frame_at_mpp, load_drone_shot
+    from aero_geoloc.geo import Georef, ground_mpp, haversine_m
+    from aero_geoloc.localize import normalize_gray
+    from aero_geoloc.retrieval import DinoV2Encoder, TerrainIndex
+
+    shot = load_drone_shot(NADIR_IMG)
+    z = basemap_zoom_for(shot, max_zoom=ESRI_WORLD_IMAGERY.max_zoom)
+    mpp = ground_mpp(shot.true_lat, z)
+    frame, _ = frame_at_mpp(shot, mpp)
+
+    cell_px, region_px = 640, 1920  # GPS попадает в центр клетки сетки
+    region = Georef(shot.true_lon, shot.true_lat, z, region_px, region_px)
+    index = TerrainIndex(DinoV2Encoder()).build(
+        TileBasemap(cache=TileCache("tiles")), region,
+        cell_size_px=cell_px, overlap=0.5, rotations_deg=(0.0,),
+    )
+    result = index.query(normalize_gray(frame), k=3, prerotate_deg=-shot.yaw_deg)
+    radius = cell_px * mpp * 0.6
+    distances = [
+        haversine_m(shot.true_lat, shot.true_lon, c.center_lat, c.center_lon) for c in result.cells
+    ]
+    assert min(distances) <= radius  # верная клетка в top-3 несмотря на разрыв сезонов
