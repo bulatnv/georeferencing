@@ -57,6 +57,8 @@ def main() -> int:
                         help="ядро Этажа 1: dinov2 (сырой) или megaloc (VPR)")
     parser.add_argument("--min-inliers", type=int, default=10,
                         help="порог similarity-инлайеров точного уровня (низкая высота/кросс-дата → 6)")
+    parser.add_argument("--top-k", type=int, default=5,
+                        help="сколько клеток-кандидатов брать у ретривала (большой регион → ранг верной растёт)")
     parser.add_argument("--dem", action="store_true")
     parser.add_argument("--declination", type=float, default=0.0)
     parser.add_argument("--cache", default="tiles")
@@ -110,7 +112,7 @@ def main() -> int:
     t0 = time.perf_counter()
     result = localize(frame, camera, prior, basemap, index=index, matcher=LightGlueMatcher(),
                       prerotate=True, max_zoom=mz, min_ncc=0.05, min_inliers=args.min_inliers,
-                      ransac_threshold_px=6.0)
+                      retrieval_top_k=args.top_k, ransac_threshold_px=6.0)
     dt = time.perf_counter() - t0
     if result.is_localized:
         err = haversine_m(shot.true_lat, shot.true_lon, result.center_lat, result.center_lon)
