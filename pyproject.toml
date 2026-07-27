@@ -25,10 +25,18 @@ real = [
 ]
 # Обучаемые матчеры фазы 4 и DINOv2-энкодер фазы 3 (нужен GPU-torch). LightGlue
 # ставится из GitHub: pip install "git+https://github.com/cvg/LightGlue.git".
+# MegaLoc-энкодер тянет веса через torch.hub → нужны huggingface_hub + safetensors.
 learned = [
     "torch>=2.0",
     "torchvision>=0.15",
     "kornia>=0.7",
+    "huggingface_hub>=0.20",
+    "safetensors>=0.4",
+]
+# ANN-поиск Этажа 1 для больших территорий (TerrainIndex.use_faiss). Без него
+# работает точный numpy-kNN (по умолчанию); нужен лишь для FAISS/HNSW-масштаба.
+faiss = [
+    "faiss-cpu>=1.7",
 ]
 dev = [
     "pytest>=7.4",
