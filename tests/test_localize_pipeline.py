@@ -192,6 +192,33 @@ def test_scale_loop_keeps_best_and_does_not_regress(scene, camera):
     assert err_px < 0.2
 
 
+# --- низкие высоты и не-инвариантные матчеры --------------------------------
+
+
+def test_max_zoom_clamps_fine_zoom(scene, camera):
+    """Зум точного уровня не превышает максимум провайдера (низкая высота)."""
+    sample = generate_sample(scene, camera, SampleSpec(yaw_deg=0.0), prior_sigma_m=50.0)
+    result = localize(sample.query, camera, sample.prior, SceneBasemap(scene), max_zoom=17)
+    assert result.diagnostics["z_fine"] <= 17
+    assert result.diagnostics["z_coarse"] <= 17
+
+
+def test_prerotate_preserves_geometry(scene, camera):
+    """Предповорот кадра к северу и возврат координат точек не ломает геометрию.
+
+    Для инвариантного к повороту SIFT результат обязан остаться точным — так
+    проверяется корректность самого механизма предповорота (нужного LightGlue).
+    """
+    spec = SampleSpec(yaw_deg=137.0, prior_offset_m=20.0)
+    sample = generate_sample(scene, camera, spec, prior_sigma_m=60.0, reference_size=1900)
+    result = localize(sample.query, camera, sample.prior, SceneBasemap(scene), prerotate=True)
+    assert result.is_localized
+    err_px = haversine_m(
+        sample.true_lat, sample.true_lon, result.center_lat, result.center_lon
+    ) / ground_mpp(sample.true_lat, result.diagnostics["z_fine"])
+    assert err_px < 0.5
+
+
 # --- localize: честный отказ ------------------------------------------------
 
 

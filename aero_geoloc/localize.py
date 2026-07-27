@@ -21,7 +21,7 @@ import numpy as np
 from .basemap import BasemapSource, MissingTileError
 from .camera import Camera
 from .geo import Georef, ground_mpp, haversine_m, zoom_for_mpp
-from .matcher import Matcher, SIFTMatcher
+from .matcher import Correspondences, Matcher, SIFTMatcher
 from .pose import PoseEstimate, estimate_similarity, refine_ecc
 from .quality import aligned_ncc, assess
 from .retrieval import TerrainIndex, should_localize
@@ -60,6 +60,32 @@ def normalize_gray(image: np.ndarray, *, clahe: bool = False) -> np.ndarray:
     if clahe:
         gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
     return gray
+
+
+def _match_prerotated(matcher: Matcher, query_gray, ref_gray, prerotate_deg: float):
+    """Матч с предповоротом кадра на ``prerotate_deg``, но соответствия — в ИСХОДНЫХ пикселях кадра.
+
+    Обучаемые матчеры (LightGlue/LoFTR) не инвариантны к повороту, а бортовой
+    кадр развёрнут на yaw относительно севера. Стратегия «доверяем yaw» из
+    ``docs/PIPELINE.md``: повернуть кадр к северу (``prerotate_deg = −yaw``),
+    сматчить, а точки со стороны кадра **вернуть в исходные координаты** обратным
+    поворотом. Тогда поза считается сразу в системе исходного кадра (поворот ≈
+    yaw), и всё выше по конвейеру, включая гейт поворота, работает без изменений.
+    Для инвариантного к повороту SIFT ``prerotate_deg = 0`` — обычный матч.
+    """
+    if prerotate_deg == 0.0:
+        return matcher.match(query_gray, ref_gray)
+    import cv2
+
+    h, w = query_gray.shape[:2]
+    rot = cv2.getRotationMatrix2D(((w - 1) / 2.0, (h - 1) / 2.0), prerotate_deg, 1.0)
+    rotated = cv2.warpAffine(
+        query_gray, rot, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101
+    )
+    corr = matcher.match(rotated, ref_gray)
+    inv = cv2.invertAffineTransform(rot)
+    pts_q = (corr.pts_q @ inv[:, :2].T + inv[:, 2]).astype(np.float32)
+    return Correspondences(pts_q, corr.pts_r, corr.conf)
 
 
 def _read_result(
@@ -112,6 +138,7 @@ def localize_against_reference(
     rotation_tolerance_deg: float = 15.0,
     clahe: bool = False,
     refine: bool = False,
+    prerotate_deg: float = 0.0,
 ) -> LocalizationResult:
     """Локализовать кадр по заранее данному георефренцированному растру подложки.
 
@@ -169,7 +196,7 @@ def localize_against_reference(
     }
 
     # Стадия 3: матчинг.
-    corr = matcher.match(query_gray, ref_gray)
+    corr = _match_prerotated(matcher, query_gray, ref_gray, prerotate_deg)
     if len(corr) < 3:
         return LocalizationResult.failed(
             "слишком мало соответствий", n_correspondences=len(corr), **base_diagnostics
@@ -251,6 +278,7 @@ def _coarse_center(
     rotation_tolerance_deg: float,
     ransac_threshold_px: float,
     min_inliers: int,
+    prerotate_deg: float = 0.0,
 ) -> tuple[float, float] | None:
     """Грубый уровень (стадия 2): «ГДЕ примерно» — центр кадра в lon/lat.
 
@@ -271,7 +299,7 @@ def _coarse_center(
 
     query_coarse = cv2.resize(image_gray, (wq, hq), interpolation=cv2.INTER_AREA)
 
-    corr = matcher.match(query_coarse, coarse_ref_gray)
+    corr = _match_prerotated(matcher, query_coarse, coarse_ref_gray, prerotate_deg)
     if len(corr) < 3:
         return None
     # Масштаб грубого уровня ≈ 1; допуск на него — тот же приор высоты.
@@ -311,6 +339,7 @@ def _fine_pass(
     ransac_threshold_px: float,
     min_inliers: int,
     clahe: bool,
+    prerotate_deg: float = 0.0,
 ) -> LocalizationResult:
     """Точный уровень (стадии 3–6): окно нативного разрешения вокруг кандидата.
 
@@ -353,6 +382,7 @@ def _fine_pass(
         rotation_tolerance_deg=rotation_tolerance_deg,
         clahe=clahe,
         refine=refine,
+        prerotate_deg=prerotate_deg,
     )
 
 
@@ -374,6 +404,8 @@ def _fine_with_scale_loop(
     ransac_threshold_px: float,
     min_inliers: int,
     clahe: bool,
+    max_zoom: int = 22,
+    prerotate_deg: float = 0.0,
 ) -> LocalizationResult:
     """Точный уровень вокруг одного кандидата + цикл переуточнения масштаба (стадия 5).
 
@@ -391,6 +423,7 @@ def _fine_with_scale_loop(
             matcher=matcher, refine=refine, trust_yaw=trust_yaw,
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
+            prerotate_deg=prerotate_deg,
         )
 
     def n_inliers(result: LocalizationResult) -> int:
@@ -399,7 +432,7 @@ def _fine_with_scale_loop(
     best = fine(prior.altitude_m, z_fine)
     z_best, visited, scale_iters_done = z_fine, {z_fine}, 0
     while best.is_localized and scale_iters_done < scale_iters:
-        z_next = zoom_for_mpp(camera.gsd(best.altitude_est_m), prior.lat)
+        z_next = zoom_for_mpp(camera.gsd(best.altitude_est_m), prior.lat, max_zoom=max_zoom)
         if z_next in visited:
             break
         visited.add(z_next)
@@ -475,6 +508,8 @@ def localize(
     index: TerrainIndex | None = None,
     retrieval_top_k: int = 5,
     min_uniqueness: float = 0.0,
+    max_zoom: int = 22,
+    prerotate: bool = False,
     gate_sigma: float = PRIOR_GATE_SIGMA,
 ) -> LocalizationResult:
     """Полная одиночная локализация: подложка из источника + coarse-to-fine.
@@ -520,6 +555,10 @@ def localize(
         эллипсом из :mod:`aero_geoloc.quality`.
     """
     matcher = matcher if matcher is not None else SIFTMatcher()
+    # Предповорот кадра к северу для не-инвариантных к повороту матчеров
+    # (LightGlue/LoFTR): при доверии yaw поворачиваем на −yaw (стратегия из
+    # PIPELINE.md). Для SIFT не нужен и по умолчанию выключен.
+    prerotate_deg = -prior.yaw_deg if (prerotate and trust_yaw) else 0.0
     image_gray = normalize_gray(image, clahe=clahe)
     if image_gray.shape[:2] != (camera.image_height, camera.image_width):
         raise ValueError(
@@ -534,13 +573,17 @@ def localize(
     # соседних зумов реально лучше для матчинга, решает цикл ниже по числу
     # инлайеров, а не априорное правило.
     gsd = camera.gsd(prior.altitude_m)
-    z_fine = zoom_for_mpp(gsd, prior.lat)
+    # Зум клампится к максимуму провайдера: на низкой высоте кадр в разы детальнее
+    # подложки, и «идеальный» зум точного уровня может превысить то, что подложка
+    # вообще отдаёт (Esri — z19). Тогда кадр даунсемплится до z_fine (ограничение 4
+    # из README): совпадут только те частоты, что есть в подложке.
+    z_fine = zoom_for_mpp(gsd, prior.lat, max_zoom=max_zoom)
     footprint_max = max(camera.footprint_m(prior.altitude_m))
 
     # Грубый уровень: зум так, чтобы весь диск ±gate_sigma·σ уместился в ~coarse_target_px.
     search_half_m = 0.5 * footprint_max + gate_sigma * prior.sigma_m
     coarse_mpp_target = 2.0 * search_half_m / coarse_target_px
-    z_coarse = min(z_fine, zoom_for_mpp(coarse_mpp_target, prior.lat, mode="coarser"))
+    z_coarse = min(z_fine, zoom_for_mpp(coarse_mpp_target, prior.lat, mode="coarser", max_zoom=max_zoom))
     coarse_mpp = ground_mpp(prior.lat, z_coarse)
     coarse_size = _even(2.0 * search_half_m / coarse_mpp)
 
@@ -576,6 +619,7 @@ def localize(
             image_gray, camera, prior, coarse_gray, coarse_georef,
             matcher=matcher, trust_yaw=trust_yaw, rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=coarse_min_inliers,
+            prerotate_deg=prerotate_deg,
         )
         if candidate is None:
             return LocalizationResult.failed("грубый уровень не нашёл кандидата", **base_diagnostics)
@@ -595,6 +639,7 @@ def localize(
             scale_iters=scale_iters, matcher=matcher, refine=refine, trust_yaw=trust_yaw,
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
+            max_zoom=max_zoom, prerotate_deg=prerotate_deg,
         )
         if r.is_localized and (
             best is None
