@@ -131,3 +131,41 @@ def test_dinov2_retrieval_finds_real_region():
         haversine_m(shot.true_lat, shot.true_lon, c.center_lat, c.center_lon) for c in result.cells
     ]
     assert min(distances) <= radius  # верная клетка в top-3 несмотря на разрыв сезонов
+
+
+@pytest.mark.skipif(
+    not (_HAS_LIGHTGLUE and importlib.util.find_spec("torch") and _NET),
+    reason="нужны torch + LightGlue + сеть",
+)
+def test_two_floors_retrieval_plus_lightglue_on_real_image():
+    """Оба этажа на реальных данных: DINOv2 retrieval (ГДЕ примерно) → LightGlue (ГДЕ точно).
+
+    Умеренный приор (σ=150 м) — кандидата даёт индекс, а не центр приора; точный
+    уровень уточняет его LightGlue. Так проверяется вся связка на настоящем gap.
+    """
+    from aero_geoloc.basemap import ESRI_WORLD_IMAGERY, TileBasemap, TileCache
+    from aero_geoloc.drone import basemap_zoom_for, frame_at_mpp, load_drone_shot
+    from aero_geoloc.geo import Georef, ground_mpp, haversine_m
+    from aero_geoloc.localize import localize
+    from aero_geoloc.matcher import LightGlueMatcher
+    from aero_geoloc.retrieval import DinoV2Encoder, TerrainIndex
+
+    shot = load_drone_shot(NADIR_IMG)
+    mz = ESRI_WORLD_IMAGERY.max_zoom
+    z = basemap_zoom_for(shot, max_zoom=mz)
+    frame, camera = frame_at_mpp(shot, ground_mpp(shot.true_lat, z))
+    basemap = TileBasemap(cache=TileCache("tiles"))
+
+    region = Georef(shot.true_lon, shot.true_lat, z, 1920, 1920)
+    index = TerrainIndex(DinoV2Encoder()).build(
+        basemap, region, cell_size_px=640, overlap=0.5, rotations_deg=(0.0,)
+    )
+    result = localize(
+        frame, camera, shot.prior(sigma_m=150.0), basemap,
+        index=index, matcher=LightGlueMatcher(), prerotate=True, max_zoom=mz,
+        min_inliers=10, ransac_threshold_px=6.0,
+    )
+    assert result.diagnostics["retrieval"] is True  # грубый уровень — это DINOv2-индекс
+    assert result.is_localized
+    err = haversine_m(shot.true_lat, shot.true_lon, result.center_lat, result.center_lon)
+    assert err < 25.0
