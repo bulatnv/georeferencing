@@ -128,6 +128,11 @@ def test_from_gsd_reproduces_requested_gsd():
     assert cam.gsd(500.0) == pytest.approx(0.065, rel=1e-12)
     # Отпечаток следует из GSD напрямую — им и выбирается зум подложки.
     assert cam.footprint_m(500.0)[0] == pytest.approx(7952 * 0.065, rel=1e-12)
+    # Камера задана через FOV — значит переживает ресемпл кадра (frame_at_mpp
+    # пересобирает её как Camera(w, h, fov_deg=...)), а не падает на fov_deg=None.
+    assert cam.fov_deg is not None
+    resized = Camera(1988, 1326, fov_deg=cam.fov_deg)
+    assert resized.gsd(500.0) == pytest.approx(0.065 * 4, rel=1e-9)  # в 4 раза грубее
 
 
 def test_from_gsd_depends_only_on_altitude_over_gsd_ratio():

@@ -70,15 +70,11 @@ class Camera:
         if altitude_m <= 0.0:
             raise ValueError(f"altitude_m должен быть > 0, получено {altitude_m}")
         focal_px = altitude_m / gsd_m
-        # Физический фокус условен (оптика неизвестна) — важен только f_px,
-        # поэтому sensor подбирается под выбранный focal_mm, как в стенде.
-        focal_mm = 28.0
-        return cls(
-            image_width=image_width,
-            image_height=image_height,
-            focal_mm=focal_mm,
-            sensor_width_mm=focal_mm * image_width / focal_px,
-        )
+        # Задаём именно FOV, а не focal+sensor: физическая оптика неизвестна, а
+        # угол поля зрения — то, что сохраняется при ресемпле кадра
+        # (``drone.frame_at_mpp`` пересобирает камеру как ``Camera(w, h, fov_deg=...)``).
+        fov_deg = 2.0 * math.degrees(math.atan((image_width / 2.0) / focal_px))
+        return cls(image_width=image_width, image_height=image_height, fov_deg=fov_deg)
 
     def __post_init__(self) -> None:
         if self.image_width <= 0 or self.image_height <= 0:
