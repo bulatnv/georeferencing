@@ -137,7 +137,7 @@ def main() -> int:
     # --- ОНЛАЙН: точный уровень (Этаж 2) — матчинг по top-K кандидатам ---
     t0 = time.perf_counter()
     result = localize(frame, camera, prior, basemap, index=index, matcher=LightGlueMatcher(),
-                      prerotate=True, max_zoom=mz, min_ncc=0.05, min_inliers=args.min_inliers,
+                      prerotate=True, max_zoom=mz, min_ncc=0.12, min_inliers=args.min_inliers,
                       retrieval_top_k=args.top_k, ransac_threshold_px=6.0)
     localize_s = time.perf_counter() - t0
     # localize() внутри повторяет ретривал (~как выше) и гоняет точный уровень по top-K;

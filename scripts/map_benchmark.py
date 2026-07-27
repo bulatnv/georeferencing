@@ -35,6 +35,7 @@ from aero_geoloc.geo import Georef, ground_mpp, haversine_m, zoom_for_mpp  # noq
 from aero_geoloc.localize import localize, normalize_gray  # noqa: E402
 from aero_geoloc.matcher import LightGlueMatcher  # noqa: E402
 from aero_geoloc.retrieval import MegaLocEncoder, TerrainIndex  # noqa: E402
+from aero_geoloc.types import Status  # noqa: E402
 
 
 def cluster_shots(named_shots, *, max_km: float):
@@ -150,10 +151,12 @@ def main() -> int:
 
             t0 = time.perf_counter()
             r = localize(frame, camera, prior, basemap, index=index, matcher=LightGlueMatcher(),
-                         prerotate=True, max_zoom=mz, min_ncc=0.05, min_inliers=args.min_inliers,
+                         prerotate=True, max_zoom=mz, min_ncc=0.12, min_inliers=args.min_inliers,
                          retrieval_top_k=args.top_k, ransac_threshold_px=6.0)
             search_s = time.perf_counter() - t0
-            if r.is_localized:
+            # Поиск по карте: принимаем только LOCALIZED (связка калиброванного качества);
+            # LOW_CONFIDENCE = ненадёжная привязка → отказ, ложная точка опаснее.
+            if r.status is Status.LOCALIZED:
                 err = haversine_m(s.true_lat, s.true_lon, r.center_lat, r.center_lon)
                 status = f"{err:5.1f} м"
             else:

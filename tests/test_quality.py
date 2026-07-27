@@ -153,6 +153,21 @@ def test_assess_low_confidence_on_poor_photometric_match():
     assert q.status is Status.LOW_CONFIDENCE  # геометрия хороша, но яркости не сходятся
 
 
+def test_assess_conjunction_needs_enough_inliers():
+    """Связка: тугой матч с хорошим NCC, но инлайеров меньше порога → не LOCALIZED."""
+    pose, corr = _pose(n=40, noise_px=0.5, seed=11)  # тугой эллипс, NCC ок
+    assert assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.9).status is Status.LOCALIZED
+    strict = assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.9, min_inliers_hard=50)
+    assert strict.status is Status.LOW_CONFIDENCE  # инлайеров < порога — связка не проходит
+
+
+def test_assess_conjunction_needs_ncc_above_calibrated():
+    """Связка: отличная геометрия, но NCC ниже калиброванного 0.12 → не LOCALIZED."""
+    pose, corr = _pose(n=40, noise_px=0.5, seed=12)  # много инлайеров, тугой эллипс
+    assert assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.05).status is Status.LOW_CONFIDENCE
+    assert assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.20).status is Status.LOCALIZED
+
+
 def test_assess_systematic_floor_inflates_ellipse():
     """Пол абсолютной точности подложки поднимает эллипс не ниже своего уровня."""
     pose, corr = _pose(n=80, noise_px=0.5, seed=8)

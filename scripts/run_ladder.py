@@ -43,7 +43,7 @@ def cell(scene, camera, matcher, level, strength, yaws, reference_size, prerotat
         prerotate_deg = -sample.prior.yaw_deg if prerotate else 0.0
         result = localize_against_reference(
             sample.query, camera, sample.prior, sample.reference, sample.reference_georef,
-            matcher=matcher, refine=True, prerotate_deg=prerotate_deg, min_ncc=0.05,
+            matcher=matcher, refine=True, prerotate_deg=prerotate_deg, min_ncc=0.12,
         )
         if result.is_localized:
             ok += 1
