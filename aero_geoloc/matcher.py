@@ -242,19 +242,30 @@ class _LearnedMatcher:
     def _import(self):  # pragma: no cover - зависит от окружения
         raise NotImplementedError
 
+    def _missing(self, exc: ImportError) -> RuntimeError:
+        """Единая понятная ошибка на любую недостающую часть тяжёлого ядра."""
+        missing = f" (не найден {exc.name!r})" if getattr(exc, "name", None) else ""
+        return RuntimeError(
+            f"{type(self).__name__} требует {self._requires}{missing}: поставьте набор "
+            "`pip install -r requirements-real.txt` (веса подтянутся при первом запуске)"
+        )
+
     def _ensure(self) -> None:
         if self._loaded:
             return
         try:
             import torch
         except ImportError as exc:  # pragma: no cover - зависит от окружения
-            raise RuntimeError(
-                f"{type(self).__name__} требует {self._requires}: установите его "
-                "(веса подтянутся при первом запуске)"
-            ) from exc
+            raise self._missing(exc) from exc
         self._torch = torch
         self._device = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self._import()
+        try:
+            self._import()
+        except ImportError as exc:
+            # torch есть, а ядра матчера нет — самый частый случай на полпути к
+            # боевому окружению. Без этой ветки наружу летел голый
+            # ModuleNotFoundError мимо контракта «понятная ошибка, как у сети».
+            raise self._missing(exc) from exc
         self._loaded = True
 
     def _tensor(self, gray: np.ndarray):

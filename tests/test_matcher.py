@@ -23,8 +23,21 @@ from aero_geoloc.matcher import (
     create_matcher,
 )
 
-_HAS_TORCH = importlib.util.find_spec("torch") is not None
 from aero_geoloc.testbench import make_synthetic_scene
+
+
+def _installed(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
+
+
+_HAS_TORCH = _installed("torch")
+#: Обучаемому ядру мало одного torch — нужен ещё его собственный бэкенд. Гейт по
+#: torch в одиночку давал ложное падение на полпути к боевому окружению
+#: (torch поставлен, lightglue ещё нет).
+_BACKEND_READY = {
+    "lightglue": _HAS_TORCH and _installed("lightglue"),
+    "loftr": _HAS_TORCH and _installed("kornia"),
+}
 
 MATCHER_NAMES = ["sift", "akaze"]
 
@@ -183,14 +196,22 @@ def test_learned_matcher_constructs_and_registers_without_torch(name, cls):
     assert isinstance(m, Matcher)  # удовлетворяет протоколу
 
 
-@pytest.mark.skipif(_HAS_TORCH, reason="torch установлен — боевой путь проверяется отдельно")
 @pytest.mark.parametrize("name", ["lightglue", "loftr"])
-def test_learned_matcher_without_torch_gives_clear_error(name, texture):
+def test_learned_matcher_without_backend_gives_clear_error(name, texture):
+    """Пока ядро не установлено, ``match`` обязан дать понятную ошибку.
+
+    Гейт по наличию **конкретного** бэкенда, а не одного torch: случай «torch
+    поставлен, lightglue ещё нет» — самый частый на полпути к боевому окружению,
+    и раньше он не проверялся вовсе, из-за чего наружу летел голый
+    ``ModuleNotFoundError`` вместо обещанной подсказки.
+    """
+    if _BACKEND_READY[name]:
+        pytest.skip(f"{name} установлен — путь ошибки не воспроизводится")
     with pytest.raises(RuntimeError, match="требует"):
         create_matcher(name).match(texture, texture)
 
 
-@pytest.mark.skipif(not _HAS_TORCH, reason="нужен torch (+ веса)")
+@pytest.mark.skipif(not _BACKEND_READY["lightglue"], reason="нужны torch и lightglue (+ веса)")
 def test_lightglue_matches_are_well_formed(texture):
     corr = LightGlueMatcher().match(texture, texture)
     assert isinstance(corr, Correspondences)

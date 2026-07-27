@@ -9,6 +9,10 @@
 [TESTING.md](docs/TESTING.md) (стенд и метрики), [RETRIEVAL.md](docs/RETRIEVAL.md) (фаза 3),
 [JOURNAL.md](docs/JOURNAL.md) (датированные вехи экспериментов и принципиальных решений).
 
+**Текущий трек работ — [docs/EVAL_PLAN.md](docs/EVAL_PLAN.md)**: довести проект до
+измеримого теста на реальных снимках из `test_images/`. Там же инвентаризация
+датасета (что годно, что нет и почему) и список недостающих пакетов.
+
 ## Окружение
 
 Python 3.12 в `.venv` (Windows). Оболочка PowerShell, но доступен и bash.
