@@ -153,6 +153,7 @@ def load_drone_shot(
     ground_elevation_m: float | None = None,
     altitude_override_m: float | None = None,
     use_dem: bool = False,
+    magnetic_declination_deg: float = 0.0,
 ) -> DroneShot:
     """Прочитать снимок и метаданные в :class:`DroneShot` (DJI и survey-камеры).
 
@@ -164,6 +165,11 @@ def load_drone_shot(
     XMP нет, поэтому её берут из ``altitude_override_m``, либо считают как
     ``абс. высота (EXIF) − ground_elevation_m``, либо (``use_dem=True``) рельеф
     запрашивается из DEM автоматически (:func:`lookup_ground_elevation`, сеть).
+
+    Курс приводится к **истинному** северу: ``magnetic_declination_deg``
+    прибавляется к ``yaw`` (DJI отдаёт курс относительно **магнитного** севера, а
+    ENU-геометрия — относительно истинного; для средних широт РФ склонение
+    +10…+15°, и без поправки визуальная одометрия систематически дрейфует).
 
     Raises:
         ValueError: нет GPS/фокуса/курса, либо для survey не задана высота над
@@ -211,7 +217,8 @@ def load_drone_shot(
     return DroneShot(
         image_bgr=bgr, camera=Camera(W, H, fov_deg=fov_deg),
         true_lat=lat, true_lon=lon, altitude_m=float(altitude),
-        yaw_deg=float(yaw), pitch_from_nadir_deg=float(pitch_from_nadir),
+        yaw_deg=float(yaw) + magnetic_declination_deg,
+        pitch_from_nadir_deg=float(pitch_from_nadir),
         roll_deg=float(roll), model=model,
     )
 

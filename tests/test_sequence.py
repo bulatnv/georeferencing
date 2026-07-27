@@ -7,6 +7,9 @@ EKF — что редкие уверенные фиксы ограничиваю
 
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -143,3 +146,58 @@ def test_sequence_survives_a_poor_frame(scene, camera):
     assert len(states) == len(frames)  # не падаем
     # После бедного кадра неопределённость обязана вырасти (честно, а не угадывать).
     assert states[6].position_sigma_m > states[4].position_sigma_m
+
+
+# --- VO на реальной бортовой серии (gated) ----------------------------------
+
+_UFA = Path(__file__).resolve().parents[1] / "for_binding" / "ufa"
+_HAS_LG = importlib.util.find_spec("lightglue") is not None
+_HAS_PIL = importlib.util.find_spec("PIL") is not None
+
+
+@pytest.mark.skipif(
+    not (_UFA.exists() and _HAS_LG and _HAS_PIL),
+    reason="нужны серия for_binding/ufa + LightGlue",
+)
+def test_vo_tracks_real_ufa_strip():
+    """VO кадр-к-кадру на реальной полосе съёмки трекает GPS-траекторию с малым дрейфом.
+
+    Соседние кадры дрона почти без appearance gap (та же камера/полёт), поэтому VO
+    работает. Курс приводится к истинному северу поправкой на склонение Уфы
+    (~+14.5°) — без неё траектория систематически разворачивается.
+    """
+    import cv2
+
+    from aero_geoloc.camera import Camera
+    from aero_geoloc.drone import load_drone_shot
+    from aero_geoloc.geo import haversine_m
+    from aero_geoloc.matcher import LightGlueMatcher
+
+    files = sorted(_UFA.glob("*.JPG"))[:19]  # одна полоса без разворотов
+    shots = [load_drone_shot(f, magnetic_declination_deg=14.5) for f in files]
+    shots = [s for s in shots if s.is_nadir]
+    if len(shots) < 10:
+        pytest.skip("мало надирных кадров в серии")
+
+    lat0, lon0 = shots[0].true_lat, shots[0].true_lon
+    truth = [
+        (haversine_m(lat0, lon0, lat0, s.true_lon) * np.sign(s.true_lon - lon0),
+         haversine_m(lat0, lon0, s.true_lat, lon0) * np.sign(s.true_lat - lat0))
+        for s in shots
+    ]
+    altitude = float(np.mean([s.altitude_m for s in shots]))
+    scale = 1024 / shots[0].camera.image_width
+    frames = [
+        normalize_gray(cv2.resize(s.image_bgr, (1024, round(s.camera.image_height * scale)),
+                                  interpolation=cv2.INTER_AREA))
+        for s in shots
+    ]
+    camera = Camera(frames[0].shape[1], frames[0].shape[0], fov_deg=shots[0].camera.fov_deg)
+    init = EKFState(0.0, 0.0, shots[0].yaw_deg, np.diag([1.0, 1.0, 1.0]))
+
+    states = localize_sequence(frames, camera, init, altitude_m=altitude,
+                               matcher=LightGlueMatcher(), min_inliers=15)
+    path_len = sum(np.hypot(truth[i + 1][0] - truth[i][0], truth[i + 1][1] - truth[i][1])
+                   for i in range(len(truth) - 1))
+    final_drift = np.hypot(states[-1].east_m - truth[-1][0], states[-1].north_m - truth[-1][1])
+    assert final_drift < 0.06 * path_len  # дрейф < 6% пути (реально ~2%)
