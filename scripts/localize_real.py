@@ -57,6 +57,7 @@ def main() -> int:
         result = localize(
             frame, camera, shot.prior(sigma_m=args.sigma_m), basemap,
             matcher=matcher, max_zoom=max_zoom, prerotate=prerotate,
+            min_ncc=0.05,  # дрон↔спутник: NCC ненадёжен, статус держат инлайеры+эллипс
             min_inliers=10, coarse_min_inliers=8, ransac_threshold_px=6.0,
         )
         if result.is_localized:

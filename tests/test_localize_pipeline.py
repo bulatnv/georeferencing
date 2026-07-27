@@ -203,6 +203,23 @@ def test_max_zoom_clamps_fine_zoom(scene, camera):
     assert result.diagnostics["z_coarse"] <= 17
 
 
+def test_min_ncc_threads_to_status(scene, camera):
+    """Порог NCC доходит до quality: недостижимый порог → LOW_CONFIDENCE у верного матча.
+
+    На синтетике (same-domain) NCC ≈ 1, поэтому дефолтный порог даёт LOCALIZED, а
+    запредельный (1.1) обязан перевести статус в LOW_CONFIDENCE — так проверяется,
+    что параметр реально прокинут в стадию качества.
+    """
+    from aero_geoloc.types import Status
+
+    sample = generate_sample(scene, camera, SampleSpec(yaw_deg=30.0), prior_sigma_m=50.0)
+    bm = SceneBasemap(scene)
+    default = localize(sample.query, camera, sample.prior, bm)
+    strict = localize(sample.query, camera, sample.prior, bm, min_ncc=1.1)
+    assert default.is_localized and default.status is Status.LOCALIZED
+    assert strict.is_localized and strict.status is Status.LOW_CONFIDENCE
+
+
 def test_prerotate_preserves_geometry(scene, camera):
     """Предповорот кадра к северу и возврат координат точек не ломает геометрию.
 
