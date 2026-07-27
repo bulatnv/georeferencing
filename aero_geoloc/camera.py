@@ -43,6 +43,43 @@ class Camera:
     sensor_width_mm: float | None = None
     fov_deg: float | None = None
 
+    @classmethod
+    def from_gsd(
+        cls, image_width: int, image_height: int, gsd_m: float, altitude_m: float
+    ) -> Camera:
+        """Камера по **известному GSD** — для снимков без метаданных объектива.
+
+        Пайплайну нужен не фокус сам по себе, а GSD: им выбирается зум подложки и
+        задаётся ожидаемый масштаб. Когда EXIF срезан (см. ``docs/EVAL_PLAN.md``),
+        фокуса нет, но GSD часто известен из паспорта съёмки — тогда камера
+        восстанавливается отсюда: ``f_px = altitude_m / gsd_m``.
+
+        ``altitude_m`` здесь — **опорная** высота, а не измеренная: геометрию
+        задаёт только отношение ``altitude_m / gsd_m``. Пара подбирается так,
+        чтобы ``camera.gsd(altitude_m) == gsd_m`` (это и проверяется тестом), а
+        высота дальше живёт в :class:`~aero_geoloc.types.Prior` и уточняется
+        восстановленным масштабом.
+
+        Args:
+            image_width, image_height: размер кадра в пикселях.
+            gsd_m: разрешение кадра на земле, м/пиксель.
+            altitude_m: опорная высота, м (та, при которой GSD равен заданному).
+        """
+        if gsd_m <= 0.0:
+            raise ValueError(f"gsd_m должен быть > 0, получено {gsd_m}")
+        if altitude_m <= 0.0:
+            raise ValueError(f"altitude_m должен быть > 0, получено {altitude_m}")
+        focal_px = altitude_m / gsd_m
+        # Физический фокус условен (оптика неизвестна) — важен только f_px,
+        # поэтому sensor подбирается под выбранный focal_mm, как в стенде.
+        focal_mm = 28.0
+        return cls(
+            image_width=image_width,
+            image_height=image_height,
+            focal_mm=focal_mm,
+            sensor_width_mm=focal_mm * image_width / focal_px,
+        )
+
     def __post_init__(self) -> None:
         if self.image_width <= 0 or self.image_height <= 0:
             raise ValueError(
