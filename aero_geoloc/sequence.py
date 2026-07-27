@@ -21,6 +21,7 @@ from typing import Callable, Sequence
 import numpy as np
 
 from .camera import Camera
+from .localize import _match_prerotated
 from .matcher import Matcher, SIFTMatcher
 from .pose import estimate_similarity
 from .quality import center_covariance
@@ -69,6 +70,7 @@ def estimate_vo(
     matcher: Matcher | None = None,
     ransac_threshold_px: float = 3.0,
     min_inliers: int = 10,
+    prerotate_deg: float = 0.0,
 ) -> VOStep | None:
     """Визуальная одометрия: смещение камеры на земле из матча соседних кадров.
 
@@ -78,12 +80,18 @@ def estimate_vo(
     выведена и проверена на известном движении в ``tests/test_sequence.py``).
     Ось север — это ``−y``, отсюда знак у ``north``.
 
+    ``prerotate_deg`` предповорачивает текущий кадр перед матчингом (обычно
+    ``yaw_prev − yaw_curr``) — на **разворотах** соседние кадры повёрнуты друг
+    относительно друга, и не-инвариантный матчер (LightGlue) без выравнивания
+    ориентации проваливается. Точки возвращаются в исходные координаты, поэтому
+    поза (и ``Δyaw``) считаются как обычно.
+
     Returns:
         :class:`VOStep` либо ``None``, если кадр-к-кадру матч не удался (бедный
         кадр — легитимный исход, наверху он инфлирует ковариацию без движения).
     """
     matcher = matcher if matcher is not None else SIFTMatcher()
-    corr = matcher.match(curr_gray, prev_gray)
+    corr = _match_prerotated(matcher, curr_gray, prev_gray, prerotate_deg)
     if len(corr) < 3:
         return None
     pose = estimate_similarity(corr, ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers)
@@ -195,6 +203,7 @@ def localize_sequence(
     altitude_m: float,
     matcher: Matcher | None = None,
     absolute_fix_fn: AbsoluteFixFn | None = None,
+    headings: Sequence[float] | None = None,
     ransac_threshold_px: float = 3.0,
     min_inliers: int = 10,
 ) -> list[EKFState]:
@@ -206,6 +215,11 @@ def localize_sequence(
         altitude_m: высота (для GSD в VO).
         absolute_fix_fn: колбэк, дающий абсолютный фикс на кадре ``i`` (или ``None``,
             если сцена там не уникальна) — так «якоря» ставятся только где надёжно.
+        headings: истинный курс на каждый кадр (напр. из метаданных, приведённый к
+            истинному северу). Если задан — соседние кадры на **разворотах**
+            выравниваются предповоротом на разницу курсов (иначе не-инвариантный
+            матчер провалится), а сам курс EKF берётся из метаданных, не копится по
+            VO. Без него — прежнее поведение (курс копится по ``Δyaw`` VO).
 
     Returns:
         Список :class:`EKFState` — оценка на каждый кадр (сглаженная траектория).
@@ -218,15 +232,22 @@ def localize_sequence(
     states = [EKFState(ekf.state.east_m, ekf.state.north_m, ekf.state.heading_deg, ekf.state.covariance.copy())]
 
     for i in range(1, len(frames_gray)):
+        # При заданных курсах: heading берём из метаданных, а соседние кадры на
+        # развороте выравниваем предповоротом текущего на (yaw_prev − yaw_curr).
+        prev_heading = headings[i - 1] if headings is not None else ekf.state.heading_deg
+        prerotate = (headings[i - 1] - headings[i]) if headings is not None else 0.0
         vo = estimate_vo(
-            frames_gray[i - 1], frames_gray[i], camera, altitude_m, ekf.state.heading_deg,
+            frames_gray[i - 1], frames_gray[i], camera, altitude_m, prev_heading,
             matcher=matcher, ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers,
+            prerotate_deg=prerotate,
         )
         if vo is not None:
             ekf.predict(vo)
         else:
             # Бедный кадр: дрейф в один footprint-полукадр как консервативная оценка.
             ekf.predict_missing(position_drift_sigma_m=gsd * camera.image_width * 0.5)
+        if headings is not None:
+            ekf.state.heading_deg = _wrap_deg(headings[i])  # курс доверяем метаданным
 
         if absolute_fix_fn is not None:
             fix = absolute_fix_fn(i, ekf.state)

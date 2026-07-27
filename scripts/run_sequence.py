@@ -42,7 +42,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--data", default="for_binding/ufa", help="каталог серии кадров")
     parser.add_argument("--start", type=int, default=0, help="индекс первого кадра в отсортированном списке")
-    parser.add_argument("--count", type=int, default=19, help="сколько кадров взять (одна полоса без разворотов)")
+    parser.add_argument("--count", type=int, default=0, help="сколько кадров взять (0 = весь полёт, через развороты)")
     parser.add_argument("--matcher", default="lightglue", choices=["sift", "akaze", "lightglue", "loftr"])
     parser.add_argument("--width", type=int, default=1024, help="ширина даунсемпла кадра для VO")
     parser.add_argument("--declination", type=float, default=0.0, help="магнитное склонение, ° (истинный север)")
@@ -50,7 +50,9 @@ def main() -> int:
     parser.add_argument("--plot", default="", help="сохранить график траектории в PNG")
     args = parser.parse_args()
 
-    files = sorted(Path(args.data).glob("*.JPG"))[args.start : args.start + args.count]
+    all_files = sorted(Path(args.data).glob("*.JPG"))
+    end = args.start + args.count if args.count > 0 else len(all_files)
+    files = all_files[args.start : end]
     shots = []
     for f in files:
         shot = load_drone_shot(f, magnetic_declination_deg=args.declination)
@@ -81,11 +83,12 @@ def main() -> int:
             return AbsoluteFix(truth[i][0], truth[i][1], shots[i].yaw_deg,
                                position_sigma_m=3.0, heading_sigma_deg=2.0)
 
+    headings = [s.yaw_deg for s in shots]  # курс на кадр (истинный север) — для разворотов
     print(f"серия {len(shots)} кадров, alt≈{altitude:.0f}м, склонение {args.declination:+.1f}°, "
           f"матчер {args.matcher}, привязка каждые {args.anchor_every or '—'}")
     states = localize_sequence(frames, camera, init, altitude_m=altitude,
                                matcher=create_matcher(args.matcher), min_inliers=15,
-                               absolute_fix_fn=fix_fn)
+                               absolute_fix_fn=fix_fn, headings=headings)
 
     errors = [float(np.hypot(s.east_m - t[0], s.north_m - t[1])) for s, t in zip(states, truth)]
     path_len = sum(np.hypot(truth[i + 1][0] - truth[i][0], truth[i + 1][1] - truth[i][1])

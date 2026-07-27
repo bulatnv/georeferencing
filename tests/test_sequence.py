@@ -65,6 +65,26 @@ def test_estimate_vo_returns_none_on_incompatible_frames(scene, camera):
     assert estimate_vo(prev, blank, camera, 600.0, 0.0) is None
 
 
+def test_estimate_vo_prerotate_preserves_recovered_motion(scene, camera):
+    """Предповорот кадра (для разворотов) не искажает восстановленное движение.
+
+    На развороте соседние кадры повёрнуты друг относительно друга; предповорот
+    на разницу курсов выравнивает их для матчера, а точки возвращаются в исходные
+    координаты — так что VO обязана дать то же смещение/поворот, что и без него.
+    """
+    mpp = scene.georef.mpp
+    dx, dy, yaw_a, yaw_b = 35.0, -15.0, 20.0, 90.0  # крупный поворот, как на развороте
+    prev = normalize_gray(generate_sample(scene, camera, SampleSpec(yaw_deg=yaw_a), reference_size=1100).query)
+    curr = normalize_gray(
+        generate_sample(scene, camera, SampleSpec(yaw_deg=yaw_b, center_offset_px=(dx, dy)), reference_size=1100).query
+    )
+    vo = estimate_vo(prev, curr, camera, 600.0, yaw_a, prerotate_deg=yaw_a - yaw_b)
+    assert vo is not None
+    assert vo.delta_yaw_deg == pytest.approx(yaw_b - yaw_a, abs=0.5)
+    assert vo.delta_east_m == pytest.approx(dx * mpp, abs=0.5)
+    assert vo.delta_north_m == pytest.approx(-dy * mpp, abs=0.5)
+
+
 # --- EKF --------------------------------------------------------------------
 
 
@@ -159,12 +179,13 @@ _HAS_PIL = importlib.util.find_spec("PIL") is not None
     not (_UFA.exists() and _HAS_LG and _HAS_PIL),
     reason="нужны серия for_binding/ufa + LightGlue",
 )
-def test_vo_tracks_real_ufa_strip():
-    """VO кадр-к-кадру на реальной полосе съёмки трекает GPS-траекторию с малым дрейфом.
+def test_vo_tracks_real_ufa_through_turn():
+    """VO кадр-к-кадру на реальной серии трекает GPS через разворот, с малым дрейфом.
 
     Соседние кадры дрона почти без appearance gap (та же камера/полёт), поэтому VO
-    работает. Курс приводится к истинному северу поправкой на склонение Уфы
-    (~+14.5°) — без неё траектория систематически разворачивается.
+    работает. Курс приводится к истинному северу (склонение Уфы ~+14.5°), а на
+    развороте соседние кадры выравниваются предповоротом на разницу курсов
+    (``headings``) — без этого не-инвариантный матчер провалился бы на повороте.
     """
     import cv2
 
@@ -173,11 +194,13 @@ def test_vo_tracks_real_ufa_strip():
     from aero_geoloc.geo import haversine_m
     from aero_geoloc.matcher import LightGlueMatcher
 
-    files = sorted(_UFA.glob("*.JPG"))[:19]  # одна полоса без разворотов
+    files = sorted(_UFA.glob("*.JPG"))[:30]  # захватывает разворот между полосами
     shots = [load_drone_shot(f, magnetic_declination_deg=14.5) for f in files]
     shots = [s for s in shots if s.is_nadir]
-    if len(shots) < 10:
+    if len(shots) < 20:
         pytest.skip("мало надирных кадров в серии")
+    assert max(abs((shots[i].yaw_deg - shots[i - 1].yaw_deg + 180) % 360 - 180)
+               for i in range(1, len(shots))) > 45.0  # в серии есть разворот
 
     lat0, lon0 = shots[0].true_lat, shots[0].true_lon
     truth = [
@@ -196,8 +219,9 @@ def test_vo_tracks_real_ufa_strip():
     init = EKFState(0.0, 0.0, shots[0].yaw_deg, np.diag([1.0, 1.0, 1.0]))
 
     states = localize_sequence(frames, camera, init, altitude_m=altitude,
-                               matcher=LightGlueMatcher(), min_inliers=15)
+                               matcher=LightGlueMatcher(), min_inliers=15,
+                               headings=[s.yaw_deg for s in shots])
     path_len = sum(np.hypot(truth[i + 1][0] - truth[i][0], truth[i + 1][1] - truth[i][1])
                    for i in range(len(truth) - 1))
     final_drift = np.hypot(states[-1].east_m - truth[-1][0], states[-1].north_m - truth[-1][1])
-    assert final_drift < 0.06 * path_len  # дрейф < 6% пути (реально ~2%)
+    assert final_drift < 0.08 * path_len  # дрейф < 8% пути через разворот (реально ~3%)
