@@ -70,6 +70,8 @@ def main() -> int:
     args = parser.parse_args()
 
     mz = ESRI_WORLD_IMAGERY.max_zoom
+    tm = {}  # тайминги стадий, с
+    t0 = time.perf_counter()
     shot = load_drone_shot(args.image, use_dem=args.dem, magnetic_declination_deg=args.declination)
     if not shot.is_nadir:
         print(f"кадр не надирный (наклон {shot.pitch_from_nadir_deg:.0f}°) — вне модели")
@@ -79,6 +81,7 @@ def main() -> int:
     # Кадр в разрешении подложки (для точного уровня и retrieval-запроса).
     z_fine = basemap_zoom_for(shot, max_zoom=mz)
     frame, camera = frame_at_mpp(shot, ground_mpp(shot.true_lat, z_fine))
+    tm["загрузка снимка + рендер кадра"] = time.perf_counter() - t0
 
     # Приор сдвигаем от истины на offset-км.
     offset_m = args.offset_km * 1000.0
@@ -103,38 +106,67 @@ def main() -> int:
     print(f"индекс[{args.encoder}]: регион {region_px}px @z{z_index} (mpp {mpp_index:.2f}), клетка {cell_px}px≈{cell_px*mpp_index:.0f}м, "
           f"~{int((region_px/(cell_px*(1-args.overlap)))**2)} клеток")
 
+    # --- ОФЛАЙН: построение индекса (одноразово, кэшируемо на диск) ---
     t0 = time.perf_counter()
     index = TerrainIndex(_ENCODERS[args.encoder]()).build(
         basemap, region, cell_size_px=cell_px, overlap=args.overlap, rotations_deg=(0.0,)
     )
-    build_s = time.perf_counter() - t0
+    tm[f"кодирование индекса ({len(index)} клеток)"] = time.perf_counter() - t0
+    per_cell_ms = 1000.0 * tm[f"кодирование индекса ({len(index)} клеток)"] / max(len(index), 1)
     extra = ""
     if args.pca_dim > 0:
-        t1 = time.perf_counter()
+        t0 = time.perf_counter()
         index.compress(args.pca_dim, whiten=args.whiten)
-        extra += f", PCA→{index._reducer.dim}{'/whiten' if args.whiten else ''} за {time.perf_counter()-t1:.0f}с"
+        tm[f"PCA-сжатие 8448→{index._reducer.dim}"] = time.perf_counter() - t0
+        extra += f", PCA→{index._reducer.dim}{'/whiten' if args.whiten else ''}"
     if args.faiss:
         index.use_faiss(kind=args.faiss_kind, ef_search=args.ef_search)
+        t0 = time.perf_counter()
+        index._ensure_ann()  # построить FAISS-граф сейчас, а не лениво в первом запросе
+        tm[f"построение FAISS/{args.faiss_kind}"] = time.perf_counter() - t0
         extra += f", FAISS/{args.faiss_kind}"
-    print(f"индекс построен: {len(index)} клеток за {build_s:.0f} с{extra}")
+    print(f"индекс построен: {len(index)} клеток{extra}")
 
-    # Диагностика Этажа 1: нашёл ли retrieval истинную клетку.
-    rr = index.query(normalize_gray(frame), k=5, prerotate_deg=-shot.yaw_deg)
+    # --- ОНЛАЙН: ретривал-запрос (Этаж 1) ---
+    t0 = time.perf_counter()
+    rr = index.query(normalize_gray(frame), k=max(5, args.top_k), prerotate_deg=-shot.yaw_deg)
+    tm["ретривал-запрос (кадр→top-K)"] = time.perf_counter() - t0
     dists = [haversine_m(shot.true_lat, shot.true_lon, c.center_lat, c.center_lon) for c in rr.cells]
-    print(f"retrieval top-5 расстояний до ИСТИНЫ: {[round(d) for d in dists]} м, уникальность={rr.uniqueness:.3f}")
+    print(f"retrieval top-5 расстояний до ИСТИНЫ: {[round(d) for d in dists[:5]]} м, уникальность={rr.uniqueness:.3f}")
 
+    # --- ОНЛАЙН: точный уровень (Этаж 2) — матчинг по top-K кандидатам ---
     t0 = time.perf_counter()
     result = localize(frame, camera, prior, basemap, index=index, matcher=LightGlueMatcher(),
                       prerotate=True, max_zoom=mz, min_ncc=0.05, min_inliers=args.min_inliers,
                       retrieval_top_k=args.top_k, ransac_threshold_px=6.0)
-    dt = time.perf_counter() - t0
+    localize_s = time.perf_counter() - t0
+    # localize() внутри повторяет ретривал (~как выше) и гоняет точный уровень по top-K;
+    # вычитая одиночный запрос, получаем чистую стоимость Этажа 2.
+    tm[f"точный уровень (Этаж 2, top-{args.top_k})"] = max(0.0, localize_s - tm["ретривал-запрос (кадр→top-K)"])
+
     if result.is_localized:
         err = haversine_m(shot.true_lat, shot.true_lon, result.center_lat, result.center_lon)
         print(f"\n→ {result.status.value}: ОШИБКА vs ИСТИНА = {err:.1f} м "
               f"(приор был в {offset_m:.0f} м!), инлайеров={result.diagnostics.get('n_inliers')}, "
-              f"эллипс={result.error_ellipse_m[0]:.1f}м [{dt:.0f}с]")
+              f"эллипс={result.error_ellipse_m[0]:.1f}м")
     else:
-        print(f"\n→ {result.status.value}: {result.diagnostics.get('reason')} [{dt:.0f}с]")
+        print(f"\n→ {result.status.value}: {result.diagnostics.get('reason')}")
+
+    # --- разбивка таймингов: офлайн (индекс) vs онлайн (запрос+поза) ---
+    offline_keys = [k for k in tm if "индекс" in k or "PCA" in k or "FAISS" in k]
+    online_keys = [k for k in tm if k not in offline_keys and "загрузка" not in k]
+    print("\n=== ТАЙМИНГИ ===")
+    print(f"  [подготовка] {'загрузка снимка + рендер кадра':<38}: {tm['загрузка снимка + рендер кадра']:6.1f} с")
+    print(f"  --- ОФЛАЙН (индекс строится один раз, кэшируется) ---")
+    for k in offline_keys:
+        note = f"  ({per_cell_ms:.0f} мс/клетка)" if "кодирование" in k else ""
+        print(f"  {k:<48}: {tm[k]:6.1f} с{note}")
+    print(f"  {'= офлайн итого':<48}: {sum(tm[k] for k in offline_keys):6.1f} с")
+    print(f"  --- ОНЛАЙН (на каждый кадр, реальное время) ---")
+    for k in online_keys:
+        val = tm[k]
+        print(f"  {k:<48}: {val*1000:6.0f} мс" if val < 1 else f"  {k:<48}: {val:6.1f} с")
+    print(f"  {'= онлайн итого (запрос + поза)':<48}: {sum(tm[k] for k in online_keys):6.1f} с")
     return 0
 
 
