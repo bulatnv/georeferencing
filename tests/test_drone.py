@@ -216,3 +216,57 @@ def test_two_floors_retrieval_plus_lightglue_on_real_image():
     assert result.is_localized
     err = haversine_m(shot.true_lat, shot.true_lon, result.center_lat, result.center_lon)
     assert err < 25.0
+
+
+@pytest.mark.skipif(
+    not (_HAS_LIGHTGLUE and importlib.util.find_spec("torch") and _NET),
+    reason="нужны torch + LightGlue + сеть",
+)
+def test_wide_prior_localization_from_augmented_prior():
+    """Исходная задача: локализация из ГРУБОГО приора (сдвинут на 600 м) через retrieval.
+
+    GPS используется только как истина; приор искусственно сдвинут — как в бою,
+    где точного положения нет. DINOv2-индекс региона схлопывает диск в кандидатов,
+    LightGlue уточняет позу. Мультигипотезность (top-K) ловит верную клетку, даже
+    если top-1 — ложное совпадение на самоподобной местности.
+    """
+    import math
+
+    from aero_geoloc.basemap import ESRI_WORLD_IMAGERY, TileBasemap, TileCache
+    from aero_geoloc.drone import basemap_zoom_for, frame_at_mpp, load_drone_shot
+    from aero_geoloc.geo import Georef, ground_mpp, haversine_m, zoom_for_mpp
+    from aero_geoloc.localize import localize
+    from aero_geoloc.matcher import LightGlueMatcher
+    from aero_geoloc.retrieval import DinoV2Encoder, TerrainIndex
+    from aero_geoloc.types import Prior
+
+    shot = load_drone_shot(NADIR_IMG)
+    mz = ESRI_WORLD_IMAGERY.max_zoom
+    z_fine = basemap_zoom_for(shot, max_zoom=mz)
+    frame, camera = frame_at_mpp(shot, ground_mpp(shot.true_lat, z_fine))
+    basemap = TileBasemap(cache=TileCache("tiles"))
+
+    # Приор сдвинут на 600 м от истины (грубая область вместо точного GPS).
+    offset_m, bearing = 600.0, 60.0
+    prior_lat = shot.true_lat + offset_m * math.cos(math.radians(bearing)) / 111320.0
+    prior_lon = shot.true_lon + offset_m * math.sin(math.radians(bearing)) / (
+        111320.0 * math.cos(math.radians(shot.true_lat))
+    )
+    prior = Prior(lat=prior_lat, lon=prior_lon, sigma_m=900.0, altitude_m=shot.altitude_m,
+                  altitude_sigma_m=20.0, yaw_deg=shot.yaw_deg, pitch_deg=shot.pitch_from_nadir_deg)
+
+    # Индекс региона вокруг приора: грубый зум, клетка ≈ footprint кадра (125 м).
+    z_index = zoom_for_mpp(0.37, prior_lat, max_zoom=mz)
+    mpp_index = ground_mpp(prior_lat, z_index)
+    cell_px = round(125.0 / mpp_index)
+    region_px = int(2 * (offset_m + 300.0) / mpp_index)
+    region = Georef(prior_lon, prior_lat, z_index, region_px, region_px)
+    index = TerrainIndex(DinoV2Encoder()).build(
+        basemap, region, cell_size_px=cell_px, overlap=0.5, rotations_deg=(0.0,)
+    )
+
+    result = localize(frame, camera, prior, basemap, index=index, matcher=LightGlueMatcher(),
+                      prerotate=True, max_zoom=mz, min_ncc=0.05, min_inliers=10, ransac_threshold_px=6.0)
+    assert result.is_localized
+    err = haversine_m(shot.true_lat, shot.true_lon, result.center_lat, result.center_lon)
+    assert err < 30.0  # позиция восстановлена, хотя приор был в 600 м
