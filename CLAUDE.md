@@ -34,6 +34,10 @@ Python 3.12 в `.venv` (Windows). Оболочка PowerShell, но доступ
   (точные версии проверенного оффлайн-окружения). Источник истины по версиям —
   `pyproject.toml`; requirements-файлы только собирают его extras по задачам.
 - OpenCV 5.0: AKAZE живёт в `cv2.xfeatures2d`, отсюда `opencv-contrib-python`.
+  **Держать ровно одну сборку OpenCV**: `opencv-python` (его тянет `lightglue`) и
+  `opencv-contrib-python` распаковываются в один каталог `cv2` и затирают друг
+  друга — contrib-модули молча пропадают. Проверка окружения одной командой:
+  `python scripts/check_env.py --weights` (поднимает веса и ловит эту ловушку).
 
 ## Как здесь принято работать
 

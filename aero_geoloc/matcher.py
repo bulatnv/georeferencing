@@ -189,7 +189,15 @@ def _akaze_create(threshold: float):
         factory = getattr(getattr(cv2, "xfeatures2d", None), "AKAZE_create", None)
     if factory is None:
         raise RuntimeError(
-            "AKAZE недоступен в этой сборке OpenCV; поставьте opencv-contrib-python"
+            f"AKAZE недоступен в этой сборке OpenCV {cv2.__version__}. Самая частая "
+            "причина — в окружении стоят СРАЗУ обе сборки, opencv-python и "
+            "opencv-contrib-python: они распаковываются в один каталог `cv2` и "
+            "затирают друг друга, после чего contrib-модули пропадают. Проверьте "
+            "`pip list | grep opencv`; если сборок две, оставьте одну:\n"
+            "    pip uninstall -y opencv-python opencv-contrib-python\n"
+            "    pip install opencv-contrib-python\n"
+            "Ловушка срабатывает при установке пакетов, зависящих от opencv-python "
+            "(например, lightglue), — см. шапку requirements-real.txt."
         )
     return factory(threshold=threshold)
 

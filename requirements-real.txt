@@ -27,6 +27,22 @@
 #    установленный git. Одноимённый пакет на PyPI к cvg/LightGlue отношения не
 #    имеет, ставить его не надо.
 #
+#    ⚠ LightGlue тянет за собой `opencv-python`, а проекту нужна сборка
+#    `opencv-contrib-python` (в OpenCV 5 там живёт AKAZE). Обе распаковываются в
+#    один каталог `cv2` и ЗАТИРАЮТ друг друга: после установки LightGlue
+#    contrib-модули молча пропадают, и AKAZE перестаёт существовать.
+#    Поэтому ниже opencv-contrib-python указан явно — но pip не гарантирует
+#    порядок установки, так что ПОСЛЕ первой установки проверьте:
+#
+#        pip list | grep opencv        # должна остаться ровно ОДНА строка
+#
+#    Если сборок две — почините и больше не трогайте:
+#        pip uninstall -y opencv-python opencv-contrib-python
+#        pip install opencv-contrib-python
+#
+#    Симптом, если пропустить: `RuntimeError: AKAZE недоступен...` и красные
+#    тесты в tests/test_matcher.py и tests/test_ladder.py.
+#
 # Веса моделей (MegaLoc, DINOv2, LightGlue) скачиваются при первом запуске и
 # кэшируются в ~/.cache/torch — первая локализация будет заметно дольше.
 #
@@ -37,3 +53,7 @@
 -e .[real,learned,faiss]
 
 lightglue @ git+https://github.com/cvg/LightGlue.git
+
+# Явно после LightGlue: он тянет opencv-python, а нам нужна contrib-сборка
+# (см. пункт 2 выше). Порядок pip не гарантирует — проверяйте `pip list | grep opencv`.
+opencv-contrib-python>=4.9
