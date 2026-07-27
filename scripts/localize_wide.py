@@ -59,6 +59,11 @@ def main() -> int:
                         help="порог similarity-инлайеров точного уровня (низкая высота/кросс-дата → 6)")
     parser.add_argument("--top-k", type=int, default=5,
                         help="сколько клеток-кандидатов брать у ретривала (большой регион → ранг верной растёт)")
+    parser.add_argument("--pca-dim", type=int, default=0, help="сжать дескриптор PCA→N (0 = без PCA)")
+    parser.add_argument("--whiten", action="store_true", help="PCA с whitening (измерено: обычно вредит нашему дескриптору)")
+    parser.add_argument("--faiss", action="store_true", help="поиск через FAISS/HNSW вместо numpy")
+    parser.add_argument("--faiss-kind", default="hnsw", choices=["hnsw", "flat"])
+    parser.add_argument("--ef-search", type=int, default=128, help="efSearch для HNSW (точность/скорость)")
     parser.add_argument("--dem", action="store_true")
     parser.add_argument("--declination", type=float, default=0.0)
     parser.add_argument("--cache", default="tiles")
@@ -102,7 +107,16 @@ def main() -> int:
     index = TerrainIndex(_ENCODERS[args.encoder]()).build(
         basemap, region, cell_size_px=cell_px, overlap=args.overlap, rotations_deg=(0.0,)
     )
-    print(f"индекс построен: {len(index)} клеток за {time.perf_counter()-t0:.0f} с")
+    build_s = time.perf_counter() - t0
+    extra = ""
+    if args.pca_dim > 0:
+        t1 = time.perf_counter()
+        index.compress(args.pca_dim, whiten=args.whiten)
+        extra += f", PCA→{index._reducer.dim}{'/whiten' if args.whiten else ''} за {time.perf_counter()-t1:.0f}с"
+    if args.faiss:
+        index.use_faiss(kind=args.faiss_kind, ef_search=args.ef_search)
+        extra += f", FAISS/{args.faiss_kind}"
+    print(f"индекс построен: {len(index)} клеток за {build_s:.0f} с{extra}")
 
     # Диагностика Этажа 1: нашёл ли retrieval истинную клетку.
     rr = index.query(normalize_gray(frame), k=5, prerotate_deg=-shot.yaw_deg)

@@ -258,8 +258,10 @@ def test_pca_reducer_shapes_normalized_deterministic():
     np.testing.assert_allclose(np.linalg.norm(reduced, axis=1), 1.0, atol=1e-5)  # L2-норма
     # Одиночный вектор — тот же путь, что строка матрицы.
     np.testing.assert_allclose(red.transform(x[0]), reduced[0], atol=1e-6)
-    # Детерминизм по seed.
-    np.testing.assert_allclose(PCAReducer(32, seed=0).fit(x).transform(x[0]), reduced[0], atol=1e-6)
+    # Детерминизм по seed (те же параметры, включая whiten).
+    np.testing.assert_allclose(
+        PCAReducer(32, whiten=True, seed=0).fit(x).transform(x[0]), reduced[0], atol=1e-6
+    )
 
 
 def test_pca_reducer_clamps_components_to_rank():
