@@ -27,3 +27,6 @@ for_binding/
 freeze.txt
 maps/
 eval_out/
+
+# Внешние чекпоинты (GIM/MINIMA и т.п.) — чужие данные на сотни МБ.
+weights/

@@ -19,8 +19,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+import re
+
 import cv2
 import numpy as np
+
+from .weights import apply_state_dict, checkpoint_path, read_state_dict
 
 __all__ = [
     "Correspondences",
@@ -31,6 +35,7 @@ __all__ = [
     "LightGlueMatcher",
     "LoFTRMatcher",
     "create_matcher",
+    "lightglue_state_dict",
 ]
 
 
@@ -273,6 +278,26 @@ class _LearnedMatcher:
         return self._torch.from_numpy(gray.astype(np.float32) / 255.0)[None, None].to(self._device)
 
 
+def lightglue_state_dict(state: dict) -> dict:
+    """Веса GIM/MINIMA -> именование ``lightglue`` из cvg.
+
+    Разница чисто в раскладке слоёв: у GIM (и наследующего ему MINIMA) само- и
+    кросс-внимание лежат отдельными списками ``self_attn.{i}`` и
+    ``cross_attn.{i}``, а у cvg они собраны в один блок
+    ``transformers.{i}.{self|cross}_attn``. Формы совпадают полностью — это одна
+    архитектура, записанная двумя способами, а не две разные сети.
+    """
+    out = {}
+    for key, value in state.items():
+        match = re.match(r"^(self_attn|cross_attn)\.(\d+)\.(.*)$", key)
+        if match:
+            kind, index, tail = match.groups()
+            out[f"transformers.{index}.{kind}.{tail}"] = value
+        else:
+            out[key] = value
+    return out
+
+
 class LightGlueMatcher(_LearnedMatcher):
     """SuperPoint + LightGlue (``lightglue``) за интерфейсом :class:`Matcher` — фаза 4.
 
@@ -282,22 +307,46 @@ class LightGlueMatcher(_LearnedMatcher):
     Args:
         max_keypoints: верхняя граница числа точек SuperPoint.
         min_score: порог уверенности LightGlue для пары.
+        checkpoint: имя внешних весов из :data:`aero_geoloc.weights.CHECKPOINTS`
+            (``gim_lightglue`` / ``minima_lightglue``) вместо штатных. Смена
+            обучения — это ровно один аргумент; архитектура та же.
     """
 
     _requires = "torch и lightglue"
 
-    def __init__(self, *, max_keypoints: int = 2048, min_score: float = 0.0, device: str | None = None) -> None:
+    def __init__(self, *, max_keypoints: int = 2048, min_score: float = 0.0,
+                 checkpoint: str | None = None, device: str | None = None) -> None:
         super().__init__(device=device)
         self.max_keypoints = max_keypoints
         self.min_score = min_score
+        self.checkpoint = checkpoint
+        self.loaded_tensors: dict[str, int] = {}
         self._extractor = None
         self._matcher = None
 
     def _import(self) -> None:  # pragma: no cover - требует torch+lightglue
         from lightglue import LightGlue, SuperPoint
 
-        self._extractor = SuperPoint(max_num_keypoints=self.max_keypoints).eval().to(self._device)
-        self._matcher = LightGlue(features="superpoint").eval().to(self._device)
+        extractor = SuperPoint(max_num_keypoints=self.max_keypoints).eval()
+        matcher = LightGlue(features="superpoint").eval()
+        if self.checkpoint:
+            state = read_state_dict(checkpoint_path(self.checkpoint))
+            # У GIM веса лежат под model./superpoint., у MINIMA — плоско: обе
+            # раскладки разбираются одинаково, чтобы не заводить ветку на автора.
+            body = {k[len("model."):]: v for k, v in state.items()
+                    if k.startswith("model.")} or state
+            self.loaded_tensors["lightglue"] = apply_state_dict(
+                matcher, lightglue_state_dict(body), label=self.checkpoint)
+            head = {k[len("superpoint."):]: v for k, v in state.items()
+                    if k.startswith("superpoint.")}
+            # Свой SuperPoint есть не у всех: MINIMA дообучает только матчер.
+            # Собирать ядро из половин двух разных обучений нельзя, поэтому
+            # детектор берётся из чекпоинта, только если он там действительно есть.
+            if head:
+                self.loaded_tensors["superpoint"] = apply_state_dict(
+                    extractor, head, label=f"{self.checkpoint}:superpoint")
+        self._extractor = extractor.to(self._device)
+        self._matcher = matcher.to(self._device)
 
     def match(self, query_gray: np.ndarray, ref_gray: np.ndarray) -> Correspondences:
         _check_gray(query_gray, "query_gray")
@@ -331,21 +380,31 @@ class LoFTRMatcher(_LearnedMatcher):
 
     Плотный матчинг без детектора — сильнее на слабо-текстурных сценах, где
     классике не хватает точек. Args: ``pretrained`` — ``"outdoor"``/``"indoor"``,
-    ``min_conf`` — порог уверенности пары.
+    ``min_conf`` — порог уверенности пары, ``checkpoint`` — внешние веса
+    (``minima_loftr``) вместо штатных.
     """
 
     _requires = "torch и kornia"
 
-    def __init__(self, *, pretrained: str = "outdoor", min_conf: float = 0.5, device: str | None = None) -> None:
+    def __init__(self, *, pretrained: str = "outdoor", min_conf: float = 0.5,
+                 checkpoint: str | None = None, device: str | None = None) -> None:
         super().__init__(device=device)
         self.pretrained = pretrained
         self.min_conf = min_conf
+        self.checkpoint = checkpoint
+        self.loaded_tensors: dict[str, int] = {}
         self._model = None
 
     def _import(self) -> None:  # pragma: no cover - требует torch+kornia
         import kornia
 
-        self._model = kornia.feature.LoFTR(pretrained=self.pretrained).eval().to(self._device)
+        model = kornia.feature.LoFTR(pretrained=None if self.checkpoint else self.pretrained)
+        if self.checkpoint:
+            state = read_state_dict(checkpoint_path(self.checkpoint))
+            body = {k[len("matcher."):]: v for k, v in state.items()
+                    if k.startswith("matcher.")} or state
+            self.loaded_tensors["loftr"] = apply_state_dict(model, body, label=self.checkpoint)
+        self._model = model.eval().to(self._device)
 
     def match(self, query_gray: np.ndarray, ref_gray: np.ndarray) -> Correspondences:
         _check_gray(query_gray, "query_gray")
@@ -422,11 +481,16 @@ class ResizedMatcher:
                                conf=corr.conf)
 
 
+#: Ядра по имени. Подмены весов — те же классы с другим чекпоинтом: архитектура
+#: не меняется, меняется обучение (``docs/ROADMAP.md``, фаза 2).
 _REGISTRY = {
     "sift": SIFTMatcher,
     "akaze": AKAZEMatcher,
     "lightglue": LightGlueMatcher,
     "loftr": LoFTRMatcher,
+    "gim_lightglue": lambda **kw: LightGlueMatcher(checkpoint="gim_lightglue", **kw),
+    "minima_lightglue": lambda **kw: LightGlueMatcher(checkpoint="minima_lightglue", **kw),
+    "minima_loftr": lambda **kw: LoFTRMatcher(checkpoint="minima_loftr", **kw),
 }
 
 
