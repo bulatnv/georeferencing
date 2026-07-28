@@ -57,11 +57,17 @@ cases:
   # но не как истина. Истину размечает владелец по оверлею (scripts/annotate_gt.py).
   - name: Saratov
     path: Saratov/Saratov.jpg
-    truth: none
+    # Истина размечена по подложке и ПОДТВЕРЖДЕНА владельцем 2026-07-28: мост через
+    # Волгу с развязкой. Локализация дала 18 инлайеров, NCC 0.597, эллипс 0.14 м.
+    truth: {lat: 51.528219, lon: 46.062912}
     gsd_m: 0.065
     gsd_source: "Saratov_geolocation.txt: GSD ~6.5 cm/pixel"
     altitude_m: 500.0
-    prior: {lat: 51.540556, lon: 46.008333, sigma_m: 2000.0}
+    # ВАЖНО: точка из Saratov_geolocation.txt (51.540556, 46.008333) промахивается
+    # мимо места съёмки на ~4 км — она в городской застройке, а кадр над мостом.
+    # Приор поставлен по подтверждённой истине; исходная точка сохранена ниже.
+    prior: {lat: 51.528219, lon: 46.062912, sigma_m: 1500.0}
+    approx_point_from_txt: {lat: 51.540556, lon: 46.008333, off_by_m: 4000}
   - name: Saratov2
     path: Saratov/Saratov2.jpg
     truth: none
@@ -94,18 +100,22 @@ cases:
     prior: {lat: 48.7194, lon: 44.5018, sigma_m: 2000.0}
   - name: Volgograd2
     path: Volgograd/Volgograd2.jpg
-    truth: none
+    # ПОДТВЕРЖДЕНО владельцем 2026-07-28: пляж, дачи, петля дороги.
+    # 58 инлайеров, NCC 0.547, эллипс 0.09 м.
+    truth: {lat: 48.715919, lon: 44.557524}
     gsd_m: 0.065
     gsd_source: "Volgograd_geolocation.txt: GSD ~6.5 cm/pixel"
     altitude_m: 500.0
-    prior: {lat: 48.7194, lon: 44.5018, sigma_m: 2000.0}
+    prior: {lat: 48.715919, lon: 44.557524, sigma_m: 1500.0}
   - name: Volgograd3
     path: Volgograd/Volgograd3.jpg
-    truth: none
+    # ПОДТВЕРЖДЕНО владельцем 2026-07-28: марина с понтонами и катерами.
+    # 18 инлайеров, NCC 0.623, эллипс 0.17 м.
+    truth: {lat: 48.680748, lon: 44.486746}
     gsd_m: 0.065
     gsd_source: "Volgograd_geolocation.txt: GSD ~6.5 cm/pixel"
     altitude_m: 500.0
-    prior: {lat: 48.7194, lon: 44.5018, sigma_m: 2000.0}
+    prior: {lat: 48.680748, lon: 44.486746, sigma_m: 1500.0}
   - name: Volgograd4
     path: Volgograd/Volgograd4.jpg
     truth: none
