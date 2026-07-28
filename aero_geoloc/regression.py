@@ -84,7 +84,8 @@ OUTCOME_RU: dict[str, str] = {
 #: Ключи конфигурации, меняющие смысл сравнения. Прогон с другим радиусом или
 #: другим матчером — это не регрессия, а другой эксперимент, и путать их нельзя.
 CONFIG_KEYS = (
-    "manifest", "matcher", "matcher_max_side", "radius_km", "cell_px", "overlap", "pca_dim",
+    "manifest", "matcher", "matcher_max_side", "photometric", "min_photometric",
+    "radius_km", "cell_px", "overlap", "pca_dim",
     "top_k", "min_inliers", "rotation_step", "correct_m", "manual_tol_frac",
     "offset_km", "sigma_m",
 )
@@ -222,7 +223,7 @@ def freeze(rows: list[dict], config: dict, *, note: str = "") -> Golden:
         rank = _num(row.get("true_cell_rank"))
         inliers = _num(row.get("n_inliers"))
         error = _num(row.get("error_m"))
-        ncc = _num(row.get("photometric_ncc"))
+        ncc = _num(row.get("photometric"))
         cases[name] = CaseExpectation(
             name=name,
             outcome=outcome_of(row),

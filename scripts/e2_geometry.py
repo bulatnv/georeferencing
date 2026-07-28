@@ -58,14 +58,15 @@ from aero_geoloc.pose import (  # noqa: E402
     estimate_similarity,
     inlier_spread,
 )
-from aero_geoloc.quality import aligned_ncc  # noqa: E402
+from aero_geoloc.quality import aligned_ncc, aligned_structural  # noqa: E402
+from aero_geoloc.similarity import dense_dino  # noqa: E402
 
 FIELDS = ["case", "regime", "pair", "offset_m", "bearing_deg", "pose_found",
-          "n_correspondences", "n_inliers", "inlier_ratio", "rmse_px", "ncc",
+          "n_correspondences", "n_inliers", "inlier_ratio", "rmse_px", "ncc", "dino",
           "inlier_spread", "bootstrap_scatter_px", "centre_error_m", "size_px"]
 
 #: Сигналы и направление «лучше»: у разброса центра меньше — лучше.
-DIRECTION = {"n_inliers": +1, "inlier_ratio": +1, "rmse_px": -1, "ncc": +1,
+DIRECTION = {"n_inliers": +1, "inlier_ratio": +1, "rmse_px": -1, "ncc": +1, "dino": +1,
              "inlier_spread": +1, "bootstrap_scatter_px": -1}
 
 
@@ -111,6 +112,11 @@ def _rows_for_case(case: EvalCase, args, basemap, matcher, max_zoom, poses) -> l
             inlier_ratio=round(pose.inlier_ratio, 4),
             rmse_px=round(pose.reprojection_rmse_px, 3),
             ncc=round(float(aligned_ncc(query, gray_ref, pose.transform)), 4),
+            # Меры считаются НА НАЙДЕННОЙ ПОЗЕ, а не на оракульном выравнивании:
+            # порог гейта применяется именно к этим числам, и калибровать его по
+            # оракульным значениям значило бы калибровать не то (E3).
+            dino=("" if args.no_dino else round(
+                float(aligned_structural(query, gray_ref, pose.transform, dense_dino())), 4)),
             inlier_spread=round(inlier_spread(corr.pts_q[mask], diagonal), 4),
             bootstrap_scatter_px=round(
                 bootstrap_center_scatter_px(corr, mask, centre, draws=args.draws), 4),
@@ -226,6 +232,7 @@ def main() -> int:
                         help="намеренно ниже боевого: нужны КРАЕВЫЕ ложные позы")
     parser.add_argument("--ransac-px", type=float, default=6.0)
     parser.add_argument("--draws", type=int, default=32, help="бутстрэп-выборок на позу")
+    parser.add_argument("--no-dino", action="store_true", help="без плотных фич DINOv2")
     parser.add_argument("--cache", default="tiles")
     parser.add_argument("--out", default="eval_out/e2_geometry.csv")
     parser.add_argument("--correct-m", type=float, default=50.0,

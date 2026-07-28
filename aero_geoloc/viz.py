@@ -192,8 +192,9 @@ def render_localization(
         bits.append(f"found: {result.center_lat:.6f}, {result.center_lon:.6f}")
     if diag.get("n_inliers") is not None:
         bits.append(f"inliers: {diag['n_inliers']}")
-    if diag.get("photometric_ncc") is not None:
-        bits.append(f"NCC: {float(diag['photometric_ncc']):.3f}")
+    if diag.get("photometric") is not None:
+        bits.append(f"{diag.get('photometric_kind', 'NCC')}: "
+                    f"{float(diag['photometric']):.3f}")
     if result.error_ellipse_m:
         bits.append(f"ellipse: {result.error_ellipse_m[0]:.2f} m")
     if not result.is_localized and diag.get("reason"):

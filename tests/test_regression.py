@@ -29,7 +29,7 @@ def row(case, status, *, accepted="", correct="", error_m="", blame="", rank="",
     return {
         "case": case, "status": status, "accepted": accepted, "correct": correct,
         "error_m": error_m, "blame": blame, "true_cell_rank": rank,
-        "n_inliers": inliers, "photometric_ncc": ncc,
+        "n_inliers": inliers, "photometric": ncc,
     }
 
 

@@ -45,10 +45,14 @@ from .types import Status
 
 __all__ = [
     "MIN_NCC",
+    "MIN_DINO",
     "MIN_INLIERS_HARD",
+    "PHOTOMETRIC_THRESHOLDS",
     "center_covariance",
     "error_ellipse",
+    "align_reference",
     "aligned_ncc",
+    "aligned_structural",
     "QualityAssessment",
     "assess",
 ]
@@ -61,6 +65,27 @@ __all__ = [
 #: разъезжался бы молча.
 MIN_NCC = 0.12
 MIN_INLIERS_HARD = 8
+
+#: Порог для меры согласия «косинус плотных патч-токенов DINOv2» (E3, ROADMAP
+#: фаза 1). Взят не из литературы, а из замера **на найденных позах**, а не на
+#: оракульном выравнивании: порог применяется именно к тем числам, что считает
+#: пайплайн (36 верных поз и 9 ложных, ``scripts/e2_geometry.py``).
+#:
+#: Почему вообще меняем меру: у NCC на ВЕРНЫХ парах разброс от −0.03 до 0.66,
+#: то есть разброс между кадрами больше сезонного, и единого порога у неё нет.
+#: Из-за этого калиброванный порог 0.12 режет верную локализацию ``00049``
+#: (её NCC −0.018 при верном месте).
+#:
+#: Почему именно 0.35. Слабейшая верная поза — тот самый ``00049`` с 0.377;
+#: сильнейшая ложная — 0.454, но у неё 6 инлайеров, и её отсекает второе условие
+#: связки. Из ложных поз с ``инлайеры ≥ 8`` выше порога остаётся одна, ровно та
+#: же, что проходила и по NCC, — то есть замена ничего не ослабляет и
+#: возвращает ``00049``. **Запас тонкий (0.027)** и держится на одном кадре:
+#: при пополнении набора порог пересчитать.
+MIN_DINO = 0.35
+
+#: Порог по имени меры — чтобы оркестрация не таскала литералы по уровням.
+PHOTOMETRIC_THRESHOLDS = {"ncc": MIN_NCC, "dino": MIN_DINO}
 
 
 def center_covariance(
@@ -131,15 +156,14 @@ def error_ellipse(cov: np.ndarray) -> tuple[float, float, float]:
     return (semi_major, semi_minor, angle)
 
 
-def aligned_ncc(
+def align_reference(
     query_gray: np.ndarray, ref_gray: np.ndarray, transform: SimilarityTransform
-) -> float:
-    """Нормированная кросс-корреляция кадра и подложки, выровненной под него.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Подложка, отображённая в систему кадра, и маска валидности.
 
-    Фотометрический сигнал согласия после оценки/refinement: подложка
-    отображается в систему кадра тем же преобразованием, и NCC меряется по зоне,
-    куда реально попали пиксели подложки (вне её — не в счёт). Возвращает
-    значение в ``[−1, 1]``; ``NaN`` превращается в ``−1`` (нет валидной зоны).
+    Общая часть всех мер согласия: за пределами отображённой зоны данных нет, и
+    эти пиксели не должны попадать в статистику — иначе два «пустых поля»
+    прекрасно скоррелируют между собой.
     """
     h, w = query_gray.shape[:2]
     warped = cv2.warpAffine(
@@ -150,7 +174,52 @@ def aligned_ncc(
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=float("nan"),
     )
-    valid = np.isfinite(warped)
+    return warped, np.isfinite(warped)
+
+
+def aligned_structural(
+    query_gray: np.ndarray, ref_gray: np.ndarray, transform: SimilarityTransform,
+    measure, *, min_valid: int = 256,
+) -> float:
+    """Мера согласия, которой нужны ДВЕ КАРТИНКИ, а не два вектора пикселей.
+
+    NCC можно посчитать по разрозненным валидным пикселям, а вот всему, что
+    смотрит на структуру — градиентам, дескрипторам, свёрточным фичам, — нужна
+    связная картинка. Поэтому обе обрезаются по описанному прямоугольнику
+    валидной зоны, а редкие дыры внутри неё заполняются средним: заполнение
+    структуры не создаёт, а разрывов не оставляет.
+
+    ``measure`` — любая функция ``(a, b) -> float`` из
+    :mod:`aero_geoloc.similarity`. При нехватке валидной зоны возвращается
+    ``-1.0`` — тот же признак «сравнивать нечего», что и у :func:`aligned_ncc`.
+    """
+    warped, valid = align_reference(query_gray, ref_gray, transform)
+    if int(np.count_nonzero(valid)) < min_valid:
+        return -1.0
+    rows = np.flatnonzero(valid.any(axis=1))
+    cols = np.flatnonzero(valid.any(axis=0))
+    y0, y1 = int(rows[0]), int(rows[-1]) + 1
+    x0, x1 = int(cols[0]), int(cols[-1]) + 1
+    if (y1 - y0) < 16 or (x1 - x0) < 16:
+        return -1.0
+    patch = warped[y0:y1, x0:x1].copy()
+    holes = ~np.isfinite(patch)
+    if holes.any():
+        patch[holes] = float(np.nanmean(patch))
+    return float(measure(query_gray[y0:y1, x0:x1].astype(np.float32), patch))
+
+
+def aligned_ncc(
+    query_gray: np.ndarray, ref_gray: np.ndarray, transform: SimilarityTransform
+) -> float:
+    """Нормированная кросс-корреляция кадра и подложки, выровненной под него.
+
+    Фотометрический сигнал согласия после оценки/refinement: подложка
+    отображается в систему кадра тем же преобразованием, и NCC меряется по зоне,
+    куда реально попали пиксели подложки (вне её — не в счёт). Возвращает
+    значение в ``[−1, 1]``; ``NaN`` превращается в ``−1`` (нет валидной зоны).
+    """
+    warped, valid = align_reference(query_gray, ref_gray, transform)
     if int(np.count_nonzero(valid)) < 16:
         return -1.0
     a = query_gray.astype(np.float32)[valid]
@@ -196,11 +265,12 @@ def assess(
     center_q: tuple[float, float],
     mpp: float,
     *,
-    photometric_ncc: float | None = None,
+    photometric: float | None = None,
+    photometric_kind: str = "ncc",
     systematic_floor_m: float = 0.0,
     max_semi_major_m: float = 3.0,
     min_inliers_hard: int = MIN_INLIERS_HARD,
-    min_ncc: float = MIN_NCC,
+    min_photometric: float | None = None,
     inlier_saturation: int = 30,
 ) -> QualityAssessment:
     """Свести геометрию решения и сигналы в ковариацию, доверие и статус.
@@ -208,7 +278,7 @@ def assess(
     Статус ``LOCALIZED`` требует **связки** трёх калиброванных условий (все И):
     малый 1σ-эллипс (``≤ max_semi_major_m``), достаточно инлайеров
     (``≥ min_inliers_hard``) И (если дан) фотометрический NCC не ниже порога
-    (``≥ min_ncc``). Иначе — ``LOW_CONFIDENCE``. Связка, а не один счётчик: калибровка
+    (``≥ min_photometric``). Иначе — ``LOW_CONFIDENCE``. Связка, а не один счётчик: калибровка
     на реальных дрон↔Esri матчах (см. JOURNAL, веха калибровки) показала, что ни
     инлайеры, ни NCC по отдельности не делят верный слабый матч и ложный случайный —
     негативы упираются в 4–9 инлайеров и дают шумный NCC (иногда высокий на
@@ -224,14 +294,20 @@ def assess(
         corr: соответствия (берутся инлайерные).
         center_q: центр кадра в его пикселях.
         mpp: разрешение подложки, м/пиксель.
-        photometric_ncc: NCC выровненного патча (см. :func:`aligned_ncc`), опц.
+        photometric: значение меры согласия кадра и выровненной подложки, опц.
+            Какая именно это мера — решает оркестрация; связка знает только, что
+            больше = лучше, и сравнивает с порогом.
+        photometric_kind: имя меры (``ncc`` | ``dino``) — попадает в ``signals``
+            и задаёт дефолтный порог. Имя обязательно: число 0.31 значит
+            «отлично» для NCC и «на грани» для dino, и без имени такую таблицу
+            невозможно прочитать полгода спустя.
         systematic_floor_m: изотропный пол ковариации — абсолютная погрешность
             геопривязки подложки (не зависит от ``N``). Прибавляется как
             ``floor²·I``. На синтетике 0; в бою — паспортная точность подложки.
         max_semi_major_m: порог большой полуоси 1σ-эллипса для ``LOCALIZED``.
         min_inliers_hard: минимум инлайеров в связке (калибр.: 8).
-        min_ncc: минимальный NCC (если задан) в связке (калибр. дрон↔Esri: 0.12;
-            для same-domain, где NCC высок, можно строже).
+        min_photometric: порог меры в связке. ``None`` — взять калиброванный
+            дефолт по ``photometric_kind`` (:data:`PHOTOMETRIC_THRESHOLDS`).
         inlier_saturation: число инлайеров, при котором соответствующий сигнал
             доверия насыщается до 1.
     """
@@ -247,27 +323,31 @@ def assess(
 
     n_inliers = pose.n_inliers
     sub_scores = [min(n_inliers / inlier_saturation, 1.0), pose.inlier_ratio]
-    if photometric_ncc is not None:
-        sub_scores.append(max(0.0, photometric_ncc))
+    if photometric is not None:
+        sub_scores.append(max(0.0, photometric))
     confidence = _geometric_mean(sub_scores)
 
+    threshold = (PHOTOMETRIC_THRESHOLDS.get(photometric_kind, MIN_NCC)
+                 if min_photometric is None else min_photometric)
     signals = {
         "n_inliers": n_inliers,
         "inlier_ratio": pose.inlier_ratio,
         "reprojection_rmse_px": pose.reprojection_rmse_px,
         "semi_major_m": semi_major_m,
         "semi_minor_m": ellipse[1],
-        "photometric_ncc": photometric_ncc,
+        "photometric": photometric,
+        "photometric_kind": photometric_kind,
+        "photometric_threshold": threshold,
     }
 
     # Калиброванная СВЯЗКА (все И): эллипс мал, инлайеров не мало, NCC не провален.
     # RMSE намеренно не участвует — калибровка признала его неразделяющим.
-    ncc_ok = photometric_ncc is None or photometric_ncc >= min_ncc
+    photometric_ok = photometric is None or photometric >= threshold
     confident = (
         math.isfinite(semi_major_m)
         and semi_major_m <= max_semi_major_m
         and n_inliers >= min_inliers_hard
-        and ncc_ok
+        and photometric_ok
     )
     status = Status.LOCALIZED if confident else Status.LOW_CONFIDENCE
     return QualityAssessment(

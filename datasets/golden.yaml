@@ -8,57 +8,60 @@
 # outcome — класс исхода (aero_geoloc/regression.py), именно он даёт вердикт.
 # error_m / true_cell_rank / n_inliers / ncc — справочные: по ним видно, ЧТО
 # изменилось, но сами по себе они шумят и сборку не рушат.
-note: 'База фазы 0 (2026-07-28): LightGlue, радиус 1.5 км, top-K 15. 11/11 верных мест, 0 ложных, медиана
-  8.8 м.'
+note: 'E3 (2026-07-29): в связке качества NCC заменена косинусом плотных DINOv2-фич, порог 0.35. 11/11
+  верных мест, 0 ложных, гейт больше не режет верных (00049 принят).'
 config:
   cell_px: 350
   correct_m: 50.0
   manifest: datasets/test_images.yaml
   manual_tol_frac: 0.25
   matcher: lightglue
+  matcher_max_side: 0
   min_inliers: 6
+  min_photometric: null
   offset_km: 0.0
   overlap: 0.0
   pca_dim: 1024
+  photometric: dino
   radius_km: 1.5
   rotation_step: 45
   sigma_m: 0.0
   top_k: 15
 cases:
   00049:
-    outcome: pose_correct_gated
+    outcome: accepted_correct
     error_m: 8.5
     true_cell_rank: 2
     n_inliers: 35
-    ncc: 0.0413
-    note: ГЕЙТ отверг ВЕРНУЮ (NCC 0.041<0.12)
+    ncc: 0.4909
+    note: ok
   Saratov:
     outcome: accepted_correct
     error_m: 1.2
     true_cell_rank: 2
     n_inliers: 29
-    ncc: 0.6089
+    ncc: 0.6229
     note: ok
   Saratov2:
     outcome: accepted_correct
     error_m: 53.2
     true_cell_rank: 1
     n_inliers: 16
-    ncc: 0.6705
+    ncc: 0.5613
     note: ok
   Saratov3:
     outcome: accepted_correct
     error_m: 58.1
     true_cell_rank: 11
     n_inliers: 22
-    ncc: 0.4181
+    ncc: 0.701
     note: ok
   Saratov4:
     outcome: accepted_correct
     error_m: 37.3
     true_cell_rank: 1
     n_inliers: 80
-    ncc: 0.5014
+    ncc: 0.7364
     note: ok
   Ufa2:
     outcome: refused_floor2
@@ -77,21 +80,21 @@ cases:
     error_m: 118.9
     true_cell_rank: 25
     n_inliers: 163
-    ncc: 0.6625
+    ncc: 0.8138
     note: ok
   Ufa_sample3:
     outcome: accepted_correct
     error_m: 8.8
     true_cell_rank: 3
     n_inliers: 58
-    ncc: 0.694
+    ncc: 0.7109
     note: ok
   Ufa_sample4:
     outcome: accepted_correct
     error_m: 4.7
     true_cell_rank: 27
     n_inliers: 8
-    ncc: 0.6353
+    ncc: 0.7283
     note: ok
   Volgograd:
     outcome: refused_floor2
@@ -102,23 +105,23 @@ cases:
     error_m: 2.3
     true_cell_rank: 12
     n_inliers: 48
-    ncc: 0.5397
+    ncc: 0.6608
     note: ok
   Volgograd3:
     outcome: accepted_correct
     error_m: 4.1
     true_cell_rank: 15
     n_inliers: 14
-    ncc: 0.6414
+    ncc: 0.6278
     note: ok
   Volgograd4:
     outcome: accepted_correct
     error_m: 45.7
     true_cell_rank: 2
     n_inliers: 20
-    ncc: 0.3236
+    ncc: 0.6269
     note: ok
   train_SB_0023:
     outcome: refused_floor1
-    true_cell_rank: 705
-    note: Этаж 1 (верная клетка на 705, top-K=15)
+    true_cell_rank: 695
+    note: Этаж 1 (верная клетка на 695, top-K=15)

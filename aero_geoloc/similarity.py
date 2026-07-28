@@ -40,7 +40,7 @@ import numpy as np
 
 __all__ = [
     "SIGNALS", "ncc", "grad_ncc", "cfog", "ngf", "nmi", "edge_dice",
-    "cfog_descriptor", "DenseDinoSimilarity",
+    "cfog_descriptor", "DenseDinoSimilarity", "dense_dino",
 ]
 
 
@@ -286,3 +286,17 @@ class DenseDinoSimilarity:
         self._ensure_model()
         ta, tb = self._tokens(a), self._tokens(b)
         return float((ta * tb).sum(dim=-1).mean().item())
+
+
+#: Разделяемый экземпляр: модель весит сотни мегабайт, и создавать её на каждый
+#: кандидат веера нельзя. Кэш на процесс, а не глобальная переменная в коде
+#: пайплайна, — чтобы владение оставалось у модуля меры.
+_SHARED: dict[str, DenseDinoSimilarity] = {}
+
+
+def dense_dino(model_name: str = "dinov2_vitb14", **kwargs) -> DenseDinoSimilarity:
+    """Общий на процесс :class:`DenseDinoSimilarity` — по одной модели на имя."""
+    key = model_name + repr(sorted(kwargs.items()))
+    if key not in _SHARED:
+        _SHARED[key] = DenseDinoSimilarity(model_name, **kwargs)
+    return _SHARED[key]

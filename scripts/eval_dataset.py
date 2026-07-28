@@ -62,7 +62,7 @@ FIELDS = [
     "case", "matcher", "truth_source", "trust_yaw", "gsd_m", "footprint_m", "cells", "rotations", "overlap",
     "status", "accepted", "error_m", "tolerance_m", "correct", "blame",
     "true_cell_rank", "true_cell_m", "top1_to_truth_m", "uniqueness",
-    "n_inliers", "photometric_ncc", "ellipse_m",
+    "n_inliers", "photometric", "photometric_kind", "ellipse_m",
     "found_lat", "found_lon", "heading_deg", "offline_s", "online_s", "reason",
 ]
 
@@ -191,12 +191,14 @@ def _failed_gate(diag: dict, args) -> str:
     """Какое условие связки качества не пропустило позу (см. quality.assess)."""
     reasons = []
     inliers = diag.get("n_inliers")
-    ncc = diag.get("photometric_ncc")
+    ncc = diag.get("photometric")
+    kind = diag.get("photometric_kind", "ncc")
+    threshold = diag.get("photometric_threshold", MIN_NCC)
     semi_major = diag.get("semi_major_m")
     if inliers is not None and inliers < MIN_INLIERS_HARD:
         reasons.append(f"инлайеры {inliers}<{MIN_INLIERS_HARD}")
-    if ncc is not None and float(ncc) < MIN_NCC:
-        reasons.append(f"NCC {float(ncc):.3f}<{MIN_NCC}")
+    if ncc is not None and float(ncc) < float(threshold):
+        reasons.append(f"{kind} {float(ncc):.3f}<{threshold}")
     if semi_major is not None and float(semi_major) > args.max_ellipse_m:
         reasons.append(f"эллипс {float(semi_major):.2f}>{args.max_ellipse_m}")
     return ", ".join(reasons) if reasons else "связка качества"
@@ -240,7 +242,12 @@ def run_config(args) -> dict:
     (:mod:`aero_geoloc.regression`): прогон с другим радиусом или другим матчером
     — это другой эксперимент, а по одной таблице чисел это не видно.
     """
-    return {key: getattr(args, key) for key in CONFIG_KEYS if hasattr(args, key)}
+    config = {key: getattr(args, key) for key in CONFIG_KEYS if hasattr(args, key)}
+    # Часовые значения наружу не выпускаем: в замороженной конфигурации «-2.0»
+    # читалось бы как порог, а это «взять калиброванный дефолт меры».
+    if config.get("min_photometric", 0.0) < -1.0:
+        config["min_photometric"] = None
+    return config
 
 
 def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
@@ -286,6 +293,8 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
         # у совпавшей клетки индекса — без этого аугментация чинит только Этаж 1.
         trust_yaw=case.trust_yaw, prerotate=True, max_zoom=max_zoom,
         min_inliers=args.min_inliers, retrieval_top_k=args.top_k, ransac_threshold_px=6.0,
+        photometric_kind=args.photometric,
+        min_photometric=None if args.min_photometric < -1.0 else args.min_photometric,
     )
     row["online_s"] = round(time.perf_counter() - t0, 1)
 
@@ -293,8 +302,9 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
     row.update(
         status=result.status.value,
         n_inliers=diag.get("n_inliers", ""),
-        photometric_ncc=(round(float(diag["photometric_ncc"]), 4)
-                         if diag.get("photometric_ncc") is not None else ""),
+        photometric=(round(float(diag["photometric"]), 4)
+                     if diag.get("photometric") is not None else ""),
+        photometric_kind=diag.get("photometric_kind", ""),
         ellipse_m=(round(result.error_ellipse_m[0], 3) if result.error_ellipse_m else ""),
         found_lat=round(result.center_lat, 6) if result.center_lat is not None else "",
         found_lon=round(result.center_lon, 6) if result.center_lon is not None else "",
@@ -348,7 +358,7 @@ def report(rows: list[dict], excluded, args) -> None:
     for r in rows:
         err = f"{r['error_m']} м" if r["error_m"] != "" else "—"
         rank = r["true_cell_rank"] if r["true_cell_rank"] != "" else "—"
-        ncc = r["photometric_ncc"] if r["photometric_ncc"] != "" else "—"
+        ncc = r["photometric"] if r["photometric"] != "" else "—"
         print(f"{r['case']:<14}{r['status']:<16}{err:>9}  {str(rank):>6}{str(r['n_inliers']):>5}"
               f"{str(ncc):>7}  {r['blame']:<40}{r['online_s']:>7}с")
 
@@ -399,6 +409,16 @@ def main() -> int:
                              "ядрам (LoFTR и далее RoMa/MINIMA) полное разрешение "
                              "подавать нельзя — обе картинки уменьшаются ОДНИМ "
                              "коэффициентом, см. ResizedMatcher")
+    parser.add_argument("--photometric", default="dino",
+                        help="чем мерить согласие кадра и подложки в связке качества: "
+                             "dino (косинус плотных патч-токенов DINOv2 — измеренно "
+                             "лучше, E1/E3 в docs/JOURNAL.md) или ncc (дёшево, без "
+                             "torch, прежняя база калибровки). Здесь дефолт dino, а в "
+                             "самой библиотеке остаётся ncc: пакет не должен тянуть "
+                             "torch ради оценки качества, синтетический стенд ходит "
+                             "на SIFT без него")
+    parser.add_argument("--min-photometric", type=float, default=-2.0,
+                        help="порог меры в связке; < -1 = калиброванный дефолт меры")
     parser.add_argument("--cases", default="", help="через запятую: прогнать только эти кейсы")
     parser.add_argument("--prior", default="",
                         help="переопределить приор всех кейсов: 'lat,lon' — когда опорная "

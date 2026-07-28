@@ -42,13 +42,13 @@ from aero_geoloc.retrieval import MegaLocEncoder, calibrate_uniqueness_threshold
 from map_benchmark import build_or_load_map, cluster_shots  # noqa: E402  (соседний скрипт)
 
 FIELDS = ["dataset", "file", "altitude_m", "ref_kind", "label", "error_m",
-          "n_inliers", "inlier_ratio", "reprojection_rmse_px", "ellipse_major_m", "photometric_ncc"]
+          "n_inliers", "inlier_ratio", "reprojection_rmse_px", "ellipse_major_m", "photometric"]
 
 # Сигналы и направление «лучше у верного»: +1 больше=лучше, −1 меньше=лучше.
 SIGNALS = {
     "n_inliers": +1,
     "inlier_ratio": +1,
-    "photometric_ncc": +1,
+    "photometric": +1,
     "reprojection_rmse_px": -1,
     "ellipse_major_m": -1,
 }
@@ -67,7 +67,7 @@ def _match_row(shot, ds_name, file_name, frame, camera, basemap, z, lat, lon, ki
     prior = shot.prior(sigma_m=1_000_000.0)
     r = localize_against_reference(
         frame, camera, prior, ref, gref, matcher=LightGlueMatcher(),
-        prerotate_deg=-shot.yaw_deg, min_inliers=args.min_inliers, min_ncc=-1.0,
+        prerotate_deg=-shot.yaw_deg, min_inliers=args.min_inliers, min_photometric=-1.0,
         ransac_threshold_px=6.0,
     )
     d = r.diagnostics
@@ -86,7 +86,7 @@ def _match_row(shot, ds_name, file_name, frame, camera, basemap, z, lat, lon, ki
         "n_inliers": d.get("n_inliers", 0), "inlier_ratio": round(d.get("inlier_ratio", 0.0), 4),
         "reprojection_rmse_px": round(d.get("reprojection_rmse_px", float("nan")), 4),
         "ellipse_major_m": round(r.error_ellipse_m[0], 3),
-        "photometric_ncc": round(d.get("photometric_ncc", float("nan")), 4),
+        "photometric": round(d.get("photometric", float("nan")), 4),
     }
 
 

@@ -24,7 +24,7 @@ from .geo import Georef, ground_mpp, haversine_m, zoom_for_mpp
 from .matcher import Correspondences, Matcher, SIFTMatcher
 from .pose import PoseEstimate, estimate_similarity, refine_ecc
 from .quality import MIN_NCC as quality_min_ncc
-from .quality import aligned_ncc, assess
+from .quality import PHOTOMETRIC_THRESHOLDS, aligned_ncc, aligned_structural, assess
 from .retrieval import TerrainIndex, should_localize
 from .types import LocalizationResult, Prior, Status
 
@@ -82,6 +82,30 @@ PRIOR_GATE_SIGMA = 3.0
 #: :mod:`aero_geoloc.quality`, чтобы дефолт оркестрации не мог разойтись с тем,
 #: по которому реально решает ``assess``. Обоснование значения — там же.
 MIN_NCC = quality_min_ncc
+
+#: Мера согласия по умолчанию. ``"ncc"`` — фотометрическая корреляция: дёшево,
+#: без torch, и именно на ней откалибрована текущая связка. ``"dino"`` — косинус
+#: плотных патч-токенов DINOv2: измеренно ровнее по шкале между кадрами (E1 в
+#: ``docs/JOURNAL.md``), но требует torch и весов.
+DEFAULT_PHOTOMETRIC = "ncc"
+
+
+def photometric_measure(kind: str):
+    """Функция ``(кадр, подложка, поза) -> число``, где больше = лучше.
+
+    Оркестрация выбирает МЕРУ, а связка качества (:func:`quality.assess`) знает
+    только её значение, имя и порог. Так замена дискриминатора остаётся одной
+    строкой конфигурации — тем же приёмом, что и сменное ядро матчинга.
+    """
+    if kind == "ncc":
+        return aligned_ncc
+    if kind == "dino":
+        from .similarity import dense_dino
+
+        model = dense_dino()
+        return lambda q, r, t: aligned_structural(q, r, t, model)
+    raise ValueError(f"неизвестная мера согласия {kind!r}, доступны: "
+                     f"{sorted(PHOTOMETRIC_THRESHOLDS)}")
 
 
 def normalize_gray(image: np.ndarray, *, clahe: bool = False) -> np.ndarray:
@@ -190,7 +214,8 @@ def localize_against_reference(
     clahe: bool = False,
     refine: bool = False,
     prerotate_deg: float = 0.0,
-    min_ncc: float = MIN_NCC,
+    min_photometric: float | None = None,
+    photometric_kind: str = DEFAULT_PHOTOMETRIC,
 ) -> LocalizationResult:
     """Локализовать кадр по заранее данному георефренцированному растру подложки.
 
@@ -293,8 +318,9 @@ def localize_against_reference(
         return LocalizationResult.failed("решение вне диска приора", **diagnostics)
 
     # Стадия 7: качество — ковариация центра, эллипс, статус LOCALIZED/LOW_CONFIDENCE.
-    ncc = aligned_ncc(query_gray, ref_gray, pose.transform)
-    quality = assess(pose, corr, camera.principal_point(), mpp, photometric_ncc=ncc, min_ncc=min_ncc)
+    photometric = photometric_measure(photometric_kind)(query_gray, ref_gray, pose.transform)
+    quality = assess(pose, corr, camera.principal_point(), mpp, photometric=photometric,
+                     photometric_kind=photometric_kind, min_photometric=min_photometric)
     diagnostics.update(quality.signals)
     diagnostics["confidence_calibrated"] = True  # эллипс выведен строго (см. quality.py)
 
@@ -392,7 +418,8 @@ def _fine_pass(
     min_inliers: int,
     clahe: bool,
     prerotate_deg: float = 0.0,
-    min_ncc: float,
+    min_photometric: float | None,
+    photometric_kind: str,
 ) -> LocalizationResult:
     """Точный уровень (стадии 3–6): окно нативного разрешения вокруг кандидата.
 
@@ -448,7 +475,8 @@ def _fine_pass(
         clahe=clahe,
         refine=refine,
         prerotate_deg=prerotate_deg,
-        min_ncc=min_ncc,
+        min_photometric=min_photometric,
+        photometric_kind=photometric_kind,
     )
 
 
@@ -472,7 +500,8 @@ def _fine_with_scale_loop(
     clahe: bool,
     max_zoom: int = 22,
     prerotate_deg: float = 0.0,
-    min_ncc: float,
+    min_photometric: float | None,
+    photometric_kind: str,
 ) -> LocalizationResult:
     """Точный уровень вокруг одного кандидата + цикл переуточнения масштаба (стадия 5).
 
@@ -490,7 +519,8 @@ def _fine_with_scale_loop(
             matcher=matcher, refine=refine, trust_yaw=trust_yaw,
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
-            prerotate_deg=prerotate_deg, min_ncc=min_ncc,
+            prerotate_deg=prerotate_deg, min_photometric=min_photometric,
+            photometric_kind=photometric_kind,
         )
 
     def n_inliers(result: LocalizationResult) -> int:
@@ -587,7 +617,8 @@ def localize(
     min_uniqueness: float = 0.0,
     max_zoom: int = 22,
     prerotate: bool = False,
-    min_ncc: float = MIN_NCC,
+    min_photometric: float | None = None,
+    photometric_kind: str = DEFAULT_PHOTOMETRIC,
     gate_sigma: float = PRIOR_GATE_SIGMA,
 ) -> LocalizationResult:
     """Полная одиночная локализация: подложка из источника + coarse-to-fine.
@@ -626,15 +657,19 @@ def localize(
         min_uniqueness: порог сигнала уникальности retrieval; ниже него —
             честный отказ по самоподобию ещё до матчинга (см.
             :func:`~aero_geoloc.retrieval.calibrate_uniqueness_threshold`).
-        min_ncc: порог фотометрического NCC в связке качества (``quality.py``).
-            Дефолт :data:`MIN_NCC` (0.12) откалиброван на реальных дрон↔Esri
-            матчах и совпадает с дефолтом ``assess``. NCC — **равноправное
-            условие связки** ``инлайеры ≥ 8 И NCC ≥ 0.12``, а не необязательная
-            добавка: калибровка показала, что по отдельности ни инлайеры, ни NCC
-            не делят верный слабый матч и ложный (JOURNAL, веха калибровки).
-            Поднимать имеет смысл на same-domain, где NCC верных матчей близок к
-            единице; для кросс-домена он низок даже у верных (0.04–0.45), и
-            прежний порог 0.3 ложно уводил верные локализации в ``LOW_CONFIDENCE``.
+        min_photometric: порог меры согласия в связке качества (``quality.py``).
+            ``None`` — калиброванный дефолт для выбранной меры.
+        photometric_kind: чем мерить согласие кадра и подложки: ``"ncc"``
+            (дёшево, без torch) или ``"dino"`` (косинус плотных патч-токенов
+            DINOv2 — ровнее по шкале между кадрами, см. E1/E3 в JOURNAL).
+
+            Мера — **равноправное условие связки** ``инлайеры ≥ 8 И мера ≥
+            порога``, а не необязательная добавка: калибровка показала, что по
+            отдельности ни инлайеры, ни фотометрия не делят верный слабый матч и
+            ложный (JOURNAL, веха калибровки). Дефолты порогов калиброваны на
+            наборе и живут в ``quality.PHOTOMETRIC_THRESHOLDS``; поднимать
+            имеет смысл на same-domain, где согласие верных матчей близко к
+            единице.
         gate_sigma: во сколько σ приора укладывается допустимое отклонение центра.
 
     Returns:
@@ -741,7 +776,8 @@ def localize(
             scale_iters=scale_iters, matcher=matcher, refine=False, trust_yaw=trust_yaw,
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
-            max_zoom=max_zoom, prerotate_deg=cand_prerotate, min_ncc=min_ncc,
+            max_zoom=max_zoom, prerotate_deg=cand_prerotate,
+            min_photometric=min_photometric, photometric_kind=photometric_kind,
         )
         if r.is_localized and (
             best is None
@@ -761,7 +797,8 @@ def localize(
             scale_iters=scale_iters, matcher=matcher, refine=True, trust_yaw=trust_yaw,
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
-            max_zoom=max_zoom, prerotate_deg=cand_prerotate, min_ncc=min_ncc,
+            max_zoom=max_zoom, prerotate_deg=cand_prerotate,
+            min_photometric=min_photometric, photometric_kind=photometric_kind,
         )
         # Если уточнённый проход почему-то не сошёлся, остаётся неуточнённый:
         # отказываться от найденного места из-за refinement нельзя.

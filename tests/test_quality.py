@@ -132,7 +132,7 @@ def _pose(n, noise_px, seed):
 
 def test_assess_localized_on_tight_solution():
     pose, corr = _pose(n=80, noise_px=0.5, seed=5)
-    q = assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.9)
+    q = assess(pose, corr, CENTER, mpp=0.3, photometric=0.9)
     assert q.status is Status.LOCALIZED
     assert q.error_ellipse_m[0] < 3.0
     assert q.covariance_m2.shape == (2, 2)
@@ -142,37 +142,37 @@ def test_assess_localized_on_tight_solution():
 def test_assess_low_confidence_on_large_ellipse():
     # Сильный шум точек → большая ковариация → эллипс выходит за порог.
     pose, corr = _pose(n=40, noise_px=30.0, seed=6)
-    q = assess(pose, corr, CENTER, mpp=1.0, photometric_ncc=0.9, max_semi_major_m=3.0)
+    q = assess(pose, corr, CENTER, mpp=1.0, photometric=0.9, max_semi_major_m=3.0)
     assert q.error_ellipse_m[0] > 3.0
     assert q.status is Status.LOW_CONFIDENCE
 
 
 def test_assess_low_confidence_on_poor_photometric_match():
     pose, corr = _pose(n=80, noise_px=0.5, seed=7)
-    q = assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.1, min_ncc=0.3)
+    q = assess(pose, corr, CENTER, mpp=0.3, photometric=0.1, min_photometric=0.3)
     assert q.status is Status.LOW_CONFIDENCE  # геометрия хороша, но яркости не сходятся
 
 
 def test_assess_conjunction_needs_enough_inliers():
     """Связка: тугой матч с хорошим NCC, но инлайеров меньше порога → не LOCALIZED."""
     pose, corr = _pose(n=40, noise_px=0.5, seed=11)  # тугой эллипс, NCC ок
-    assert assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.9).status is Status.LOCALIZED
-    strict = assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.9, min_inliers_hard=50)
+    assert assess(pose, corr, CENTER, mpp=0.3, photometric=0.9).status is Status.LOCALIZED
+    strict = assess(pose, corr, CENTER, mpp=0.3, photometric=0.9, min_inliers_hard=50)
     assert strict.status is Status.LOW_CONFIDENCE  # инлайеров < порога — связка не проходит
 
 
 def test_assess_conjunction_needs_ncc_above_calibrated():
     """Связка: отличная геометрия, но NCC ниже калиброванного 0.12 → не LOCALIZED."""
     pose, corr = _pose(n=40, noise_px=0.5, seed=12)  # много инлайеров, тугой эллипс
-    assert assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.05).status is Status.LOW_CONFIDENCE
-    assert assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.20).status is Status.LOCALIZED
+    assert assess(pose, corr, CENTER, mpp=0.3, photometric=0.05).status is Status.LOW_CONFIDENCE
+    assert assess(pose, corr, CENTER, mpp=0.3, photometric=0.20).status is Status.LOCALIZED
 
 
 def test_assess_systematic_floor_inflates_ellipse():
     """Пол абсолютной точности подложки поднимает эллипс не ниже своего уровня."""
     pose, corr = _pose(n=80, noise_px=0.5, seed=8)
-    tight = assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.9)
-    floored = assess(pose, corr, CENTER, mpp=0.3, photometric_ncc=0.9, systematic_floor_m=2.0)
+    tight = assess(pose, corr, CENTER, mpp=0.3, photometric=0.9)
+    floored = assess(pose, corr, CENTER, mpp=0.3, photometric=0.9, systematic_floor_m=2.0)
     assert tight.error_ellipse_m[0] < floored.error_ellipse_m[0]
     # Пол 2 м добавляет 2²=4 к дисперсии каждой оси → полуось не меньше ~2 м.
     assert floored.error_ellipse_m[0] >= 2.0

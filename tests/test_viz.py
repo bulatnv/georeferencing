@@ -35,7 +35,7 @@ def _result(**over):
         transform=np.array([[1.0, 0.0, 40.0], [0.0, 1.0, 30.0]]),
         footprint_lonlat=[(37.616, 55.755), (37.618, 55.755), (37.618, 55.757), (37.616, 55.757)],
         error_ellipse_m=(0.4, 0.3, 12.0),
-        diagnostics={"n_inliers": 42, "photometric_ncc": 0.31},
+        diagnostics={"n_inliers": 42, "photometric": 0.31},
     )
     base.update(over)
     return LocalizationResult(**base)

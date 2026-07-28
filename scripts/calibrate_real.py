@@ -34,7 +34,7 @@ from aero_geoloc.matcher import create_matcher  # noqa: E402
 from aero_geoloc.retrieval import calibrate_uniqueness_threshold  # noqa: E402
 
 FIELDS = ["dataset", "file", "model", "altitude_m", "localized", "error_m", "correct",
-          "status", "confidence", "n_inliers", "inlier_ratio", "photometric_ncc",
+          "status", "confidence", "n_inliers", "inlier_ratio", "photometric",
           "ellipse_major_m", "reason"]
 
 
@@ -60,7 +60,7 @@ def collect(args) -> list[dict]:
             frame, camera = frame_at_mpp(shot, ground_mpp(shot.true_lat, z))
             result = localize(
                 frame, camera, shot.prior(sigma_m=args.sigma_m), basemap,
-                matcher=matcher, max_zoom=max_zoom, prerotate=prerotate, min_ncc=args.min_ncc,
+                matcher=matcher, max_zoom=max_zoom, prerotate=prerotate, min_photometric=args.min_ncc,
                 min_inliers=10, coarse_min_inliers=8, ransac_threshold_px=6.0,
             )
             d = result.diagnostics
@@ -76,7 +76,7 @@ def collect(args) -> list[dict]:
                 "correct": int(result.is_localized and err < args.correct_m),
                 "status": result.status.value, "confidence": round(result.confidence, 4),
                 "n_inliers": d.get("n_inliers", 0), "inlier_ratio": round(d.get("inlier_ratio", 0.0), 4),
-                "photometric_ncc": (round(d["photometric_ncc"], 4) if d.get("photometric_ncc") is not None else ""),
+                "photometric": (round(d["photometric"], 4) if d.get("photometric") is not None else ""),
                 "ellipse_major_m": (round(result.error_ellipse_m[0], 3) if result.is_localized else ""),
                 "reason": d.get("reason", ""),
             })
@@ -108,11 +108,11 @@ def report(rows: list[dict], correct_m: float) -> None:
         print("  ложные (локализовано, но далеко от GPS):")
         for r in sorted(false_pos, key=lambda r: -float(r["error_m"]))[:8]:
             print(f"    {r['dataset']}/{r['file']}: ошибка {r['error_m']}м, инл={r['n_inliers']}, "
-                  f"conf={r['confidence']}, ncc={r['photometric_ncc']}, статус={r['status']}")
+                  f"conf={r['confidence']}, ncc={r['photometric']}, статус={r['status']}")
 
     # Порог сигнала, отделяющий верные от ложных СРЕДИ ЛОКАЛИЗОВАННЫХ.
     if correct and false_pos:
-        for sig in ("n_inliers", "confidence", "photometric_ncc"):
+        for sig in ("n_inliers", "confidence", "photometric"):
             vals = [float(r[sig]) for r in loc if r[sig] != ""]
             labs = [bool(r["correct"]) for r in loc if r[sig] != ""]
             if len(set(labs)) < 2:
