@@ -227,7 +227,10 @@ def _match_prerotated(matcher: Matcher, query_gray, ref_gray, prerotate_deg: flo
     corr = matcher.match(rotated, ref_gray)
     inv = cv2.invertAffineTransform(rot)
     pts_q = (corr.pts_q @ inv[:, :2].T + inv[:, 2]).astype(np.float32)
-    return Correspondences(pts_q, corr.pts_r, corr.conf)
+    # Свидетельства уровня пары переносятся: предповорот меняет КООРДИНАТЫ точек,
+    # а не то, что матчер знает о паре целиком. Без этой строки диагностика
+    # плотного ядра молча пропадала ровно у тех кейсов, где известен курс.
+    return Correspondences(pts_q, corr.pts_r, corr.conf, evidence=dict(corr.evidence))
 
 
 def _read_result(

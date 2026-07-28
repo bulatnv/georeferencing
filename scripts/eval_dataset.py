@@ -64,7 +64,8 @@ FIELDS = [
     "case", "matcher", "truth_source", "trust_yaw", "gsd_m", "footprint_m", "cells", "rotations", "overlap",
     "status", "accepted", "error_m", "tolerance_m", "correct", "blame",
     "true_cell_rank", "true_cell_m", "top1_to_truth_m", "uniqueness",
-    "n_inliers", "photometric", "photometric_kind", "ellipse_m",
+    "n_inliers", "photometric", "photometric_kind", "certainty_mean", "certainty_cover",
+    "ellipse_m",
     "found_lat", "found_lon", "heading_deg", "offline_s", "online_s", "reason",
 ]
 
@@ -313,6 +314,10 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
         photometric=(round(float(diag["photometric"]), 4)
                      if diag.get("photometric") is not None else ""),
         photometric_kind=diag.get("photometric_kind", ""),
+        certainty_mean=(round(float(diag["certainty_mean"]), 5)
+                        if diag.get("certainty_mean") is not None else ""),
+        certainty_cover=(round(float(diag["certainty_cover"]), 5)
+                         if diag.get("certainty_cover") is not None else ""),
         ellipse_m=(round(result.error_ellipse_m[0], 3) if result.error_ellipse_m else ""),
         found_lat=round(result.center_lat, 6) if result.center_lat is not None else "",
         found_lon=round(result.center_lon, 6) if result.center_lon is not None else "",

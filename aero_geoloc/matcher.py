@@ -16,7 +16,7 @@ grayscale-картинки, на выходе кандидатные соотв�
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 import re
@@ -49,11 +49,19 @@ class Correspondences:
         pts_r: ``(N, 2)`` float32 — соответствующие точки в подложке (reference).
         conf: ``(N,)`` float32 — уверенность на пару в ``[0, 1]``, больше =
             надёжнее. Используется для взвешивания в pose/quality.
+        evidence: необязательные свидетельства уровня **всей пары картинок**, а не
+            отдельных точек. Нужны потому, что не всё, что знает матчер, ложится
+            на точки: плотное ядро оценивает уверенность по ВСЕМУ полю, и доля
+            уверенной площади — свойство пары, а не какой-то из выборок. Словарь
+            намеренно свободный: связка качества берёт из него то, что для
+            текущего ядра откалибровано, а отсутствие ключа — штатный случай
+            (у разреженных ядер такого поля просто нет).
     """
 
     pts_q: np.ndarray
     pts_r: np.ndarray
     conf: np.ndarray
+    evidence: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.pts_q.shape != self.pts_r.shape:
@@ -81,8 +89,13 @@ class Correspondences:
         )
 
     def take(self, mask: np.ndarray) -> Correspondences:
-        """Подмножество соответствий по булевой маске или массиву индексов."""
-        return Correspondences(pts_q=self.pts_q[mask], pts_r=self.pts_r[mask], conf=self.conf[mask])
+        """Подмножество соответствий по булевой маске или массиву индексов.
+
+        Свидетельства уровня пары переносятся как есть: они не про точки, и
+        фильтрация точек их не меняет.
+        """
+        return Correspondences(pts_q=self.pts_q[mask], pts_r=self.pts_r[mask],
+                               conf=self.conf[mask], evidence=dict(self.evidence))
 
 
 @runtime_checkable
@@ -479,7 +492,7 @@ class ResizedMatcher:
             return corr
         return Correspondences(pts_q=(corr.pts_q / scale).astype(np.float32),
                                pts_r=(corr.pts_r / scale).astype(np.float32),
-                               conf=corr.conf)
+                               conf=corr.conf, evidence=dict(corr.evidence))
 
 
 
@@ -512,19 +525,22 @@ class RoMaMatcher(_LearnedMatcher):
         min_conf: порог уверенности пары.
         coarse_res, upsample_res: рабочие разрешения RoMa. Меньше — быстрее и
             грубее; трогать осознанно, они же задают потолок точности.
+        cover_thresh: уровень, выше которого пиксель считается уверенным при
+            подсчёте ``certainty_cover``.
     """
 
     _requires = "torch и romatch"
 
     def __init__(self, *, checkpoint: str | None = "minima_roma", max_samples: int = 2048,
                  min_conf: float = 0.5, coarse_res: int = 560, upsample_res: int = 864,
-                 device: str | None = None) -> None:
+                 cover_thresh: float = 0.5, device: str | None = None) -> None:
         super().__init__(device=device)
         self.checkpoint = checkpoint
         self.max_samples = max_samples
         self.min_conf = min_conf
         self.coarse_res = coarse_res
         self.upsample_res = upsample_res
+        self.cover_thresh = cover_thresh
         self.loaded_tensors: dict[str, int] = {}
         self._model = None
 
@@ -555,6 +571,15 @@ class RoMaMatcher(_LearnedMatcher):
             im_q = Image.fromarray(cv2.cvtColor(query_gray, cv2.COLOR_GRAY2RGB))
             im_r = Image.fromarray(cv2.cvtColor(ref_gray, cv2.COLOR_GRAY2RGB))
             warp, certainty = self._model.match(im_q, im_r, device=self._device)
+            # Сводка плотного поля снимается ДО sample: у RoMa режим сэмплирования
+            # содержит "threshold", который обрезает всё выше порога в единицу, и
+            # ``conf`` возвращённых пар выходит константой 1.0 — измерено, на верных
+            # и на заведомо чужих парах одинаково. Информация живёт в поле целиком.
+            cert = certainty.detach().float()
+            evidence = {
+                "certainty_mean": float(cert.mean().item()),
+                "certainty_cover": float((cert > self.cover_thresh).float().mean().item()),
+            }
             matches, conf = self._model.sample(warp, certainty, num=self.max_samples)
             if matches.shape[0] == 0:
                 return Correspondences.empty()
@@ -565,6 +590,7 @@ class RoMaMatcher(_LearnedMatcher):
             pts_q.detach().cpu().numpy().astype(np.float32),
             pts_r.detach().cpu().numpy().astype(np.float32),
             conf.detach().cpu().numpy().astype(np.float32),
+            evidence=evidence,
         )
         keep = corr.conf >= self.min_conf
         return corr.take(keep) if not keep.all() else corr

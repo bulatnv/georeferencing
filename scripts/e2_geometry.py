@@ -63,11 +63,13 @@ from aero_geoloc.similarity import dense_dino  # noqa: E402
 
 FIELDS = ["case", "regime", "pair", "offset_m", "bearing_deg", "pose_found",
           "n_correspondences", "n_inliers", "inlier_ratio", "rmse_px", "ncc", "dino",
-          "inlier_spread", "bootstrap_scatter_px", "centre_error_m", "size_px"]
+          "inlier_spread", "bootstrap_scatter_px", "certainty_mean", "certainty_cover",
+          "centre_error_m", "size_px"]
 
 #: Сигналы и направление «лучше»: у разброса центра меньше — лучше.
 DIRECTION = {"n_inliers": +1, "inlier_ratio": +1, "rmse_px": -1, "ncc": +1, "dino": +1,
-             "inlier_spread": +1, "bootstrap_scatter_px": -1}
+             "inlier_spread": +1, "bootstrap_scatter_px": -1,
+             "certainty_mean": +1, "certainty_cover": +1}
 
 
 def _rows_for_case(case: EvalCase, args, basemap, matcher, max_zoom, poses) -> list[dict]:
@@ -94,6 +96,10 @@ def _rows_for_case(case: EvalCase, args, basemap, matcher, max_zoom, poses) -> l
 
         corr = matcher.match(query, gray_ref)
         row["n_correspondences"] = len(corr)
+        # Свидетельства уровня пары есть не у всех ядер — у разреженных их просто нет.
+        for key, value in corr.evidence.items():
+            if key in FIELDS:
+                row[key] = round(float(value), 5)
         # Кадр уже приведён к масштабу и повороту подложки, поэтому ожидание
         # простое: масштаб около 1, поворот около 0. Ограничения оставлены
         # широкими — мы ИЩЕМ краевые ложные позы, а не отсекаем их.
