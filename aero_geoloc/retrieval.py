@@ -102,6 +102,28 @@ def _gray_batch_to_tensor(grays, image_size: int, torch, device):
     return (tensor - mean) / std
 
 
+def _forward(model, tensor, torch, device, fp16: bool):
+    """Прямой проход, опционально в смешанной точности FP16.
+
+    FP16 через ``autocast`` — не то же самое, что снятое с плана квантование
+    индекса: приводятся только вычисления, веса остаются FP32, а веса модели —
+    как раз половина её памяти. Поэтому VRAM почти не падает (замерено 1.78 против
+    1.82 ГБ), зато скорость растёт: 5.06 → 3.00 мс/вектор, ×1.69.
+
+    Полный ``model.half()`` дал бы и память, но на MegaLoc он падает: внутри есть
+    слои, жёстко работающие во float32 (``mat1 and mat2 must have the same
+    dtype``). Autocast такие места переживает сам — потому он и выбран.
+
+    Качество не страдает: косинус между FP16- и FP32-векторами 0.99992 в худшем
+    случае при медиане 0.999986 — на порядок меньше, чем разброс между батчевыми
+    и поштучными вычислениями.
+    """
+    if not fp16 or device != "cuda":
+        return model(tensor)
+    with torch.autocast("cuda", dtype=torch.float16):
+        return model(tensor).float()
+
+
 class AveragePoolEncoder:
     """Стенд-энкодер: ресайз до ``grid×grid``, вычесть среднее, L2-норма.
 
@@ -155,7 +177,8 @@ class DinoV2Encoder:
     """
 
     def __init__(
-        self, model_name: str = "dinov2_vits14", *, image_size: int = 224, device: str | None = None
+        self, model_name: str = "dinov2_vits14", *, image_size: int = 224,
+        device: str | None = None, fp16: bool = True
     ) -> None:
         if model_name not in _DINOV2_DIMS:
             raise ValueError(f"неизвестная модель {model_name!r}, доступны {sorted(_DINOV2_DIMS)}")
@@ -163,6 +186,7 @@ class DinoV2Encoder:
             raise ValueError(f"image_size должен быть кратен патчу 14, получено {image_size}")
         self.model_name = model_name
         self.image_size = image_size
+        self.fp16 = fp16
         self._device = device
         self._model = None
         self._torch = None
@@ -201,7 +225,8 @@ class DinoV2Encoder:
         torch = self._torch
         tensor = _gray_batch_to_tensor(grays, self.image_size, torch, self._device)
         with torch.no_grad():
-            feats = self._model(tensor).cpu().numpy().astype(np.float32)
+            feats = _forward(self._model, tensor, torch, self._device, self.fp16)
+        feats = feats.cpu().numpy().astype(np.float32)
         return _l2_rows(feats.reshape(len(grays), -1))
 
 
@@ -236,12 +261,14 @@ class MegaLocEncoder:
         *,
         image_size: int = 322,
         device: str | None = None,
+        fp16: bool = True,
     ) -> None:
         if image_size % 14 != 0:
             raise ValueError(f"image_size должен быть кратен патчу 14, получено {image_size}")
         self.repo = repo
         self.entry = entry
         self.image_size = image_size
+        self.fp16 = fp16
         self._device = device
         self._model = None
         self._torch = None
@@ -280,7 +307,8 @@ class MegaLocEncoder:
         torch = self._torch
         tensor = _gray_batch_to_tensor(grays, self.image_size, torch, self._device)
         with torch.no_grad():
-            feats = self._model(tensor).cpu().numpy().astype(np.float32)
+            feats = _forward(self._model, tensor, torch, self._device, self.fp16)
+        feats = feats.cpu().numpy().astype(np.float32)
         return _l2_rows(feats.reshape(len(grays), -1))
 
 

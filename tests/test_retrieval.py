@@ -500,3 +500,22 @@ def test_megaloc_batch_matches_single():
     assert batch.shape == (4, enc.dim)
     np.testing.assert_allclose(np.linalg.norm(batch, axis=1), 1.0, atol=1e-4)
     assert float((single * batch).sum(axis=1).min()) > 0.9999
+
+
+@pytest.mark.skipif(
+    not _HAS_MEGALOC_DEPS, reason="нужны torch + huggingface_hub + safetensors"
+)
+def test_fp16_matches_fp32_vectors():
+    """FP16 ускоряет, не меняя векторы: косинус с FP32 ≈ 1.
+
+    Смешанная точность здесь — оптимизация, а не размен качества: расхождение
+    (~1e-4) на порядок меньше зазора между близкими клетками, поэтому ранжирование
+    не меняется. Тест держит это свойство, чтобы FP16 нельзя было включить ценой
+    точности незаметно.
+    """
+    rng = np.random.default_rng(0)
+    images = [rng.integers(0, 255, (256, 256), dtype=np.uint8) for _ in range(4)]
+    exact = MegaLocEncoder(fp16=False).encode_batch(images)
+    fast = MegaLocEncoder(fp16=True).encode_batch(images)
+    np.testing.assert_allclose(np.linalg.norm(fast, axis=1), 1.0, atol=1e-4)
+    assert float((exact * fast).sum(axis=1).min()) > 0.999
