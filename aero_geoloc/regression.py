@@ -84,7 +84,7 @@ OUTCOME_RU: dict[str, str] = {
 #: Ключи конфигурации, меняющие смысл сравнения. Прогон с другим радиусом или
 #: другим матчером — это не регрессия, а другой эксперимент, и путать их нельзя.
 CONFIG_KEYS = (
-    "manifest", "matcher", "radius_km", "cell_px", "overlap", "pca_dim",
+    "manifest", "matcher", "matcher_max_side", "radius_km", "cell_px", "overlap", "pca_dim",
     "top_k", "min_inliers", "rotation_step", "correct_m", "manual_tol_frac",
     "offset_km", "sigma_m",
 )

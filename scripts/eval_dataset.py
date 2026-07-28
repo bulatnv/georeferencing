@@ -280,7 +280,7 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
 
     t0 = time.perf_counter()
     result = localize(
-        frame, camera, case.prior, basemap, index=index, matcher=create_matcher(args.matcher),
+        frame, camera, case.prior, basemap, index=index, matcher=create_matcher(args.matcher, max_side=args.matcher_max_side),
         # prerotate=True всегда: флаг значит «матчер не инвариантен к повороту»
         # (LightGlue такой), а не «курс известен». При trust_yaw=False угол берётся
         # у совпавшей клетки индекса — без этого аугментация чинит только Этаж 1.
@@ -394,6 +394,11 @@ def main() -> int:
                              "Матчер сменный по инварианту архитектуры — здесь это "
                              "ровно один флаг, и он же попадает в конфигурацию прогона, "
                              "чтобы регрессия не сравнила разные ядра между собой")
+    parser.add_argument("--matcher-max-side", type=int, default=0,
+                        help="рабочее разрешение матчера, px (0 = полное). Плотным "
+                             "ядрам (LoFTR и далее RoMa/MINIMA) полное разрешение "
+                             "подавать нельзя — обе картинки уменьшаются ОДНИМ "
+                             "коэффициентом, см. ResizedMatcher")
     parser.add_argument("--cases", default="", help="через запятую: прогнать только эти кейсы")
     parser.add_argument("--prior", default="",
                         help="переопределить приор всех кейсов: 'lat,lon' — когда опорная "

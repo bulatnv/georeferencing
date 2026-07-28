@@ -26,6 +26,7 @@ __all__ = [
     "Correspondences",
     "Matcher",
     "SIFTMatcher",
+    "ResizedMatcher",
     "AKAZEMatcher",
     "LightGlueMatcher",
     "LoFTRMatcher",
@@ -362,6 +363,65 @@ class LoFTRMatcher(_LearnedMatcher):
         return corr.take(keep) if not keep.all() else corr
 
 
+
+class ResizedMatcher:
+    """Матчер на РАБОЧЕМ разрешении: обе картинки уменьшаются ОДНИМ коэффициентом.
+
+    Зачем. Плотные матчеры (LoFTR, а дальше RoMa/MatchAnything/MINIMA —
+    ``docs/ROADMAP.md``, фазы 2–3) работают на своей рабочей сетке и полное
+    разрешение либо не тянут, либо считают его впустую. Обёртка приводит вход к
+    рабочему размеру и **возвращает соответствия в исходных пикселях**, поэтому
+    всё выше матчера (pose, quality, георефа) ничего не замечает — это тот же
+    инвариант сменного ядра.
+
+    Главное здесь — **общий коэффициент**. Ловушка сработала дважды на одном
+    LoFTR и оба раза дала неверный вывод (``docs/JOURNAL.md``):
+
+    1. подача полного разрешения — «0 инлайеров», хотя матчер просто не тот вход
+       получил;
+    2. приведение КАЖДОЙ картинки к 640 по отдельности. Кадр и окно подложки
+       покрывают разную площадь земли, поэтому раздельная нормировка вносит
+       расхождение масштабов (у нас 1.5×) — 11 инлайеров вместо 103.
+
+    Поэтому коэффициент считается по наибольшей стороне ОБЕИХ картинок сразу:
+    их взаимный масштаб сохраняется в точности.
+
+    ``pad_to`` добивает размеры до кратности (LoFTR внутри делит на 8). Дополнение
+    идёт справа и снизу нулями, поэтому координаты точек не сдвигаются.
+    """
+
+    def __init__(self, inner: Matcher, *, max_side: int = 640, pad_to: int = 8) -> None:
+        self.inner = inner
+        self.max_side = int(max_side)
+        self.pad_to = int(pad_to)
+
+    def _prepare(self, gray: np.ndarray, scale: float) -> np.ndarray:
+        h, w = gray.shape[:2]
+        if scale < 1.0:
+            gray = cv2.resize(gray, (max(1, round(w * scale)), max(1, round(h * scale))),
+                              interpolation=cv2.INTER_AREA)
+        if self.pad_to > 1:
+            h, w = gray.shape[:2]
+            ph, pw = (-h) % self.pad_to, (-w) % self.pad_to
+            if ph or pw:
+                gray = cv2.copyMakeBorder(gray, 0, ph, 0, pw, cv2.BORDER_CONSTANT, value=0)
+        return gray
+
+    def match(self, query_gray: np.ndarray, ref_gray: np.ndarray) -> Correspondences:
+        _check_gray(query_gray, "query_gray")
+        _check_gray(ref_gray, "ref_gray")
+        longest = max(query_gray.shape[0], query_gray.shape[1],
+                      ref_gray.shape[0], ref_gray.shape[1])
+        scale = min(1.0, self.max_side / float(longest)) if self.max_side > 0 else 1.0
+        corr = self.inner.match(self._prepare(query_gray, scale),
+                                self._prepare(ref_gray, scale))
+        if scale >= 1.0 or len(corr) == 0:
+            return corr
+        return Correspondences(pts_q=(corr.pts_q / scale).astype(np.float32),
+                               pts_r=(corr.pts_r / scale).astype(np.float32),
+                               conf=corr.conf)
+
+
 _REGISTRY = {
     "sift": SIFTMatcher,
     "akaze": AKAZEMatcher,
@@ -381,4 +441,6 @@ def create_matcher(name: str = "sift", **kwargs) -> Matcher:
     key = name.lower()
     if key not in _REGISTRY:
         raise ValueError(f"неизвестный матчер {name!r}, доступны: {sorted(_REGISTRY)}")
-    return _REGISTRY[key](**kwargs)
+    max_side = int(kwargs.pop("max_side", 0))
+    matcher = _REGISTRY[key](**kwargs)
+    return ResizedMatcher(matcher, max_side=max_side) if max_side > 0 else matcher
