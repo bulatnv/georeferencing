@@ -57,7 +57,7 @@ from aero_geoloc.viz import save_localization_overlay  # noqa: E402
 
 FIELDS = [
     "case", "truth_source", "trust_yaw", "gsd_m", "footprint_m", "cells", "rotations",
-    "status", "accepted", "error_m", "correct", "blame",
+    "status", "accepted", "error_m", "tolerance_m", "correct", "blame",
     "true_cell_rank", "true_cell_m", "top1_to_truth_m", "uniqueness",
     "n_inliers", "photometric_ncc", "ellipse_m",
     "found_lat", "found_lon", "offline_s", "online_s", "reason",
@@ -146,6 +146,25 @@ def _retrieval_diagnostics(index, frame, case, prerotate_deg):
     ]
     nearest = min(range(len(distances)), key=lambda i: distances[i])
     return nearest + 1, distances[nearest], distances[0], result.uniqueness
+
+
+def _tolerance_m(case: EvalCase, footprint_m: float, args) -> float:
+    """Допуск «верно» — зависит от ТОЧНОСТИ ИСТИНЫ, а не только от алгоритма.
+
+    ``exif``: GPS борта точен до единиц метров и указывает именно центр кадра —
+    годится жёсткий порог (``--correct-m``).
+
+    ``manual``: владелец отмечает на карте **узнанный объект** (мост, кран,
+    причал), а не геометрический центр кадра. Расхождение в десятки метров — это
+    свойство разметки, а не промах пайплайна: на кадре с отпечатком 517 м точка,
+    поставленная где угодно в центральной половине, даёт до ~130 м. Жёсткие 50 м
+    здесь метили ВЕРНУЮ локализацию как ложную (измерено на Saratov2: место
+    совпадает визуально, NCC 0.68, а ошибка 53 м). Поэтому допуск привязан к
+    отпечатку кадра.
+    """
+    if case.truth_source == "manual":
+        return max(args.correct_m, args.manual_tol_frac * footprint_m)
+    return args.correct_m
 
 
 def _failed_gate(diag: dict, args) -> str:
@@ -257,10 +276,12 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
     accepted = result.status is Status.LOCALIZED
     row["accepted"] = int(accepted)
     error_m = None
+    tolerance_m = _tolerance_m(case, footprint_m, args)
+    row["tolerance_m"] = round(tolerance_m)
     if pose_found and case.has_truth:
         error_m = haversine_m(case.truth_lat, case.truth_lon, result.center_lat, result.center_lon)
         row["error_m"] = round(error_m, 1)
-        row["correct"] = int(error_m <= args.correct_m)
+        row["correct"] = int(error_m <= tolerance_m)
 
     row["blame"] = _blame(result, case, rank, error_m, accepted, pose_found, args)
 
@@ -291,7 +312,7 @@ def report(rows: list[dict], excluded, args) -> None:
         rank = r["true_cell_rank"] if r["true_cell_rank"] != "" else "—"
         ncc = r["photometric_ncc"] if r["photometric_ncc"] != "" else "—"
         print(f"{r['case']:<14}{r['status']:<16}{err:>9}  {str(rank):>6}{str(r['n_inliers']):>5}"
-              f"{str(ncc):>7}  {r['blame']:<34}{r['online_s']:>7}с")
+              f"{str(ncc):>7}  {r['blame']:<40}{r['online_s']:>7}с")
 
     pose_rows = [r for r in rows if r["status"] in ("localized", "low_confidence")]
     accepted = [r for r in rows if r["status"] == "localized"]
@@ -346,6 +367,9 @@ def main() -> int:
                         help="шаг ротационной аугментации для кейсов без курса, °")
     parser.add_argument("--ef-search", type=int, default=128)
     parser.add_argument("--correct-m", type=float, default=50.0, help="порог «верно», м")
+    parser.add_argument("--manual-tol-frac", type=float, default=0.25,
+                        help="допуск для ручной истины как доля отпечатка кадра "
+                             "(владелец метит объект, а не центр кадра)")
     parser.add_argument("--max-ellipse-m", type=float, default=3.0,
                         help="порог эллипса в связке качества (для расшифровки вины)")
     parser.add_argument("--maps-dir", default="maps")
