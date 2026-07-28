@@ -84,7 +84,7 @@ MINIMA-LoFTR слаб везде, не только на кросс-сезоне
 
 ## 4. Кандидаты по одному
 
-### MINIMA-RoMa — победитель
+### MINIMA-RoMa — победитель, с 2026-07-29 ядро по умолчанию
 
 `create_matcher("minima_roma")`, `romatch` + веса
 `minima_roma.pth` (445 МБ, **Apache-2.0**, HF `lsxi77777/MINIMA`). Легли

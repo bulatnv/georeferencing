@@ -412,8 +412,10 @@ def report(rows: list[dict], excluded, args) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--manifest", default="datasets/test_images.yaml")
-    parser.add_argument("--matcher", default="lightglue",
-                        help="ядро матчинга: lightglue (база) / loftr / sift / akaze. "
+    parser.add_argument("--matcher", default="minima_roma",
+                        help="ядро матчинга. Дефолт `minima_roma` — измеренно лучший "
+                             "на наборе (16/16 поз, 0 ложных, берёт кросс-сезон); "
+                             "`lightglue` втрое быстрее и без тяжёлых зависимостей. "
                              "Матчер сменный по инварианту архитектуры — здесь это "
                              "ровно один флаг, и он же попадает в конфигурацию прогона, "
                              "чтобы регрессия не сравнила разные ядра между собой")

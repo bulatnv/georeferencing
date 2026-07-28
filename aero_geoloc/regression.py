@@ -261,6 +261,11 @@ def _error_verdict(exp: CaseExpectation, row: dict, slack_m: float, slack_frac: 
     now = _num(row.get("error_m"))
     if exp.error_m is None or now is None:
         return ""
+    # У позы, которую гейт правильно отверг как неверную, «ошибка» — это расстояние
+    # до истины у заведомо чужого места. Насколько именно оно чужое, нам не важно:
+    # сравнение таких чисел между прогонами даёт шум, а не сигнал.
+    if exp.outcome in ("pose_wrong_gated", "accepted_wrong"):
+        return ""
     allowed = max(exp.error_m + slack_m, exp.error_m * (1.0 + slack_frac))
     if now > allowed:
         return f"ошибка {exp.error_m} → {now:.1f} м (допуск {allowed:.1f})"
