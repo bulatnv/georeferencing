@@ -373,7 +373,13 @@ def main() -> int:
                              "нарушал: Volgograd3 то находился, то нет в зависимости "
                              "от того, куда легла сетка (с 0.75 — ошибка 0.8 м)")
     parser.add_argument("--pca-dim", type=int, default=1024)
-    parser.add_argument("--top-k", type=int, default=25)
+    parser.add_argument("--top-k", type=int, default=15,
+                        help="сколько клеток ретривала отдавать Этажу 2. Измерено на "
+                             "наборе: верная клетка лежит на ранге <= 11 у 11 кейсов из "
+                             "12, поэтому прежние 25 были перерасходом — кандидаты с "
+                             "12-го не пригодились ни разу. Снижение до 14 дало 27% "
+                             "экономии онлайна при тех же 8/8 верных и 0 ложных; 15 "
+                             "оставлено с запасом (см. docs/OPTIMIZATION_PLAN.md, O3)")
     parser.add_argument("--min-inliers", type=int, default=6)
     parser.add_argument("--rotation-step", type=int, default=45,
                         help="шаг ротационной аугментации для кейсов без курса, °")
