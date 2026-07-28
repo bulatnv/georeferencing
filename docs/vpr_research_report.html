@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VPR-энкодеры для Этажа 1 — сравнительное исследование</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F2F5F4;
+  --card:#FBFCFC;
+  --ink:#1A2422;
+  --muted:#5C6B67;
+  --teal:#17707B;
+  --teal-deep:#0E4A52;
+  --teal-wash:#E3EEEF;
+  --amber:#C08327;
+  --amber-wash:#F7EEDD;
+  --line:#D8E0DE;
+  --ok:#2F7D4F;
+  --bad:#A8402F;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Literata',Georgia,serif;
+  font-size:16.5px;
+  line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--teal);text-decoration:none;border-bottom:1px solid rgba(23,112,123,.35)}
+a:hover{color:var(--teal-deep);border-bottom-color:var(--teal-deep)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+
+.wrap{max-width:1180px;margin:0 auto;padding:0 22px}
+
+/* ---------- HERO ---------- */
+header.hero{
+  border-bottom:1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(23,112,123,.05), rgba(23,112,123,0) 55%),
+    var(--paper);
+  padding:56px 0 40px;
+}
+.eyebrow{
+  font-family:'JetBrains Mono',monospace;
+  font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--teal);font-weight:500;
+}
+h1{
+  font-family:'Oswald',sans-serif;
+  font-weight:600;text-transform:uppercase;
+  font-size:clamp(30px,4.4vw,52px);
+  line-height:1.08;letter-spacing:.015em;
+  margin:14px 0 18px;max-width:20ch;
+}
+.hero-sub{max-width:64ch;color:var(--muted);font-size:17px}
+.hero-meta{
+  display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:26px;
+  font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--muted);
+}
+.hero-meta b{color:var(--ink);font-weight:500}
+
+/* rank strip — сигнатурный элемент */
+.rankstrip{margin-top:34px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px 22px 16px}
+.rankstrip .cap{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.rankstrip svg{width:100%;height:auto;display:block}
+
+/* ---------- LAYOUT ---------- */
+.layout{display:grid;grid-template-columns:264px minmax(0,1fr);gap:56px;padding:48px 0 80px}
+nav.toc{position:sticky;top:24px;align-self:start;font-family:'Oswald',sans-serif}
+nav.toc .toc-title{font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+nav.toc ol{list-style:none}
+nav.toc li{margin:0}
+nav.toc a{
+  display:flex;gap:10px;align-items:baseline;
+  padding:7px 10px;border:0;border-left:2px solid transparent;
+  color:var(--ink);font-size:14.5px;font-weight:400;letter-spacing:.02em;
+}
+nav.toc a .n{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)}
+nav.toc a:hover{background:var(--teal-wash);border-left-color:var(--teal);color:var(--teal-deep)}
+nav.toc .sub a{padding-left:30px;font-size:13.5px;color:var(--muted)}
+
+main{min-width:0}
+section{margin-bottom:64px;scroll-margin-top:24px}
+.sec-eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--teal);font-weight:500}
+h2{
+  font-family:'Oswald',sans-serif;font-weight:500;text-transform:uppercase;
+  font-size:clamp(22px,2.6vw,30px);letter-spacing:.02em;line-height:1.15;
+  margin:8px 0 20px;padding-bottom:12px;border-bottom:2px solid var(--ink);
+}
+h3{
+  font-family:'Oswald',sans-serif;font-weight:500;
+  font-size:19px;letter-spacing:.02em;margin:34px 0 12px;
+}
+h3 .tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;vertical-align:middle;margin-left:10px;padding:3px 8px;border-radius:4px;font-weight:500}
+.tag.zero{background:var(--teal-wash);color:var(--teal-deep)}
+.tag.ft{background:var(--amber-wash);color:#7A5314}
+.tag.lic-bad{background:#F3E1DC;color:var(--bad)}
+.tag.lic-ok{background:#E2EFE6;color:var(--ok)}
+p{margin:0 0 14px;max-width:74ch}
+ul,ol{margin:0 0 16px 22px;max-width:74ch}
+li{margin-bottom:7px}
+strong{font-weight:600}
+em{font-style:italic}
+code{font-family:'JetBrains Mono',monospace;font-size:.86em;background:var(--teal-wash);padding:1px 5px;border-radius:4px;color:var(--teal-deep)}
+
+.callout{
+  background:var(--card);border:1px solid var(--line);border-left:4px solid var(--teal);
+  border-radius:0 8px 8px 0;padding:16px 20px;margin:20px 0;max-width:78ch;
+}
+.callout.warn{border-left-color:var(--amber);background:linear-gradient(0deg, rgba(192,131,39,.04), rgba(192,131,39,.04)),var(--card)}
+.callout .c-label{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.callout p:last-child{margin-bottom:0}
+
+/* факт-карточки моделей */
+.facts{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden;
+  margin:14px 0 18px;font-size:14px;
+}
+.facts div{background:var(--card);padding:10px 14px}
+.facts .k{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:3px}
+
+/* таблицы */
+.tbl-scroll{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+table{border-collapse:collapse;width:100%;min-width:960px;font-size:13.5px}
+caption{caption-side:bottom;text-align:left;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted);padding:10px 14px}
+th{
+  font-family:'Oswald',sans-serif;font-weight:500;text-transform:uppercase;letter-spacing:.04em;
+  font-size:12px;text-align:left;padding:11px 12px;background:var(--teal-deep);color:#F0F6F5;
+  position:sticky;top:0;
+}
+td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:top;line-height:1.45}
+tbody tr:nth-child(even) td{background:rgba(23,112,123,.035)}
+td.model{font-family:'Oswald',sans-serif;font-weight:500;font-size:14px;white-space:nowrap}
+.good{color:var(--ok);font-weight:600}
+.warncol{color:var(--amber);font-weight:600}
+.badcol{color:var(--bad);font-weight:600}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12.5px}
+
+/* приоритетный список */
+.prio{list-style:none;margin:18px 0;counter-reset:p;max-width:78ch}
+.prio li{
+  counter-increment:p;position:relative;background:var(--card);
+  border:1px solid var(--line);border-radius:8px;padding:16px 18px 14px 66px;margin-bottom:10px;
+}
+.prio li::before{
+  content:counter(p,decimal-leading-zero);
+  position:absolute;left:18px;top:14px;
+  font-family:'Oswald',sans-serif;font-weight:600;font-size:22px;color:var(--teal);
+}
+.prio li b{font-family:'Oswald',sans-serif;font-weight:500;font-size:16px;letter-spacing:.02em}
+
+/* библиография */
+.bib{list-style:none;margin-left:0;max-width:none}
+.bib li{
+  padding:12px 0 12px 16px;border-left:2px solid var(--line);margin-bottom:6px;
+  font-size:14.5px;
+}
+.bib li:hover{border-left-color:var(--teal)}
+.bib .ref-id{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--teal);letter-spacing:.06em;margin-right:8px}
+.bib .links{display:block;margin-top:3px;font-family:'JetBrains Mono',monospace;font-size:12px}
+.bib .links a{margin-right:14px}
+
+footer{border-top:1px solid var(--line);padding:26px 0 44px;color:var(--muted);font-size:13px;font-family:'JetBrains Mono',monospace}
+
+sup.ref a{border:0;font-family:'JetBrains Mono',monospace;font-size:.7em;padding:0 2px}
+
+@media (max-width:960px){
+  .layout{grid-template-columns:1fr;gap:36px}
+  nav.toc{position:static;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:18px}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media print{
+  nav.toc{display:none}
+  .layout{display:block}
+  body{background:#fff}
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Research Track · Этаж 1 / Retrieval · aero_geoloc</div>
+    <h1>VPR-энкодеры для геолокализации БПЛА по спутниковой подложке</h1>
+    <p class="hero-sub">Сравнительное исследование NetVLAD, AnyLoc, SALAD, MegaLoc и BoQ против базового DINOv2: какая агрегация поднимет верную клетку в top-K там, где сырой глобальный эмбеддинг её топит.</p>
+    <div class="hero-meta">
+      <span>Дата: <b>27.07.2026</b></span>
+      <span>Статус: <b>исследование завершено, стенд — далее</b></span>
+      <span>Критерий приёмки: <b>DRZ_19206 → top-5–10 без деградации 00049</b></span>
+    </div>
+
+    <div class="rankstrip" role="img" aria-label="Диаграмма: верная клетка кадра DRZ_19206 стоит на ранге 506 из 2116 при сыром DINOv2; целевая зона — top-5">
+      <div class="cap">Проблема одним взглядом — ранжирование верной клетки DRZ_19206 (Ахен, город)</div>
+      <svg viewBox="0 0 1000 120" xmlns="http://www.w3.org/2000/svg">
+        <rect x="20" y="46" width="960" height="16" rx="8" fill="#E4EAE9"/>
+        <rect x="20" y="46" width="14" height="16" rx="7" fill="#17707B"/>
+        <text x="20" y="36" font-family="JetBrains Mono, monospace" font-size="12" fill="#17707B" font-weight="700">ЦЕЛЬ: top-5</text>
+        <line x1="250" y1="38" x2="250" y2="72" stroke="#C08327" stroke-width="2"/>
+        <circle cx="250" cy="54" r="7" fill="#C08327"/>
+        <text x="250" y="92" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="13" fill="#1A2422" font-weight="700">ранг 506 / 2116</text>
+        <text x="250" y="108" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="11" fill="#5C6B67">сырой DINOv2, mean-token 384d</text>
+        <text x="978" y="36" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="11" fill="#5C6B67">хвост индекса → 2116</text>
+        <path d="M 243 54 C 160 54 90 54 44 54" stroke="#17707B" stroke-width="1.6" fill="none" stroke-dasharray="5 5"/>
+        <path d="M 52 48 L 42 54 L 52 60" stroke="#17707B" stroke-width="1.6" fill="none"/>
+        <text x="140" y="24" font-family="JetBrains Mono, monospace" font-size="11" fill="#0E4A52">обученная VPR-агрегация должна перенести её сюда</text>
+      </svg>
+    </div>
+  </div>
+</header>
+
+<div class="wrap layout">
+
+<nav class="toc" aria-label="Содержание">
+  <div class="toc-title">Содержание</div>
+  <ol>
+    <li><a href="#summary"><span class="n">01</span>Резюме (TL;DR)</a></li>
+    <li><a href="#background"><span class="n">02</span>Основание и проблематика</a></li>
+    <li><a href="#findings"><span class="n">03</span>Ключевые открытия</a></li>
+    <li><a href="#models"><span class="n">04</span>Кандидаты подробно</a>
+      <ol class="sub">
+        <li><a href="#m-dino">Базовая линия: DINOv2</a></li>
+        <li><a href="#m-netvlad">NetVLAD</a></li>
+        <li><a href="#m-anyloc">AnyLoc</a></li>
+        <li><a href="#m-salad">SALAD</a></li>
+        <li><a href="#m-megaloc">MegaLoc</a></li>
+        <li><a href="#m-boq">BoQ</a></li>
+        <li><a href="#m-misc">Опциональные и 2025–2026</a></li>
+      </ol>
+    </li>
+    <li><a href="#rotation"><span class="n">05</span>Yaw: prerotate vs аугментация</a></li>
+    <li><a href="#table"><span class="n">06</span>Сравнительная таблица</a></li>
+    <li><a href="#reco"><span class="n">07</span>Рекомендации и порядок прогона</a></li>
+    <li><a href="#integration"><span class="n">08</span>Интеграция (протокол Encoder)</a></li>
+    <li><a href="#bib"><span class="n">09</span>Первоисточники</a></li>
+    <li><a href="#caveats"><span class="n">10</span>Оговорки</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- 01 -->
+<section id="summary">
+  <div class="sec-eyebrow">01 · Summary</div>
+  <h2>Резюме</h2>
+  <p><strong>Приоритет для zero-shot прогона на стенде:</strong> (1)&nbsp;MegaLoc → (2)&nbsp;SALAD → (3)&nbsp;AnyLoc-VLAD-DINOv2 → (4)&nbsp;BoQ-DINOv2 → (5)&nbsp;NetVLAD как нижняя планка. MegaLoc и SALAD — это «сильный DINOv2-бэкбон + обученная агрегация», то есть ровно та гипотеза, которая должна поднять DRZ_19206 из ранга 506; AnyLoc — сильнейший zero-shot универсал с прямыми доказательствами на аэро/надирных датасетах.</p>
+  <p>Замена сырого DINOv2 mean-token (dim=384) на обученную VLAD/SALAD/BoQ-агрегацию почти наверняка поднимет верную клетку в top-K: на надир↔ортоспутник (Nardo-Air) в работе FoundLoc<sup class="ref"><a href="#ref-foundloc">[16]</a></sup> AnyLoc-DINO даёт <strong>R@1 = 94.37, R@5 = 100, Top-3@5 = 100% zero-shot</strong> (против NetVLAD-finetuned с Top-3@5 = 52.11), а сама статья AnyLoc<sup class="ref"><a href="#ref-anyloc">[2]</a></sup> показала, что доменные VLAD-словари дают до 4× выше Recall@1, тогда как сырой mean/CLS-токен «сжимается в малую область признакового пространства, теряя различительную способность».</p>
+  <div class="callout warn">
+    <div class="c-label">Лицензионное предупреждение</div>
+    <p>Для закрытого/коммерческого продукта: <strong>SALAD — GPL-3.0</strong> (копилефт, блокер); <strong>MegaLoc — веса MIT, но код репозитория без LICENSE-файла и заимствует GPL-код SALAD</strong> (нужна чистая реализация инференса); <strong>BoQ — MIT (чистый)</strong>; AnyLoc/NetVLAD — permissive; бэкбон <strong>DINOv2 сегодня Apache-2.0</strong> (исходный релиз 2023 был CC-BY-NC — тянуть актуальные веса).</p>
+  </div>
+</section>
+
+<!-- 02 -->
+<section id="background">
+  <div class="sec-eyebrow">02 · Background</div>
+  <h2>Основание и проблематика</h2>
+  <h3>Контекст системы</h3>
+  <p>Система локализует надирный кадр БПЛА (высоты 100–800 м) против спутниковой подложки Esri World Imagery и построена двухэтажно. <strong>Этаж 1 (retrieval)</strong> отвечает на вопрос «где примерно»: кадр кодируется в глобальный вектор, ANN-запрос к индексу клеток региона схлопывает диск приора ±2–5 км в top-K кандидатных клеток за миллисекунды. <strong>Этаж 2 (pose)</strong> отвечает «где точно»: геометрический матчер (LightGlue) находит соответствия точек и восстанавливает позу с метровой точностью. Этажи не заменяют друг друга: эмбеддинг по своей природе инвариантен к точному положению и не даёт метровую точность, а матчер точен, но перебирать им весь диск ±5 км непозволительно дорого.</p>
+  <h3>Измеренное узкое место</h3>
+  <p>Замер на реальных бортовых кадрах против Esri показал, что отказ системы живёт не в матчере, а в глобальном дескрипторе Этажа 1:</p>
+  <ul>
+    <li><strong>Кадр 00049</strong> (Германия, поле, приор 1–2 км): верная клетка — <span class="mono good">retrieval top-2</span>, локализация с ошибкой ~9 м. Успех.</li>
+    <li><strong>Кадр DRZ_19206</strong> (Ахен, город, приор 1–2 км): верная клетка (в 8 м от истины) <em>существует</em> в индексе, LightGlue матчит тот же кадр против Esri локально с точностью 3.5 м — но сырой глобальный DINOv2-эмбеддинг ставит её на <span class="mono badcol">ранг 506 из 2116</span>. Итог — <code>not_localized</code>.</li>
+  </ul>
+  <p>Вывод из пары кейсов: локальные фичи (Этаж 2) устойчивы к разрыву внешнего вида между кадром и подложкой (другая дата съёмки, сезон, поколение снимка, тени), а сырой усреднённый токен DINOv2 — нет. Кадр 00049 сработал не потому, что «поле легче», а потому, что тот кадр по виду случайно оказался близок к Esri.</p>
+  <h3>Гипотеза трека</h3>
+  <div class="callout">
+    <div class="c-label">Проверяемая гипотеза</div>
+    <p>Правильно обученная VPR-агрегация (семейство NetVLAD и наследники) поверх сильного бэкбона поднимет верную клетку в top-K там, где сырой DINOv2 её топит. Гипотезу нужно подтвердить измерением на едином стенде (тот же регион, идентичная нарезка клеток, тот же prerotate; меняется только <code>Encoder</code>), а не принять на веру.</p>
+  </div>
+  <h3>Специфика домена (чем наша задача отличается от бенчмарков)</h3>
+  <ul>
+    <li><strong>Надир↔надир, а не косой cross-view.</strong> Классические drone-benchmark'и (University-1652, SUES-200) матчат <em>косой</em> дрон против надирного спутника; у нас оба вида надирные, gap — в основном appearance (дата, сезон, сенсор, тени). Это заметно легче, и литература подтверждает: чем ближе ракурс к надиру, тем меньше cross-view gap и тем лучше работает retrieval<sup class="ref"><a href="#ref-sfree">[18]</a></sup>.</li>
+    <li><strong>Yaw.</strong> Кадр повёрнут относительно север-ориентированного тайла; ViT-модели не инвариантны к повороту.</li>
+    <li><strong>Масштаб.</strong> Footprint кадра меняется ~6× между 100 и 600 м высоты; клетка индекса ≈ footprint.</li>
+    <li><strong>Стоимость индекса.</strong> Регион ±5 км — порядка 2 000–20 000 клеток, с ротационной аугментацией ×8–12; размерность дескриптора напрямую бьёт по памяти и скорости kNN.</li>
+  </ul>
+</section>
+
+<!-- 03 -->
+<section id="findings">
+  <div class="sec-eyebrow">03 · Key Findings</div>
+  <h2>Ключевые открытия</h2>
+  <ol>
+    <li><strong>Гипотеза подтверждается литературой.</strong> AnyLoc<sup class="ref"><a href="#ref-anyloc">[2]</a></sup> прямо показал, что per-image CLS/mean-дескрипторы фундаментально слабее агрегации локальных патч-фич для VPR, особенно в неструктурированных и аэро-доменах: доменные VLAD-словари дают до 4× выше Recall@1. Ранг 506 для DRZ_19206 — типичный симптом именно этого.</li>
+    <li><strong>Надир↔надир проще, чем классический cross-view.</strong> Наш случай ближе к «aerial-to-aerial» бенчмаркам (VPAir, Nardo-Air, ALTO), где универсальные VPR (AnyLoc, MegaLoc, SALAD) работают хорошо zero-shot, чем к косым University-1652/SUES-200, под которые заточены Sample4Geo/FSRA/DAC.</li>
+    <li><strong>Rotation (yaw) — главный технический риск.</strong> ViT/DINOv2 не инвариантны к повороту (фиксированные позиционные эмбеддинги). Показательно, что FoundLoc<sup class="ref"><a href="#ref-foundloc">[16]</a></sup> для надирной локализации держал yaw всегда направленным на север — то есть решал prerotate'ом, а не аугментацией.</li>
+    <li><strong>Специализированные drone→satellite модели не дают zero-shot преимущества</strong> в надир↔надир сценарии: Sample4Geo/FSRA/DAC обучены на конкретных cross-view датасетах, как правило сиамские (раздельные ветки drone/satellite), дороже в интеграции, а выигрыш неочевиден.</li>
+    <li><strong>MegaLoc — актуальный SOTA-универсал</strong> (CVPR 2025 Workshops): DINOv2-base + SALAD-агрегация, мульти-датасетное обучение, веса MIT. Лучший первый кандидат.</li>
+  </ol>
+</section>
+
+<!-- 04 -->
+<section id="models">
+  <div class="sec-eyebrow">04 · Candidates</div>
+  <h2>Кандидаты подробно</h2>
+
+  <h3 id="m-dino">Базовая линия: сырой DINOv2 (mean/CLS) <span class="tag zero">zero-shot</span></h3>
+  <div class="facts">
+    <div><span class="k">Агрегация</span>нет (mean/CLS токен)</div>
+    <div><span class="k">Размерность</span>384 (ViT-S) … 1536 (ViT-g)</div>
+    <div><span class="k">Лицензия</span>Apache-2.0</div>
+    <div><span class="k">Аэро-поведение</span>слабое (ранг 506 — наш кейс)</div>
+  </div>
+  <p>Текущий <code>DinoV2Encoder</code>: ViT-S/14, усреднённый патч-токен, без VPR-агрегации и дообучения. AnyLoc<sup class="ref"><a href="#ref-anyloc">[2]</a></sup> эмпирически показал, что такие per-image дескрипторы «сжимаются в малую область признакового пространства» и теряют различительность — ровно наш DRZ_19206.</p>
+
+  <h3 id="m-netvlad">NetVLAD — нижняя планка <span class="tag ft">нужно дообучение</span></h3>
+  <div class="facts">
+    <div><span class="k">Статья</span>CVPR 2016<sup class="ref"><a href="#ref-netvlad">[1]</a></sup></div>
+    <div><span class="k">Агрегация / бэкбон</span>обучаемый VLAD поверх VGG-16</div>
+    <div><span class="k">Размерность</span>16384 → PCA 4096</div>
+    <div><span class="k">Веса</span>через hloc, permissive</div>
+  </div>
+  <p>На Nardo-Air (FoundLoc, Table I)<sup class="ref"><a href="#ref-foundloc">[16]</a></sup> zero-shot очень слаб (R@1 = 42.25, R@5 = 76.06); после дообучения на домене R@1 = 78.87, R@5 = 100, но Top-3@5 всего 52.11 — тревожно много ложноположительных в top-5 даже после дообучения. Роль в сравнении — контроль «что даёт настоящий VPR над сырым эмбеддингом».</p>
+
+  <h3 id="m-anyloc">AnyLoc — zero-shot универсал <span class="tag zero">zero-shot</span></h3>
+  <div class="facts">
+    <div><span class="k">Статья</span>IEEE RA-L 2023<sup class="ref"><a href="#ref-anyloc">[2]</a></sup></div>
+    <div><span class="k">Агрегация / бэкбон</span>VLAD (32 кластера) поверх замороженного DINOv2 ViT-G/14, layer 31</div>
+    <div><span class="k">Размерность</span>49152 (!); PCA → 1024–4096 почти без потерь</div>
+    <div><span class="k">Веса</span>torch.hub AnyLoc/DINO, permissive</div>
+  </div>
+  <p><strong>Сильнейшие прямые доказательства на нашем типе задачи.</strong> Nardo-Air (drone→ortho-satellite): в статье R@1 ≈ 99.5%; в FoundLoc<sup class="ref"><a href="#ref-foundloc">[16]</a></sup> — R@1 = 94.37, R@5 = 100, <strong>Top-3@5 = 100% zero-shot</strong>, без всякого дообучения. На VPAir (aerial-to-aerial, 300 м, downward) — сильнейший zero-shot глобальный дескриптор. Доменные VLAD-словари («aerial») дают до 4× выше Recall@1.</p>
+  <p>Минусы: ViT-G тяжёлый (в aerial-VPR survey<sup class="ref"><a href="#ref-aerovloc">[17]</a></sup> AnyLoc заметно медленнее прочих), dim = 49152 неприемлем для индекса ±5 км без PCA. На Nardo-Air-R (ротированном) деградирует при экстремальных ракурсах — при известном yaw снимается prerotate'ом.</p>
+
+  <h3 id="m-salad">SALAD <span class="tag zero">zero-shot (домен: город)</span> <span class="tag lic-bad">GPL-3.0</span></h3>
+  <div class="facts">
+    <div><span class="k">Статья</span>CVPR 2024<sup class="ref"><a href="#ref-salad">[3]</a></sup></div>
+    <div><span class="k">Агрегация / бэкбон</span>optimal transport (Sinkhorn) + dustbin поверх дообученного DINOv2 ViT-B</div>
+    <div><span class="k">Размерность</span>8448 (64×128 + 256 CLS)</div>
+    <div><span class="k">Инференс</span>~2.4 мс/изобр (ViT-B)</div>
+  </div>
+  <p>Переформулировка soft-assignment NetVLAD как задачи оптимального транспорта с «мусорным» кластером для неинформативных фич; последние 4 блока DINOv2 размораживаются при обучении (GSV-Cities). SOTA на MSLS/Nordland/Pitts; в aerial-VPR survey<sup class="ref"><a href="#ref-aerovloc">[17]</a></sup> входит в топ-методы на VPAir/ALTO.</p>
+  <div class="callout warn">
+    <div class="c-label">Лицензия</div>
+    <p>Код репозитория — GPL-3.0, отдельной лицензии на веса нет → де-факто GPL-3.0. Копилефт-блокер для проприетарного продукта. Использовать <strong>только как оффлайн-бенчмарк</strong> и диагностический контраст к MegaLoc.</p>
+  </div>
+
+  <h3 id="m-megaloc">MegaLoc — топ-кандидат <span class="tag zero">zero-shot</span> <span class="tag lic-ok">веса MIT</span></h3>
+  <div class="facts">
+    <div><span class="k">Статья</span>CVPR 2025 Workshops<sup class="ref"><a href="#ref-megaloc">[4]</a></sup></div>
+    <div><span class="k">Агрегация / бэкбон</span>SALAD-агрегация поверх DINOv2-base (~228M параметров)</div>
+    <div><span class="k">Обучение</span>5 датасетов: SF-XL, GSV-Cities, MSLS, MegaScenes, ScanNet</div>
+    <div><span class="k">Размерность</span>16640 → проекция 8448; практика PCA → 1024</div>
+    <div><span class="k">Инференс</span>~2–4 мс/изобр (по ViT-B, оценка)</div>
+    <div><span class="k">Веса</span>torch.hub gmberton/MegaLoc; HF gberton/MegaLoc (MIT)</div>
+  </div>
+  <p>По сути «SALAD, доведённый до ума на данных»: та же агрегация, но мульти-датасетное обучение покрывает indoor/outdoor/day/night/seasonal + landmark/visual-localization. Аэро-доказательства: на UAV-VisLoc и DenseUAV — один из сильнейших retrieval; в SEALOC MegaLoc и AnyLoc — топ по Recall@1/@10 среди ViT-методов; дообучение на аэро (AirZoo) даёт ещё +11.42 R@1 в лучшей сцене — то есть база сильная и дообучаемая.</p>
+  <div class="callout warn">
+    <div class="c-label">Лицензия</div>
+    <p>Веса на HF — MIT. Но код репозитория без LICENSE-файла (по умолчанию all-rights-reserved) и <code>megaloc_model.py</code> явно заимствует GPL-код SALAD. Для закрытого продукта — чистая реализация инференса поверх MIT-весов (бэкбон DINOv2 Apache-2.0 + своя SALAD-агрегация).</p>
+  </div>
+
+  <h3 id="m-boq">BoQ <span class="tag zero">zero-shot (домен: город)</span> <span class="tag lic-ok">MIT</span></h3>
+  <div class="facts">
+    <div><span class="k">Статья</span>CVPR 2024<sup class="ref"><a href="#ref-boq">[5]</a></sup></div>
+    <div><span class="k">Агрегация / бэкбон</span>Bag of Learnable Queries (cross-attention) поверх ResNet50 или DINOv2</div>
+    <div><span class="k">Размерность</span>DINOv2-BoQ 12288; ResNet50-BoQ 16384</div>
+    <div><span class="k">Веса</span>torch.hub amaralibey/bag-of-queries, вход 320×320</div>
+  </div>
+  <p>Набор обучаемых глобальных запросов «зондирует» локальные фичи через cross-attention. SOTA на 14 бенчмарках, первый глобальный метод с 95%+ R@1 на Pitts250k. Минус для нас: прямых надир↔спутник замеров в литературе мало, домен обучения — городской ground. Плюс: самая чистая лицензия для коммерции (особенно ResNet50-вариант, полностью избегающий DINOv2).</p>
+
+  <h3 id="m-misc">Опциональные модели и свежие 2025–2026</h3>
+  <ul>
+    <li><strong>MixVPR</strong> (WACV 2023)<sup class="ref"><a href="#ref-mixvpr">[6]</a></sup>: all-MLP mixing, dim 4096, быстрый — но AnyLoc показал, что на аэро/надире DINOv2-CLS обгоняет MixVPR (на Nardo-Air на 41%). Не приоритет.</li>
+    <li><strong>CosPlace / EigenPlaces</strong><sup class="ref"><a href="#ref-cosplace">[7]</a></sup><sup class="ref"><a href="#ref-eigen">[8]</a></sup>: дешёвый индекс (dim 512/2048), но на аэро слабее ViT-методов. Быстрые бэйзлайны.</li>
+    <li><strong>CricaVPR</strong> (CVPR 2024)<sup class="ref"><a href="#ref-crica">[9]</a></sup>: cross-image correlation поверх DINOv2, dim 10752 — хорош на кросс-условиях, но крупный дескриптор.</li>
+    <li><strong>Pair-VPR</strong> (RA-L 2025)<sup class="ref"><a href="#ref-pairvpr">[10]</a></sup> и <strong>EffoVPR</strong> (ICLR 2025)<sup class="ref"><a href="#ref-effovpr">[11]</a></sup> — это реранкинг; у нас реранкинг уже делает LightGlue, поэтому не наш этаж.</li>
+    <li><strong>SelaVPR / SelaVPR++</strong>: адаптеры поверх DINOv2; был среди топ-методов на VPAir в aero-vloc.</li>
+    <li><strong>DINOv3-based агрегации</strong><sup class="ref"><a href="#ref-dinov3">[13]</a></sup>: DINOv3 (Aug 2025, обучение включало аэро-снимки, commercial-friendly лицензия) — кандидат «на потом»: зрелого готового VPR-энкодера на DINOv3 с публичными весами пока нет.</li>
+    <li><strong>Sample4Geo / FSRA / DAC</strong><sup class="ref"><a href="#ref-s4g">[14]</a></sup>: заточены под косой cross-view, требуют дообучения на домен, сиамская архитектура. Не для zero-shot пути; Sample4Geo — хорошая база для fine-tune, если zero-shot не добьёт и появятся пары надир↔подложка.</li>
+  </ul>
+</section>
+
+<!-- 05 -->
+<section id="rotation">
+  <div class="sec-eyebrow">05 · Yaw Strategy</div>
+  <h2>Yaw: prerotate vs ротационная аугментация</h2>
+  <p>Ни один кандидат не инвариантен к повороту (ViT — фиксированные позиционные эмбеддинги; CNN тоже). Две рабочие стратегии:</p>
+  <ul>
+    <li><strong>Prerotate запроса на −yaw (предпочтительно, если yaw известен из IMU/компаса).</strong> Кадр поворачивается «севером вверх» перед энкодингом, индекс живёт в одной ориентации. Экономит память индекса в 8–12×, снимает главную слабость ViT. Так поступают FoundLoc (yaw зафиксирован на север), BEVLoc-подобные системы и ViT-VS (перебор {0°, 90°, 180°, −90°} по max cosine similarity).</li>
+    <li><strong>Ротационная аугментация индекса ×8–12.</strong> Надёжнее при неизвестном/ненадёжном yaw, ценой раздутия индекса и стоимости поиска. ×8 (шаг 45°) — компромисс; ×12 (30°) — повышенная точность.</li>
+  </ul>
+  <div class="callout">
+    <div class="c-label">Рекомендация</div>
+    <p>Есть надёжный компас/IMU → prerotate (текущий <code>prerotate_deg</code> в <code>TerrainIndex.query</code> — правильное решение). Нет → аугментация ×8 как fallback.</p>
+  </div>
+</section>
+
+<!-- 06 -->
+<section id="table">
+  <div class="sec-eyebrow">06 · Comparison</div>
+  <h2>Сравнительная таблица</h2>
+  <div class="tbl-scroll">
+    <table>
+      <caption>Память на вектор — fp32 без квантования. При int8/PQ (FAISS) цифры падают ещё в 4–32×.</caption>
+      <thead>
+        <tr>
+          <th>Модель</th>
+          <th>Кросс-домен дрон↔спутник</th>
+          <th>Кросс-дата</th>
+          <th>Yaw-инвариантность</th>
+          <th>Dim / память на вектор</th>
+          <th>Инференс (RTX 4090)</th>
+          <th>Веса + лицензия</th>
+          <th>Zero-shot?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="model">Raw DINOv2</td>
+          <td class="badcol">слабая (наш кейс: ранг 506)</td>
+          <td>средняя</td>
+          <td>нет (ViT)</td>
+          <td class="mono">384 / 1.5 КБ</td>
+          <td class="mono">~1.3 мс (ViT-S)</td>
+          <td>Apache-2.0</td>
+          <td class="good">zero-shot</td>
+        </tr>
+        <tr>
+          <td class="model">NetVLAD</td>
+          <td class="badcol">слабая zero-shot</td>
+          <td>низкая–средняя</td>
+          <td>нет; VLAD частично</td>
+          <td class="mono">4096 / 16 КБ</td>
+          <td class="mono">~5–10 мс (VGG)</td>
+          <td>permissive (hloc)</td>
+          <td class="warncol">нужно дообучение</td>
+        </tr>
+        <tr>
+          <td class="model">AnyLoc-VLAD</td>
+          <td class="good">сильная (Nardo-Air Top-3@5=100%)</td>
+          <td class="good">высокая</td>
+          <td>нет; prerotate/aug</td>
+          <td class="mono">49152 / 192 КБ (PCA→4–16 КБ)</td>
+          <td class="warncol">высокая (ViT-G)</td>
+          <td>torch.hub, permissive</td>
+          <td class="good">zero-shot</td>
+        </tr>
+        <tr>
+          <td class="model">SALAD</td>
+          <td class="good">хорошая (топ на VPAir/ALTO)</td>
+          <td class="good">высокая</td>
+          <td>нет; prerotate/aug</td>
+          <td class="mono">8448 / 33 КБ</td>
+          <td class="mono">~2.4 мс (ViT-B)</td>
+          <td class="badcol">GPL-3.0 (блокер)</td>
+          <td class="good">zero-shot (город)</td>
+        </tr>
+        <tr>
+          <td class="model">MegaLoc</td>
+          <td class="good">сильная (UAV-VisLoc / DenseUAV / SEALOC)</td>
+          <td class="good">очень высокая (5 датасетов)</td>
+          <td>нет; prerotate/aug</td>
+          <td class="mono">8448 / 33 КБ (PCA→1024 = 4 КБ)</td>
+          <td class="mono">~2–4 мс (ViT-B)</td>
+          <td class="warncol">веса MIT; код без лицензии + GPL-фрагменты</td>
+          <td class="good">zero-shot</td>
+        </tr>
+        <tr>
+          <td class="model">BoQ-DINOv2</td>
+          <td>средняя (мало аэро-замеров)</td>
+          <td class="good">высокая</td>
+          <td>нет; prerotate/aug</td>
+          <td class="mono">12288 / 48 КБ</td>
+          <td class="mono">~3–4 мс</td>
+          <td class="good">MIT (чистый)</td>
+          <td class="good">zero-shot (город)</td>
+        </tr>
+        <tr>
+          <td class="model">MixVPR</td>
+          <td class="badcol">слабее ViT на аэро</td>
+          <td>средняя</td>
+          <td>нет</td>
+          <td class="mono">4096 / 16 КБ</td>
+          <td class="mono">быстрый</td>
+          <td>permissive</td>
+          <td class="good">zero-shot</td>
+        </tr>
+        <tr>
+          <td class="model">Sample4Geo</td>
+          <td>заточен под косой cross-view</td>
+          <td>средняя</td>
+          <td>rotation-aug при обучении</td>
+          <td class="mono">~1024 (ConvNeXt)</td>
+          <td class="mono">~3.6 мс</td>
+          <td>код открыт (ICCV'23)</td>
+          <td class="warncol">нужно дообучение</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>Память индекса ±5 км (2 000–20 000 клеток, аугментация ×8–12)</h3>
+  <ul>
+    <li><strong>MegaLoc PCA-1024</strong> (4 КБ/вектор): 20 000 × 12 × 4 КБ ≈ <span class="mono">960 МБ</span> — приемлемо.</li>
+    <li><strong>AnyLoc raw 49152</strong> (192 КБ/вектор): 20 000 × 12 × 192 КБ ≈ <span class="mono">44 ГБ</span> — нереально без PCA.</li>
+  </ul>
+  <p><strong>Вывод:</strong> для любого ViT-метода с крупным дескриптором PCA до 512–1024 перед FAISS-индексом обязателен.</p>
+</section>
+
+<!-- 07 -->
+<section id="reco">
+  <div class="sec-eyebrow">07 · Recommendations</div>
+  <h2>Рекомендации и порядок прогона</h2>
+  <p><strong>Этап 0 — инфраструктура.</strong> Взять <a href="https://github.com/gmberton/VPR-methods-evaluation">VPR-methods-evaluation</a> — единый враппер для NetVLAD, CosPlace, EigenPlaces, MixVPR, AnyLoc, SALAD, CricaVPR, MegaLoc. Идентичная нарезка/prerotate/метрики при смене только <code>Encoder</code> — ровно наш протокол. Метрика: ранг ближайшей к истине клетки + Recall@K (K ≤ 5–10).</p>
+  <ol class="prio">
+    <li><b>MegaLoc</b> — самый широкий домен обучения, SOTA-универсал, dim 8448 (PCA → 1024), веса MIT. Наивысший шанс поднять DRZ_19206 в top-5. Единственная забота — чистая реализация инференса.</li>
+    <li><b>SALAD</b> — та же агрегация, что в ядре MegaLoc, но обучен только на GSV-Cities. Диагностический контраст: покажет, даёт ли мульти-датасетность MegaLoc реальный прирост на нашем домене. Только оффлайн (GPL-3.0), в продукт не тащить.</li>
+    <li><b>AnyLoc-VLAD-DINOv2</b> — сильнейшие прямые доказательства на надир↔ортоспутник. Обязательно PCA. Если MegaLoc/SALAD не добьют — AnyLoc с доменным «aerial»-словарём кластеров почти наверняка добьёт (до 4× Recall@1).</li>
+    <li><b>BoQ-DINOv2</b> — чистая MIT-лицензия; если по качеству близок к MegaLoc — предпочтительный продакшн-вариант по лицензии.</li>
+    <li><b>NetVLAD</b> — контрольная нижняя планка «настоящего VPR».</li>
+  </ol>
+  <h3>Пороги смены решения</h3>
+  <ul>
+    <li>MegaLoc zero-shot даёт DRZ_19206 в top-5 и не роняет 00049 → <strong>фиксируем MegaLoc</strong> (чистый инференс поверх MIT-весов, PCA-1024, prerotate по yaw). Готово.</li>
+    <li>Ни один zero-shot не добивает DRZ_19206 в top-10 → сигнал, что gap не appearance-only. Тогда: (а) доменный словарь AnyLoc на наших клетках; (б) лёгкое дообучение SALAD/BoQ на парах надир↔подложка; (в) пересмотр нарезки клеток (zoom/overlap — по aero-vloc это критично для аэро).</li>
+    <li>Лицензия MegaLoc-кода блокирует → <strong>BoQ-DINOv2 (MIT)</strong> как продакшн-энкодер.</li>
+  </ul>
+</section>
+
+<!-- 08 -->
+<section id="integration">
+  <div class="sec-eyebrow">08 · Integration</div>
+  <h2>Интеграция (протокол Encoder)</h2>
+  <p>Общий протокол: класс <code>Encoder</code> с методом <code>encode(tile) → np.ndarray</code> (L2-нормированный вектор), ленивая загрузка весов при первом вызове, gate-флаги как у <code>DinoV2Encoder</code>.</p>
+  <div class="callout">
+    <div class="c-label">Вход и нормализация — общее для всех ViT-методов</div>
+    <p>Все три ViT-метода требуют <strong>3-канальный RGB, не grayscale</strong>: серый кадр реплицировать в 3 канала перед подачей. Нормализация ImageNet (<span class="mono">mean [0.485, 0.456, 0.406], std [0.229, 0.224, 0.225]</span>). Разрешение кратно 14 (patch DINOv2): <span class="mono">322×322</span> для SALAD/MegaLoc, <span class="mono">224×224</span> или 322×322 для AnyLoc, <span class="mono">320×320</span> для BoQ.</p>
+  </div>
+  <h3>MegaLoc</h3>
+  <ul>
+    <li>Веса: HF <a href="https://huggingface.co/gberton/MegaLoc">gberton/MegaLoc</a> (MIT) или torch.hub <code>gmberton/MegaLoc</code> (<code>get_trained_model</code>).</li>
+    <li>Инференс: <code>model(image[B,3,322,322]) → [B,8448]</code>, L2-норма; размер входа гибкий, но кратен 14.</li>
+    <li>Для закрытого продукта: независимая реализация инференса (DINOv2-B backbone Apache-2.0 + своя чистая SALAD-агрегация), т.к. официальный код без лицензии и с GPL-фрагментами.</li>
+    <li>PCA: обучить на database-клетках, редуцировать 8448 → 1024 перед FAISS.</li>
+  </ul>
+  <h3>SALAD</h3>
+  <ul>
+    <li>Веса: torch.hub <code>serizba/salad</code> (<code>dinov2_salad</code>) или чекпоинт <code>dino_salad.ckpt</code>. Вход 322×322 RGB.</li>
+    <li>Только оффлайн-бенчмарк (GPL-3.0). Не включать в закрытый билд.</li>
+  </ul>
+  <h3>AnyLoc-VLAD-DINOv2</h3>
+  <ul>
+    <li>Веса: torch.hub <code>AnyLoc/DINO</code> (<code>get_vlad_model</code>, domain=…); вход 224×224 RGB → [1, 49152].</li>
+    <li>Обязательный PCA (fit на database) до 1024–4096.</li>
+    <li>Рассмотреть доменный словарь кластеров: K-means по патч-фичам наших клеток, K = 32; центры — тензор (32, 1536).</li>
+    <li>Для экономии — заменить ViT-G на ViT-B бэкбон.</li>
+  </ul>
+  <h3>BoQ-DINOv2</h3>
+  <ul>
+    <li>Веса: <code>torch.hub.load("amaralibey/bag-of-queries", "get_trained_boq", backbone_name="dinov2", output_dim=12288)</code>; вход 320×320 RGB (transform из репозитория).</li>
+    <li>MIT — чистый продакшн. Вариант <code>backbone_name="resnet50", output_dim=16384</code> полностью избегает DINOv2.</li>
+  </ul>
+</section>
+
+<!-- 09 -->
+<section id="bib">
+  <div class="sec-eyebrow">09 · Sources</div>
+  <h2>Первоисточники</h2>
+  <ul class="bib">
+    <li id="ref-netvlad"><span class="ref-id">[1]</span>R. Arandjelović, P. Gronat, A. Torii, T. Pajdla, J. Sivic. «NetVLAD: CNN architecture for weakly supervised place recognition». CVPR 2016.
+      <span class="links"><a href="https://arxiv.org/abs/1511.07247">arXiv:1511.07247</a><a href="https://github.com/cvg/Hierarchical-Localization">веса: hloc</a></span></li>
+    <li id="ref-anyloc"><span class="ref-id">[2]</span>N. Keetha, A. Mishra, J. Karhade, K. M. Jatavallabhula, S. Scherer, M. Krishna, S. Garg. «AnyLoc: Towards Universal Visual Place Recognition». IEEE RA-L 2023.
+      <span class="links"><a href="https://arxiv.org/abs/2308.00688">arXiv:2308.00688</a><a href="https://github.com/AnyLoc/AnyLoc">github.com/AnyLoc/AnyLoc</a></span></li>
+    <li id="ref-salad"><span class="ref-id">[3]</span>S. Izquierdo, J. Civera. «Optimal Transport Aggregation for Visual Place Recognition» (SALAD). CVPR 2024.
+      <span class="links"><a href="https://arxiv.org/abs/2311.15937">arXiv:2311.15937</a><a href="https://github.com/serizba/salad">github.com/serizba/salad (GPL-3.0)</a></span></li>
+    <li id="ref-megaloc"><span class="ref-id">[4]</span>G. Berton, C. Masone. «MegaLoc: One Retrieval to Place Them All». CVPR 2025 Workshops.
+      <span class="links"><a href="https://arxiv.org/abs/2502.17237">arXiv:2502.17237</a><a href="https://github.com/gmberton/MegaLoc">github.com/gmberton/MegaLoc</a><a href="https://huggingface.co/gberton/MegaLoc">HF: gberton/MegaLoc (веса MIT)</a></span></li>
+    <li id="ref-boq"><span class="ref-id">[5]</span>A. Ali-bey, B. Chaib-draa, P. Giguère. «BoQ: A Place is Worth a Bag of Learnable Queries». CVPR 2024, pp. 17794–17803.
+      <span class="links"><a href="https://arxiv.org/abs/2405.07364">arXiv:2405.07364</a><a href="https://github.com/amaralibey/Bag-of-Queries">github.com/amaralibey/Bag-of-Queries (MIT)</a></span></li>
+    <li id="ref-mixvpr"><span class="ref-id">[6]</span>A. Ali-bey, B. Chaib-draa, P. Giguère. «MixVPR: Feature Mixing for Visual Place Recognition». WACV 2023.
+      <span class="links"><a href="https://arxiv.org/abs/2303.02190">arXiv:2303.02190</a></span></li>
+    <li id="ref-cosplace"><span class="ref-id">[7]</span>G. Berton, C. Masone, B. Caputo. «Rethinking Visual Geo-localization for Large-Scale Applications» (CosPlace). CVPR 2022.
+      <span class="links"><a href="https://arxiv.org/abs/2204.02287">arXiv:2204.02287</a></span></li>
+    <li id="ref-eigen"><span class="ref-id">[8]</span>G. Berton, G. Trivigno, B. Caputo, C. Masone. «EigenPlaces: Training Viewpoint Robust Models for Visual Place Recognition». ICCV 2023.
+      <span class="links"><a href="https://arxiv.org/abs/2308.10832">arXiv:2308.10832</a></span></li>
+    <li id="ref-crica"><span class="ref-id">[9]</span>F. Lu et al. «CricaVPR: Cross-image Correlation-aware Representation Learning for Visual Place Recognition». CVPR 2024.
+      <span class="links"><a href="https://arxiv.org/abs/2402.19231">arXiv:2402.19231</a></span></li>
+    <li id="ref-pairvpr"><span class="ref-id">[10]</span>S. Hausler, P. Moghadam. «Pair-VPR: Place-Aware Pre-training and Contrastive Pair Classification for Visual Place Recognition». IEEE RA-L 2025.
+      <span class="links"><a href="https://github.com/csiro-robotics/Pair-VPR">github.com/csiro-robotics/Pair-VPR</a></span></li>
+    <li id="ref-effovpr"><span class="ref-id">[11]</span>I. Tzachor et al. «EffoVPR: Effective Foundation Model Utilization for Visual Place Recognition». ICLR 2025.
+      <span class="links"><a href="https://arxiv.org/abs/2405.18065">arXiv:2405.18065</a></span></li>
+    <li id="ref-dinov2"><span class="ref-id">[12]</span>M. Oquab et al. «DINOv2: Learning Robust Visual Features without Supervision». TMLR 2024.
+      <span class="links"><a href="https://arxiv.org/abs/2304.07193">arXiv:2304.07193</a><a href="https://github.com/facebookresearch/dinov2">github.com/facebookresearch/dinov2 (Apache-2.0)</a></span></li>
+    <li id="ref-dinov3"><span class="ref-id">[13]</span>O. Siméoni et al. «DINOv3». Aug 2025.
+      <span class="links"><a href="https://arxiv.org/abs/2508.10104">arXiv:2508.10104</a><a href="https://github.com/facebookresearch/dinov3">github.com/facebookresearch/dinov3</a></span></li>
+    <li id="ref-s4g"><span class="ref-id">[14]</span>F. Deuser, K. Habel, N. Oswald. «Sample4Geo: Hard Negative Sampling For Cross-View Geo-Localisation». ICCV 2023.
+      <span class="links"><a href="https://arxiv.org/abs/2303.11851">arXiv:2303.11851</a><a href="https://github.com/Skyy93/Sample4Geo">github.com/Skyy93/Sample4Geo</a></span></li>
+    <li id="ref-u1652"><span class="ref-id">[15]</span>Z. Zheng, Y. Wei, Y. Yang. «University-1652: A Multi-view Multi-source Benchmark for Drone-based Geo-localization». ACM MM 2020.
+      <span class="links"><a href="https://arxiv.org/abs/2002.12186">arXiv:2002.12186</a><a href="https://github.com/layumi/University1652-Baseline">github.com/layumi/University1652-Baseline</a></span></li>
+    <li id="ref-foundloc"><span class="ref-id">[16]</span>«FoundLoc: Vision-based Onboard Aerial Localization in the Wild» — источник замеров Nardo-Air (AnyLoc vs NetVLAD, Table I).
+      <span class="links"><a href="https://arxiv.org/abs/2310.16299">arXiv:2310.16299</a></span></li>
+    <li id="ref-aerovloc"><span class="ref-id">[17]</span>I. Moskalenko, A. Kornilova, G. Ferrer. «Visual place recognition for aerial imagery: A survey» (aero-vloc).
+      <span class="links"><a href="https://arxiv.org/abs/2406.00885">arXiv:2406.00885</a><a href="https://github.com/prime-slam/aero-vloc">github.com/prime-slam/aero-vloc</a></span></li>
+    <li id="ref-sfree"><span class="ref-id">[18]</span>«Satellite-Free Training for Drone-View Geo-Localization» — данные о влиянии высоты/близости к надиру на retrieval и cross-view gap.
+      <span class="links"><a href="https://arxiv.org/abs/2604.01581">arXiv:2604.01581</a></span></li>
+    <li id="ref-vpreval"><span class="ref-id">[19]</span>G. Berton. «VPR-methods-evaluation» — единый враппер 10+ VPR-моделей (инфраструктура стенда).
+      <span class="links"><a href="https://github.com/gmberton/VPR-methods-evaluation">github.com/gmberton/VPR-methods-evaluation</a><a href="https://github.com/gmberton/awesome-Visual-Place-Recognition">awesome-Visual-Place-Recognition</a></span></li>
+  </ul>
+</section>
+
+<!-- 10 -->
+<section id="caveats">
+  <div class="sec-eyebrow">10 · Caveats</div>
+  <h2>Оговорки</h2>
+  <ul>
+    <li><strong>Латентность</strong> MegaLoc/SALAD/BoQ на RTX 4090 — экстраполяция из конфигураций DINOv2 и сторонних оценок; точные цифры мерить на стенде.</li>
+    <li><strong>Память индекса</strong> посчитана для fp32; int8/PQ-квантование FAISS снижает ещё в 4–32×.</li>
+    <li><strong>Аэро-доказательства для BoQ</strong> тоньше, чем для AnyLoc/MegaLoc: прямых надир↔спутник замеров мало; риск худшего переноса городского ground-домена.</li>
+    <li><strong>Лицензии весов</strong> SALAD/BoQ отдельно не прописаны (наследуют лицензию репозитория); MIT-статус весов MegaLoc — из карточки HF. Для коммерции — проверка юристом, особенно GPL-фрагменты в коде MegaLoc.</li>
+    <li><strong>DINOv2:</strong> стандартные ViT-бэкбоны сегодня Apache-2.0, но исходный релиз 2023 был CC-BY-NC — убедиться, что используются актуальные Apache-веса.</li>
+    <li><strong>Nardo-Air-R</strong> (ротированный) показал деградацию AnyLoc при ортогональных ракурсах — при известном yaw снимается prerotate'ом, при неизвестном без аугментации риск реален.</li>
+    <li><strong>Sample4Geo/FSRA/DAC</strong> не отброшены навсегда: при переходе к дообучению на парах надир↔подложка Sample4Geo (contrastive + hard negatives) — хорошая база, но это уже не zero-shot путь.</li>
+  </ul>
+</section>
+
+</main>
+</div>
+
+<footer>
+  <div class="wrap">aero_geoloc · research track «VPR encoder, Этаж 1» · сформировано 27.07.2026 · связанные документы: RESEARCH_VPR.md, RETRIEVAL.md, ARCHITECTURE.md</div>
+</footer>
+
+</body>
+</html>

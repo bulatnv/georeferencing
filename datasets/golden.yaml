@@ -1,0 +1,124 @@
+# Золотой набор: ЗАМОРОЖЕННОЕ поведение оценки на test_images/.
+#
+# Не редактировать руками ради того, чтобы прогон «прошёл». Файл существует ровно
+# затем, чтобы изменение поведения нельзя было не заметить: если прогон разошёлся
+# с золотом — либо чинить код, либо осознанно перезаморозить (--freeze) с записью
+# причины в docs/JOURNAL.md.
+#
+# outcome — класс исхода (aero_geoloc/regression.py), именно он даёт вердикт.
+# error_m / true_cell_rank / n_inliers / ncc — справочные: по ним видно, ЧТО
+# изменилось, но сами по себе они шумят и сборку не рушат.
+note: 'База фазы 0 (2026-07-28): LightGlue, радиус 1.5 км, top-K 15. 11/11 верных мест, 0 ложных, медиана
+  8.8 м.'
+config:
+  cell_px: 350
+  correct_m: 50.0
+  manifest: datasets/test_images.yaml
+  manual_tol_frac: 0.25
+  matcher: lightglue
+  min_inliers: 6
+  offset_km: 0.0
+  overlap: 0.0
+  pca_dim: 1024
+  radius_km: 1.5
+  rotation_step: 45
+  sigma_m: 0.0
+  top_k: 15
+cases:
+  00049:
+    outcome: pose_correct_gated
+    error_m: 8.5
+    true_cell_rank: 2
+    n_inliers: 35
+    ncc: 0.0413
+    note: ГЕЙТ отверг ВЕРНУЮ (NCC 0.041<0.12)
+  Saratov:
+    outcome: accepted_correct
+    error_m: 1.2
+    true_cell_rank: 2
+    n_inliers: 29
+    ncc: 0.6089
+    note: ok
+  Saratov2:
+    outcome: accepted_correct
+    error_m: 53.2
+    true_cell_rank: 1
+    n_inliers: 16
+    ncc: 0.6705
+    note: ok
+  Saratov3:
+    outcome: accepted_correct
+    error_m: 58.1
+    true_cell_rank: 11
+    n_inliers: 22
+    ncc: 0.4181
+    note: ok
+  Saratov4:
+    outcome: accepted_correct
+    error_m: 37.3
+    true_cell_rank: 1
+    n_inliers: 80
+    ncc: 0.5014
+    note: ok
+  Ufa2:
+    outcome: refused_floor2
+    true_cell_rank: 1
+    note: Этаж 2 (клетка доставлена, поза не сошлась)
+  Ufa3:
+    outcome: refused_floor2
+    true_cell_rank: 2
+    note: Этаж 2 (клетка доставлена, поза не сошлась)
+  Ufa_sample1:
+    outcome: refused_floor2
+    true_cell_rank: 10
+    note: Этаж 2 (клетка доставлена, поза не сошлась)
+  Ufa_sample2:
+    outcome: accepted_correct
+    error_m: 118.9
+    true_cell_rank: 25
+    n_inliers: 163
+    ncc: 0.6625
+    note: ok
+  Ufa_sample3:
+    outcome: accepted_correct
+    error_m: 8.8
+    true_cell_rank: 3
+    n_inliers: 58
+    ncc: 0.694
+    note: ok
+  Ufa_sample4:
+    outcome: accepted_correct
+    error_m: 4.7
+    true_cell_rank: 27
+    n_inliers: 8
+    ncc: 0.6353
+    note: ok
+  Volgograd:
+    outcome: refused_floor2
+    true_cell_rank: 7
+    note: Этаж 2 (клетка доставлена, поза не сошлась)
+  Volgograd2:
+    outcome: accepted_correct
+    error_m: 2.3
+    true_cell_rank: 12
+    n_inliers: 48
+    ncc: 0.5397
+    note: ok
+  Volgograd3:
+    outcome: accepted_correct
+    error_m: 4.1
+    true_cell_rank: 15
+    n_inliers: 14
+    ncc: 0.6414
+    note: ok
+  Volgograd4:
+    outcome: accepted_correct
+    error_m: 45.7
+    true_cell_rank: 2
+    n_inliers: 20
+    ncc: 0.3236
+    note: ok
+  train_SB_0023:
+    outcome: refused_floor1
+    true_cell_rank: 705
+    note: Этаж 1 (верная клетка на 705, top-K=15)

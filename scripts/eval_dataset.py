@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import csv
 import dataclasses
+import json
 import math
 import statistics
 import sys
@@ -50,14 +51,15 @@ from aero_geoloc.basemap import ESRI_WORLD_IMAGERY, TileBasemap, TileCache  # no
 from aero_geoloc.dataset import EvalCase, load_dataset  # noqa: E402
 from aero_geoloc.geo import Georef, ground_mpp, haversine_m, zoom_for_mpp  # noqa: E402
 from aero_geoloc.localize import localize, normalize_gray, required_cell_overlap  # noqa: E402
-from aero_geoloc.matcher import LightGlueMatcher  # noqa: E402
+from aero_geoloc.matcher import create_matcher  # noqa: E402
 from aero_geoloc.quality import MIN_INLIERS_HARD, MIN_NCC  # noqa: E402
+from aero_geoloc.regression import CONFIG_KEYS  # noqa: E402
 from aero_geoloc.retrieval import MegaLocEncoder, TerrainIndex  # noqa: E402
 from aero_geoloc.types import Status  # noqa: E402
 from aero_geoloc.viz import save_localization_overlay  # noqa: E402
 
 FIELDS = [
-    "case", "truth_source", "trust_yaw", "gsd_m", "footprint_m", "cells", "rotations", "overlap",
+    "case", "matcher", "truth_source", "trust_yaw", "gsd_m", "footprint_m", "cells", "rotations", "overlap",
     "status", "accepted", "error_m", "tolerance_m", "correct", "blame",
     "true_cell_rank", "true_cell_m", "top1_to_truth_m", "uniqueness",
     "n_inliers", "photometric_ncc", "ellipse_m",
@@ -231,9 +233,20 @@ def _blame(result, case, rank, error_m, accepted, pose_found, tolerance_m, args)
             else f"гейт отверг неверную — верно ({gate})")
 
 
+def run_config(args) -> dict:
+    """Конфигурация прогона — то, без чего его результат нельзя ни с чем сравнивать.
+
+    Пишется рядом с CSV и замораживается вместе с золотом
+    (:mod:`aero_geoloc.regression`): прогон с другим радиусом или другим матчером
+    — это другой эксперимент, а по одной таблице чисел это не видно.
+    """
+    return {key: getattr(args, key) for key in CONFIG_KEYS if hasattr(args, key)}
+
+
 def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
     row = {f: "" for f in FIELDS}
-    row.update(case=case.name, truth_source=case.truth_source, trust_yaw=int(case.trust_yaw))
+    row.update(case=case.name, matcher=args.matcher,
+               truth_source=case.truth_source, trust_yaw=int(case.trust_yaw))
 
     z_fine = case.basemap_zoom(max_zoom=max_zoom)
     frame, camera = case.frame_at_mpp(ground_mpp(case.prior.lat, z_fine))
@@ -267,7 +280,7 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
 
     t0 = time.perf_counter()
     result = localize(
-        frame, camera, case.prior, basemap, index=index, matcher=LightGlueMatcher(),
+        frame, camera, case.prior, basemap, index=index, matcher=create_matcher(args.matcher),
         # prerotate=True всегда: флаг значит «матчер не инвариантен к повороту»
         # (LightGlue такой), а не «курс известен». При trust_yaw=False угол берётся
         # у совпавшей клетки индекса — без этого аугментация чинит только Этаж 1.
@@ -372,6 +385,11 @@ def report(rows: list[dict], excluded, args) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--manifest", default="datasets/test_images.yaml")
+    parser.add_argument("--matcher", default="lightglue",
+                        help="ядро матчинга: lightglue (база) / loftr / sift / akaze. "
+                             "Матчер сменный по инварианту архитектуры — здесь это "
+                             "ровно один флаг, и он же попадает в конфигурацию прогона, "
+                             "чтобы регрессия не сравнила разные ядра между собой")
     parser.add_argument("--cases", default="", help="через запятую: прогнать только эти кейсы")
     parser.add_argument("--prior", default="",
                         help="переопределить приор всех кейсов: 'lat,lon' — когда опорная "
@@ -484,6 +502,10 @@ def main() -> int:
         writer = csv.DictWriter(fh, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(rows)
+    # Конфигурация — рядом с таблицей и под тем же именем: таблица без неё не
+    # сравнима ни с чем (scripts/regress.py читает именно этот файл).
+    with open(out_csv.with_suffix(".config.json"), "w", encoding="utf-8") as fh:
+        json.dump(run_config(args), fh, ensure_ascii=False, indent=2, sort_keys=True)
 
     report(rows, dataset.excluded, args)
     print(f"\nсырьё → {out_csv}")
