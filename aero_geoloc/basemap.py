@@ -37,11 +37,13 @@ Esri World Imagery отдаёт тайлы в порядке ``.../tile/{z}/{y}/
 
 from __future__ import annotations
 
+import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Iterable, Protocol
 
 import cv2
 import numpy as np
@@ -62,6 +64,7 @@ __all__ = [
     "TileCache",
     "MissingTileError",
     "load_tile",
+    "prefetch_tiles",
     "fetch_basemap",
     "BasemapSource",
     "TileBasemap",
@@ -162,11 +165,76 @@ class TileCache:
 # --- загрузка одного тайла ---------------------------------------------------
 
 
+#: Сколько тайлов тянуть параллельно. Загрузка — главная стоимость сборки карты
+#: нового района (измерено: у одной карты 850 с из 897 ушло в сеть при ~46 с
+#: вычислений, см. docs/OPTIMIZATION_PLAN.md). Потолок скромный: провайдер тайлов
+#: — общий ресурс, и заваливать его сотней соединений невежливо и чревато баном.
+TILE_WORKERS = 8
+
+#: Повторы на тайл при сетевом сбое. Разовые обрывы у провайдера тайлов —
+#: обычное дело (ловили ``SSL: handshake timeout``, который ронял весь прогон),
+#: и ретрай на уровне тайла дешевле перезапуска сборки карты.
+TILE_RETRIES = 2
+
+
 def _http_get(url: str, *, timeout: float) -> bytes:
     """GET тайла через stdlib ``urllib`` — сетевой путь у тайлов тривиален."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (только http/https)
         return resp.read()
+
+
+def _http_get_retrying(url: str, *, timeout: float, retries: int = TILE_RETRIES) -> bytes:
+    """GET с повторами и нарастающей паузой — против разовых сетевых сбоев."""
+    last: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return _http_get(url, timeout=timeout)
+        except (urllib.error.URLError, OSError) as exc:
+            last = exc
+            if attempt < retries:
+                time.sleep(0.5 * (attempt + 1))
+    raise last  # type: ignore[misc]
+
+
+def prefetch_tiles(
+    provider: TileProvider,
+    zoom: int,
+    tiles: Iterable[tuple[int, int]],
+    *,
+    cache: TileCache,
+    timeout: float = 15.0,
+    workers: int = TILE_WORKERS,
+) -> int:
+    """Скачать в кэш недостающие тайлы **параллельно**. Возвращает число скачанных.
+
+    Зачем: сшивка окна тянет тайлы по одному, и на новом районе сборка карты почти
+    целиком состоит из ожидания сети. Здесь недостающие тайлы качаются пачкой в
+    пуле потоков (urllib отпускает GIL на время ввода-вывода), после чего сшивка
+    находит всё в кэше и только декодирует.
+
+    **Best-effort**: сбой отдельного тайла не поднимается наружу. Тайл, который не
+    удалось скачать, останется отсутствующим, и его повторно и уже строго запросит
+    :func:`load_tile` в сшивке — там же и родится понятная ошибка. Так поведение
+    при недоступной сети остаётся ровно прежним, а префетч влияет только на скорость.
+    """
+    missing = [(tx, ty) for tx, ty in tiles if cache.get(provider, zoom, tx, ty) is None]
+    if not missing:
+        return 0
+
+    def fetch(xy: tuple[int, int]) -> bool:
+        tx, ty = xy
+        try:
+            data = _http_get_retrying(provider.tile_url(zoom, tx, ty), timeout=timeout)
+        except Exception:  # noqa: BLE001 — см. best-effort в docstring
+            return False
+        cache.put(provider, zoom, tx, ty, data)
+        return True
+
+    if len(missing) == 1:  # ради одного тайла пул не заводим
+        return int(fetch(missing[0]))
+    with ThreadPoolExecutor(max_workers=min(workers, len(missing))) as pool:
+        return sum(pool.map(fetch, missing))
 
 
 def _decode_tile(data: bytes, provider: TileProvider) -> np.ndarray:
@@ -208,8 +276,9 @@ def load_tile(
                 f"тайл {provider.name} z{z}/{x}/{y} отсутствует в кэше, а сеть запрещена"
             )
         try:
-            data = _http_get(provider.tile_url(z, x, y), timeout=timeout)
-        except urllib.error.URLError as exc:  # сеть недоступна/сервер ответил ошибкой
+            # С повторами: разовый обрыв не должен ронять сборку целой карты.
+            data = _http_get_retrying(provider.tile_url(z, x, y), timeout=timeout)
+        except (urllib.error.URLError, OSError) as exc:  # сеть недоступна/сервер ответил ошибкой
             raise RuntimeError(
                 f"не удалось скачать тайл {provider.name} z{z}/{x}/{y}: {exc}"
             ) from exc
@@ -232,6 +301,7 @@ def fetch_basemap(
     cache: TileCache | None = None,
     allow_network: bool = True,
     timeout: float = 15.0,
+    workers: int = TILE_WORKERS,
 ) -> tuple[np.ndarray, Georef]:
     """Растр ``width × height`` вокруг ``(center_lon, center_lat)`` на зуме ``zoom``.
 
@@ -245,6 +315,8 @@ def fetch_basemap(
         width, height: размер растра в пикселях.
         provider: имя провайдера или объект :class:`TileProvider`.
         cache, allow_network, timeout: см. :func:`load_tile`.
+        workers: сколько недостающих тайлов качать параллельно (см.
+            :func:`prefetch_tiles`). Действует только при заданном ``cache``.
 
     Returns:
         Кортеж ``(image_bgr, georef)``: BGR-растр ``height × width × 3`` uint8 и
@@ -276,6 +348,19 @@ def fetch_basemap(
     # Диапазон тайлов, покрывающих окно [x0, x0+width) × [y0, y0+height).
     tx_min, tx_max = x0 // ts, (x0 + width - 1) // ts
     ty_min, ty_max = y0 // ts, (y0 + height - 1) // ts
+
+    # Недостающие тайлы окна качаем пачкой ДО сшивки: последовательная загрузка —
+    # главная стоимость нового района. Если кэша нет, складывать скачанное некуда,
+    # и префетч смысла не имеет — тогда работает прежний путь по одному тайлу.
+    if allow_network and cache is not None:
+        prefetch_tiles(
+            provider,
+            zoom,
+            ((tx, ty) for ty in range(ty_min, ty_max + 1) for tx in range(tx_min, tx_max + 1)),
+            cache=cache,
+            timeout=timeout,
+            workers=workers,
+        )
 
     # Мозаика из целых тайлов; её левый верхний угол — в мировых px (tx_min·ts, ty_min·ts).
     mosaic = np.empty(((ty_max - ty_min + 1) * ts, (tx_max - tx_min + 1) * ts, 3), dtype=np.uint8)
