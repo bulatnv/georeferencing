@@ -228,7 +228,10 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
     t0 = time.perf_counter()
     result = localize(
         frame, camera, case.prior, basemap, index=index, matcher=LightGlueMatcher(),
-        trust_yaw=case.trust_yaw, prerotate=case.trust_yaw, max_zoom=max_zoom,
+        # prerotate=True всегда: флаг значит «матчер не инвариантен к повороту»
+        # (LightGlue такой), а не «курс известен». При trust_yaw=False угол берётся
+        # у совпавшей клетки индекса — без этого аугментация чинит только Этаж 1.
+        trust_yaw=case.trust_yaw, prerotate=True, max_zoom=max_zoom,
         min_inliers=args.min_inliers, retrieval_top_k=args.top_k, ransac_threshold_px=6.0,
     )
     row["online_s"] = round(time.perf_counter() - t0, 1)
@@ -328,6 +331,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--manifest", default="datasets/test_images.yaml")
     parser.add_argument("--cases", default="", help="через запятую: прогнать только эти кейсы")
+    parser.add_argument("--prior", default="",
+                        help="переопределить приор всех кейсов: 'lat,lon' — когда опорная "
+                             "точка манифеста промахивается мимо места съёмки")
+    parser.add_argument("--sigma-m", type=float, default=0.0,
+                        help="переопределить σ приора, м (0 = как в манифесте)")
     parser.add_argument("--radius-km", type=float, default=2.0, help="радиус региона индексации")
     parser.add_argument("--cell-px", type=int, default=350, help="целевой размер клетки индекса, px")
     parser.add_argument("--overlap", type=float, default=0.5)
@@ -350,6 +358,20 @@ def main() -> int:
 
     dataset = load_dataset(args.manifest)
     cases = dataset.cases
+    if args.prior or args.sigma_m > 0:
+        lat, lon = ((float(v) for v in args.prior.split(",")) if args.prior
+                    else (None, None))
+        patched = []
+        for c in cases:
+            prior = dataclasses.replace(
+                c.prior,
+                **({"lat": lat, "lon": lon} if args.prior else {}),
+                **({"sigma_m": args.sigma_m} if args.sigma_m > 0 else {}),
+            )
+            patched.append(dataclasses.replace(c, prior=prior))
+        cases = patched
+        print(f"приор переопределён: {args.prior or 'центр как в манифесте'}"
+              f"{f', σ={args.sigma_m:.0f} м' if args.sigma_m > 0 else ''}")
     if args.cases:
         wanted = {c.strip() for c in args.cases.split(",") if c.strip()}
         cases = [c for c in cases if c.name in wanted]
