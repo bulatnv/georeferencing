@@ -152,10 +152,17 @@ def test_real_manifest_splits_usable_and_excluded():
     """Реальный набор: годные кейсы собраны, исключённые названы с причиной."""
     ds = load_dataset(_REAL_MANIFEST)
     names = {c.name for c in ds.cases}
-    # Кадры с EXIF дают истину сразу; снимки без метаданных — пока без неё.
     assert {"00049", "Ufa2", "Ufa3", "train_SB_0023"} <= names
     assert {"Saratov", "Volgograd"} <= names
-    assert {c.name for c in ds.with_truth} == {"00049", "Ufa2", "Ufa3", "train_SB_0023"}
+    # Истина приходит из двух разных источников, и это должно быть видно в кейсе:
+    # у кадров с метаданными — из EXIF, у остальных — ручная разметка по подложке.
+    # Проверяем именно СВОЙСТВО источника, а не список имён: список меняется по
+    # мере разметки, и тест на него ломался бы при каждом подтверждении владельца.
+    assert ds.by_name("00049").truth_source == "exif"
+    assert ds.by_name("Saratov").truth_source == "manual"
+    for case in ds.with_truth:
+        assert case.truth_source in ("exif", "manual")
+        assert -90.0 <= case.truth_lat <= 90.0 and -180.0 <= case.truth_lon <= 180.0
     # Непригодные исключены именно как данные, а не молчаливым пропуском.
     excluded = {e.name: e.reason for e in ds.excluded}
     assert "Ufa" in excluded and "горизонт" in excluded["Ufa"]
