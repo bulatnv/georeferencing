@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import csv
 import dataclasses
+import math
 import statistics
 import sys
 import time
@@ -48,7 +49,7 @@ import numpy as np  # noqa: E402
 from aero_geoloc.basemap import ESRI_WORLD_IMAGERY, TileBasemap, TileCache  # noqa: E402
 from aero_geoloc.dataset import EvalCase, load_dataset  # noqa: E402
 from aero_geoloc.geo import Georef, ground_mpp, haversine_m, zoom_for_mpp  # noqa: E402
-from aero_geoloc.localize import localize, normalize_gray  # noqa: E402
+from aero_geoloc.localize import localize, normalize_gray, required_cell_overlap  # noqa: E402
 from aero_geoloc.matcher import LightGlueMatcher  # noqa: E402
 from aero_geoloc.quality import MIN_INLIERS_HARD, MIN_NCC  # noqa: E402
 from aero_geoloc.retrieval import MegaLocEncoder, TerrainIndex  # noqa: E402
@@ -56,7 +57,7 @@ from aero_geoloc.types import Status  # noqa: E402
 from aero_geoloc.viz import save_localization_overlay  # noqa: E402
 
 FIELDS = [
-    "case", "truth_source", "trust_yaw", "gsd_m", "footprint_m", "cells", "rotations",
+    "case", "truth_source", "trust_yaw", "gsd_m", "footprint_m", "cells", "rotations", "overlap",
     "status", "accepted", "error_m", "tolerance_m", "correct", "blame",
     "true_cell_rank", "true_cell_m", "top1_to_truth_m", "uniqueness",
     "n_inliers", "photometric_ncc", "ellipse_m",
@@ -83,7 +84,20 @@ def _index_geometry(case: EvalCase, radius_m: float, cell_px_target: int, max_zo
     return region, cell_px, mpp_index, footprint_m
 
 
-def _build_or_load_index(case, region, cell_px, rotations, encoder, basemap, args):
+def _overlap_for(case: EvalCase, footprint_m: float, max_zoom: int, args) -> float:
+    """Перекрытие сетки: заданное явно либо выведенное из геометрии кадра.
+
+    Перекрытие связано с запасом окна точного уровня (см.
+    :func:`aero_geoloc.localize.required_cell_overlap`), а тот у мелких кадров
+    щедрее — им и сетка нужна реже.
+    """
+    if args.overlap > 0:
+        return args.overlap
+    mpp_fine = ground_mpp(case.prior.lat, case.basemap_zoom(max_zoom=max_zoom))
+    return required_cell_overlap(footprint_m, mpp_fine)
+
+
+def _build_or_load_index(case, region, cell_px, rotations, encoder, basemap, args, overlap):
     """Офлайн-карта: с диска, если есть, иначе построить и сохранить.
 
     Ключ — **геометрия**, а не имя кейса: снимки одной серии (Саратов ×4,
@@ -94,7 +108,7 @@ def _build_or_load_index(case, region, cell_px, rotations, encoder, basemap, arg
     # и прогон с другой плотностью сетки молча брал старую карту, показывая, что
     # изменение «не помогло». Тихое переиспользование хуже лишней пересборки.
     tag = (f"{region.center_lat:.4f}_{region.center_lon:.4f}_z{region.zoom}"
-           f"_r{int(args.radius_km * 1000)}_c{cell_px}_o{int(args.overlap * 100)}"
+           f"_r{int(args.radius_km * 1000)}_c{cell_px}_o{int(overlap * 100)}"
            f"_rot{len(rotations)}_pca{args.pca_dim}")
     path = Path(args.maps_dir) / f"eval_{tag}.npz"
     if path.exists() and not args.rebuild:
@@ -104,7 +118,7 @@ def _build_or_load_index(case, region, cell_px, rotations, encoder, basemap, arg
 
     t0 = time.perf_counter()
     index = TerrainIndex(encoder).build(
-        basemap, region, cell_size_px=cell_px, overlap=args.overlap, rotations_deg=rotations
+        basemap, region, cell_size_px=cell_px, overlap=overlap, rotations_deg=rotations
     )
     index.compress(args.pca_dim, whiten=False)
     offline_s = time.perf_counter() - t0
@@ -227,16 +241,18 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
     region, cell_px, mpp_index, footprint_m = _index_geometry(
         case, radius_m, args.cell_px, max_zoom
     )
+    overlap = _overlap_for(case, footprint_m, max_zoom, args)
     # Курс неизвестен → предповорот невозможен, и индекс приходится аугментировать
     # повёрнутыми копиями клеток (EVAL_PLAN, Б3). Это плата за незнание курса.
     rotations = (
         tuple(float(d) for d in range(0, 360, args.rotation_step))
         if not case.trust_yaw else (0.0,)
     )
-    row.update(gsd_m=round(case.gsd_m, 4), footprint_m=round(footprint_m), rotations=len(rotations))
+    row.update(gsd_m=round(case.gsd_m, 4), footprint_m=round(footprint_m),
+               rotations=len(rotations), overlap=round(overlap, 2))
 
     index, offline_s, _ = _build_or_load_index(
-        case, region, cell_px, rotations, encoder, basemap, args
+        case, region, cell_px, rotations, encoder, basemap, args, overlap
     )
     row.update(cells=len(index), offline_s=round(offline_s, 1))
 
@@ -362,16 +378,18 @@ def main() -> int:
                              "точка манифеста промахивается мимо места съёмки")
     parser.add_argument("--sigma-m", type=float, default=0.0,
                         help="переопределить σ приора, м (0 = как в манифесте)")
+    parser.add_argument("--offset-km", type=float, default=0.0,
+                        help="ЗАГРУБИТЬ приор: сдвинуть его от истины на столько км. "
+                             "GPS кадра остаётся только эталоном — так проверяется "
+                             "работа из грубой области, а не из точной точки")
+    parser.add_argument("--bearing", type=float, default=45.0, help="азимут сдвига приора, °")
     parser.add_argument("--radius-km", type=float, default=2.0, help="радиус региона индексации")
     parser.add_argument("--cell-px", type=int, default=350, help="целевой размер клетки индекса, px")
-    parser.add_argument("--overlap", type=float, default=0.75,
-                        help="перекрытие клеток индекса. Связано с окном точного "
-                             "уровня: оно ограничено 1.5x отпечатка, значит центр "
-                             "клетки должен быть ближе 0.25*footprint к истинному "
-                             "центру. Худший случай при перекрытии o равен "
-                             "0.707*(1-o)*footprint, отсюда o >= 0.65. Дефолт 0.5 это "
-                             "нарушал: Volgograd3 то находился, то нет в зависимости "
-                             "от того, куда легла сетка (с 0.75 — ошибка 0.8 м)")
+    parser.add_argument("--overlap", type=float, default=0.0,
+                        help="перекрытие клеток индекса; 0 = АВТО по отпечатку кадра "
+                             "(localize.required_cell_overlap). Крупным кадрам нужно "
+                             "~0.75, мелким хватает 0.5 — фиксированные 0.75 для всех "
+                             "давали вчетверо больше клеток там, где это не нужно")
     parser.add_argument("--pca-dim", type=int, default=1024)
     parser.add_argument("--top-k", type=int, default=15,
                         help="сколько клеток ретривала отдавать Этажу 2. Измерено на "
@@ -414,6 +432,25 @@ def main() -> int:
         cases = patched
         print(f"приор переопределён: {args.prior or 'центр как в манифесте'}"
               f"{f', σ={args.sigma_m:.0f} м' if args.sigma_m > 0 else ''}")
+
+    if args.offset_km > 0:
+        # Приор уезжает от ИСТИНЫ — это и есть «загрубление»: система должна найти
+        # место, зная лишь область. Без истины сдвигать не от чего.
+        shifted = []
+        for c in cases:
+            if not c.has_truth:
+                shifted.append(c)
+                continue
+            d = args.offset_km * 1000.0
+            dn = d * math.cos(math.radians(args.bearing))
+            de = d * math.sin(math.radians(args.bearing))
+            lat = c.truth_lat + dn / 111320.0
+            lon = c.truth_lon + de / (111320.0 * math.cos(math.radians(c.truth_lat)))
+            sigma = args.sigma_m if args.sigma_m > 0 else max(d * 1.5, c.prior.sigma_m)
+            shifted.append(dataclasses.replace(
+                c, prior=dataclasses.replace(c.prior, lat=lat, lon=lon, sigma_m=sigma)))
+        cases = shifted
+        print(f"приор ЗАГРУБЛЁН: сдвинут от истины на {args.offset_km} км @ {args.bearing:.0f}°")
     if args.cases:
         wanted = {c.strip() for c in args.cases.split(",") if c.strip()}
         cases = [c for c in cases if c.name in wanted]
