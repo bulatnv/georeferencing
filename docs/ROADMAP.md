@@ -6,7 +6,8 @@
 Треки, которые он сводит: [EVAL_PLAN.md](EVAL_PLAN.md) (оценка),
 [OPTIMIZATION_PLAN.md](OPTIMIZATION_PLAN.md) (скорость),
 [RESEARCH_CROSS_SEASON.md](RESEARCH_CROSS_SEASON.md) + обзоры
-[A](RESEARCH_A_CANDIDATES.md) / [B](RESEARCH_B_VERIFICATION.md) (кросс-сезон).
+[A](RESEARCH_A_CANDIDATES.md) / [B](RESEARCH_B_VERIFICATION.md) (кросс-сезон),
+измеренные результаты перебора ядер — [RESEARCH_A_RESULTS.md](RESEARCH_A_RESULTS.md).
 Снимок состояния — [STATUS.md](STATUS.md), как пришли — [JOURNAL.md](JOURNAL.md).
 
 ---
