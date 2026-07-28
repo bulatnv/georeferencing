@@ -672,6 +672,7 @@ def localize(
     # Точный уровень + цикл масштаба по каждому кандидату; берём лучший по инлайерам
     # (мультигипотезность ловит неоднозначность на самоподобной местности).
     best: LocalizationResult | None = None
+    best_candidate: tuple[float, float, float, float] | None = None
     for cand_lon, cand_lat, cand_coarse_mpp, cell_rotation_deg in candidates:
         # Чем выравнивать кадр под не-инвариантный матчер:
         #   курс известен  → общим −yaw приора (``prerotate_deg``);
@@ -682,9 +683,14 @@ def localize(
         cand_prerotate = (
             prerotate_deg if trust_yaw else (-cell_rotation_deg if prerotate else 0.0)
         )
+        # Перебор идёт БЕЗ субпиксельного ECC: он не влияет на выбор победителя
+        # (инлайеры отбирает RANSAC до него, ``PoseEstimate.with_transform`` их
+        # сохраняет), а стоит он 90% времени точного уровня — замерено 10.9 с на
+        # кадр 2783×1856 против 81 мс на матч. Считать его для кандидатов, которые
+        # всё равно проиграют, — чистая трата.
         r = _fine_with_scale_loop(
             image, camera, prior, cand_lon, cand_lat, cand_coarse_mpp, z_fine, basemap,
-            scale_iters=scale_iters, matcher=matcher, refine=refine, trust_yaw=trust_yaw,
+            scale_iters=scale_iters, matcher=matcher, refine=False, trust_yaw=trust_yaw,
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
             max_zoom=max_zoom, prerotate_deg=cand_prerotate, min_ncc=min_ncc,
@@ -693,11 +699,26 @@ def localize(
             best is None
             or int(r.diagnostics.get("n_inliers", 0)) > int(best.diagnostics.get("n_inliers", 0))
         ):
-            best = r
+            best, best_candidate = r, (cand_lon, cand_lat, cand_coarse_mpp, cand_prerotate)
     if best is None:
         return LocalizationResult.failed(
             "точный уровень не сошёлся ни на одном кандидате", **base_diagnostics
         )
+
+    # Победитель определён — теперь один-единственный ECC, на нём.
+    if refine:
+        cand_lon, cand_lat, cand_coarse_mpp, cand_prerotate = best_candidate
+        refined = _fine_with_scale_loop(
+            image, camera, prior, cand_lon, cand_lat, cand_coarse_mpp, z_fine, basemap,
+            scale_iters=scale_iters, matcher=matcher, refine=True, trust_yaw=trust_yaw,
+            rotation_tolerance_deg=rotation_tolerance_deg,
+            ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
+            max_zoom=max_zoom, prerotate_deg=cand_prerotate, min_ncc=min_ncc,
+        )
+        # Если уточнённый проход почему-то не сошёлся, остаётся неуточнённый:
+        # отказываться от найденного места из-за refinement нельзя.
+        if refined.is_localized:
+            best = refined
 
     # z_fine поставил цикл масштаба; сохраняем его поверх base_diagnostics.
     z_best = best.diagnostics.get("z_fine", z_fine)
