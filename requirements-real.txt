@@ -37,3 +37,10 @@
 -e .[real,learned,faiss]
 
 lightglue @ git+https://github.com/cvg/LightGlue.git
+
+# --- плотный матчер RoMa (ROADMAP фаза 3) -----------------------------------
+# ВНИМАНИЕ: ставить с --no-deps, иначе romatch подтянет opencv-python и сломает
+# opencv-contrib-python, на котором держится AKAZE:
+#     pip install --no-deps romatch einops timm loguru win32-setctime
+# Веса minima_roma.pth (445 МБ, Apache-2.0) скачиваются сами при первом запуске
+# (aero_geoloc/weights.py); замороженный DINOv2 ViT-L (1.13 ГБ) — через torch.hub.

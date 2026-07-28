@@ -24,12 +24,14 @@ from .geo import Georef, ground_mpp, haversine_m, zoom_for_mpp
 from .matcher import Correspondences, Matcher, SIFTMatcher
 from .pose import PoseEstimate, estimate_similarity, refine_ecc
 from .quality import MIN_NCC as quality_min_ncc
+from .quality import MIN_INLIERS_DENSE, MIN_INLIERS_HARD
 from .quality import PHOTOMETRIC_THRESHOLDS, aligned_ncc, aligned_structural, assess
 from .retrieval import TerrainIndex, should_localize
 from .types import LocalizationResult, Prior, Status
 
 __all__ = [
     "MAX_FINE_WINDOW_PX",
+    "hard_inlier_threshold",
     "fine_margin_m",
     "normalize_gray",
     "localize_against_reference",
@@ -135,6 +137,24 @@ MIN_NCC = quality_min_ncc
 #: плотных патч-токенов DINOv2: измеренно ровнее по шкале между кадрами (E1 в
 #: ``docs/JOURNAL.md``), но требует torch и весов.
 DEFAULT_PHOTOMETRIC = "ncc"
+
+
+def hard_inlier_threshold(matcher) -> int:
+    """Порог инлайеров в связке качества — **свойство ядра, а не сцены**.
+
+    У разреженного ядра инлайеры считаются от найденных ключевых точек, у
+    плотного — от фиксированного числа сэмплов из сплошного поля. Это разные
+    величины с разной шкалой, и один порог для обеих не имеет смысла:
+    измеренно, MINIMA-RoMa выдаёт сотни «инлайеров» на заведомо чужом месте
+    (см. :data:`quality.MIN_INLIERS_DENSE`).
+
+    Признак плотного ядра — наличие бюджета сэмплов (``max_samples``), а не имя
+    класса: так новое плотное ядро попадёт в правильную ветку само.
+    """
+    inner = getattr(matcher, "inner", None)
+    if inner is not None:
+        return hard_inlier_threshold(inner)
+    return MIN_INLIERS_DENSE if hasattr(matcher, "max_samples") else MIN_INLIERS_HARD
 
 
 def photometric_measure(kind: str):
@@ -367,7 +387,8 @@ def localize_against_reference(
     # Стадия 7: качество — ковариация центра, эллипс, статус LOCALIZED/LOW_CONFIDENCE.
     photometric = photometric_measure(photometric_kind)(query_gray, ref_gray, pose.transform)
     quality = assess(pose, corr, camera.principal_point(), mpp, photometric=photometric,
-                     photometric_kind=photometric_kind, min_photometric=min_photometric)
+                     photometric_kind=photometric_kind, min_photometric=min_photometric,
+                     min_inliers_hard=hard_inlier_threshold(matcher))
     diagnostics.update(quality.signals)
     diagnostics["confidence_calibrated"] = True  # эллипс выведен строго (см. quality.py)
 

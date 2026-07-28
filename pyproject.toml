@@ -38,6 +38,16 @@ learned = [
     "huggingface_hub>=0.20",
     "safetensors>=0.4",
 ]
+# Плотный матчер RoMa (фаза 3 ROADMAP), веса MINIMA. Ставится ТОЛЬКО с --no-deps:
+# штатный список romatch тянет opencv-python, а проекту нужен
+# opencv-contrib-python (AKAZE живёт в xfeatures2d) — две сборки OpenCV в одном
+# окружении молча ломают друг друга. Реально из зависимостей нужны только эти.
+dense = [
+    "romatch>=0.1.2",
+    "einops",
+    "timm",
+    "loguru",
+]
 # ANN-поиск Этажа 1 для больших территорий (TerrainIndex.use_faiss). Без него
 # работает точный numpy-kNN (по умолчанию); нужен лишь для FAISS/HNSW-масштаба.
 faiss = [

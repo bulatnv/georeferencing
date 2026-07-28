@@ -109,6 +109,31 @@ def test_missing_weights_without_network_name_the_url(tmp_path, monkeypatch):
         checkpoint_path("minima_loftr", allow_download=False)
 
 
+def test_dense_matcher_is_registered_like_any_other_core():
+    """Смена ядра на плотное остаётся одной строкой конфигурации.
+
+    Инвариант сменного ядра: всё выше матчера (pose, quality, георефа, стенд) не
+    должно знать, разреженный он или плотный.
+    """
+    from aero_geoloc.matcher import RoMaMatcher, create_matcher
+
+    m = create_matcher("minima_roma")
+    assert isinstance(m, RoMaMatcher)
+    assert m.checkpoint == "minima_roma"
+    assert create_matcher("roma").checkpoint is None      # штатные веса RoMa
+
+
+def test_roma_checkpoint_declares_what_is_and_is_not_inside():
+    """Замороженный DINOv2 в чекпоинт не входит — это надо знать до отладки.
+
+    Иначе «в файле всего 445 МБ» выглядит как повод заподозрить обрезанную
+    загрузку, а не как штатное устройство RoMa.
+    """
+    spec = CHECKPOINTS["minima_roma"]
+    assert "DINOv2" in spec.note
+    assert spec.licence == "Apache-2.0"
+
+
 def test_unknown_checkpoint_lists_the_known_ones():
     with pytest.raises(ValueError, match="доступны"):
         checkpoint_path("несуществующий")

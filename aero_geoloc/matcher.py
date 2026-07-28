@@ -34,6 +34,7 @@ __all__ = [
     "AKAZEMatcher",
     "LightGlueMatcher",
     "LoFTRMatcher",
+    "RoMaMatcher",
     "create_matcher",
     "lightglue_state_dict",
 ]
@@ -481,6 +482,94 @@ class ResizedMatcher:
                                conf=corr.conf)
 
 
+
+class RoMaMatcher(_LearnedMatcher):
+    """Плотный матчер RoMa (``romatch``) за интерфейсом :class:`Matcher` — фаза 3.
+
+    Отличие от всех предыдущих ядер принципиальное: **нет детектора**. RoMa
+    предсказывает плотное поле соответствий (warp) и попиксельную уверенность
+    (certainty), а разреженные пары получаются сэмплированием по этой
+    уверенности. Именно поэтому он и интересен на смене сезона: у разреженных
+    ядер рассыпается **повторяемость ключевых точек**, а здесь повторять нечего.
+
+    Побочный выход — та самая certainty, которую обзор направления B предлагал
+    как готовый сигнал качества (``docs/RESEARCH_B_VERIFICATION.md``): она
+    возвращается в ``Correspondences.conf`` и доходит до ``quality.assess``.
+
+    **Про масштаб.** RoMa приводит каждую картинку к своему квадрату (560 на
+    грубом уровне, 864 на уточнении) — то есть ресайзит их РАЗДЕЛЬНО и с разным
+    соотношением сторон. На первый взгляд это ровно та ловушка, что дважды
+    испортила замеры LoFTR, но здесь она не срабатывает: координаты возвращаются
+    через ``to_pixel_coordinates`` в ИСХОДНЫХ пикселях каждой картинки, и наружу
+    выходит правильная геометрия. Оборачивать этот матчер в
+    :class:`ResizedMatcher` не нужно и вредно — он ужимает вход сам.
+
+    Args:
+        checkpoint: имя весов из :data:`aero_geoloc.weights.CHECKPOINTS`
+            (по умолчанию ``minima_roma``). ``None`` — штатные веса RoMa, которые
+            ``romatch`` скачает сам.
+        max_samples: сколько пар сэмплировать из плотного поля.
+        min_conf: порог уверенности пары.
+        coarse_res, upsample_res: рабочие разрешения RoMa. Меньше — быстрее и
+            грубее; трогать осознанно, они же задают потолок точности.
+    """
+
+    _requires = "torch и romatch"
+
+    def __init__(self, *, checkpoint: str | None = "minima_roma", max_samples: int = 2048,
+                 min_conf: float = 0.5, coarse_res: int = 560, upsample_res: int = 864,
+                 device: str | None = None) -> None:
+        super().__init__(device=device)
+        self.checkpoint = checkpoint
+        self.max_samples = max_samples
+        self.min_conf = min_conf
+        self.coarse_res = coarse_res
+        self.upsample_res = upsample_res
+        self.loaded_tensors: dict[str, int] = {}
+        self._model = None
+
+    def _import(self) -> None:  # pragma: no cover - требует torch+romatch
+        from romatch import roma_outdoor
+
+        weights = None
+        if self.checkpoint:
+            weights = read_state_dict(checkpoint_path(self.checkpoint))
+        model = roma_outdoor(
+            device=self._device, weights=weights, coarse_res=self.coarse_res,
+            upsample_res=self.upsample_res,
+        )
+        if weights is not None:
+            # roma_outdoor грузит веса сам, но «загрузилось» проверяем мы: молчаливый
+            # откат на случайную инициализацию дал бы правдоподобный, но бессмысленный
+            # результат — та же ловушка, что и у подмен весов LightGlue.
+            self.loaded_tensors["roma"] = apply_state_dict(model, weights, label=self.checkpoint)
+        self._model = model
+
+    def match(self, query_gray: np.ndarray, ref_gray: np.ndarray) -> Correspondences:
+        _check_gray(query_gray, "query_gray")
+        _check_gray(ref_gray, "ref_gray")
+        self._ensure()
+        from PIL import Image  # pragma: no cover
+
+        with self._torch.inference_mode():  # pragma: no cover - требует torch
+            im_q = Image.fromarray(cv2.cvtColor(query_gray, cv2.COLOR_GRAY2RGB))
+            im_r = Image.fromarray(cv2.cvtColor(ref_gray, cv2.COLOR_GRAY2RGB))
+            warp, certainty = self._model.match(im_q, im_r, device=self._device)
+            matches, conf = self._model.sample(warp, certainty, num=self.max_samples)
+            if matches.shape[0] == 0:
+                return Correspondences.empty()
+            hq, wq = query_gray.shape[:2]
+            hr, wr = ref_gray.shape[:2]
+            pts_q, pts_r = self._model.to_pixel_coordinates(matches, hq, wq, hr, wr)
+        corr = Correspondences(
+            pts_q.detach().cpu().numpy().astype(np.float32),
+            pts_r.detach().cpu().numpy().astype(np.float32),
+            conf.detach().cpu().numpy().astype(np.float32),
+        )
+        keep = corr.conf >= self.min_conf
+        return corr.take(keep) if not keep.all() else corr
+
+
 #: Ядра по имени. Подмены весов — те же классы с другим чекпоинтом: архитектура
 #: не меняется, меняется обучение (``docs/ROADMAP.md``, фаза 2).
 _REGISTRY = {
@@ -491,6 +580,8 @@ _REGISTRY = {
     "gim_lightglue": lambda **kw: LightGlueMatcher(checkpoint="gim_lightglue", **kw),
     "minima_lightglue": lambda **kw: LightGlueMatcher(checkpoint="minima_lightglue", **kw),
     "minima_loftr": lambda **kw: LoFTRMatcher(checkpoint="minima_loftr", **kw),
+    "minima_roma": lambda **kw: RoMaMatcher(checkpoint="minima_roma", **kw),
+    "roma": lambda **kw: RoMaMatcher(checkpoint=None, **kw),
 }
 
 

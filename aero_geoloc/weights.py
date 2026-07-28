@@ -23,6 +23,7 @@
                         сама)
 ``minima_lightglue``    251/252 в LightGlue; SuperPoint остаётся штатным
 ``minima_loftr``        211/211 в ``kornia.feature.LoFTR`` — точь-в-точь
+``minima_roma``         603/603 в ``romatch.roma_outdoor`` — точь-в-точь
 ``gim_loftr``           **НЕ ложится**: 114/211, у GIM свой backbone
                         (``backbone.encode.*`` против ``backbone.*``) и 258
                         лишних тензоров. Нужен код сети из репозитория GIM;
@@ -88,6 +89,18 @@ CHECKPOINTS: dict[str, Checkpoint] = {
         source="huggingface.co/lsxi77777/MINIMA",
         note="Только LightGlue, дообученный на синтетических кросс-модальных парах; "
              "SuperPoint остаётся штатным.",
+    ),
+    "minima_roma": Checkpoint(
+        name="minima_roma",
+        url="https://huggingface.co/lsxi77777/MINIMA/resolve/main/minima_roma.pth",
+        filename="minima_roma.pth",
+        size_mb=445.6,
+        licence="Apache-2.0",
+        source="huggingface.co/lsxi77777/MINIMA",
+        note="Плотный матчер RoMa, дообученный на кросс-модальных парах. В чекпоинте "
+             "только обучаемая часть (encoder.cnn + decoder, 603 тензора); замороженный "
+             "DINOv2 ViT-L идёт отдельной загрузкой через romatch — так и задумано "
+             "авторами RoMa, и это же объясняет, почему файл «всего» 445 МБ.",
     ),
     "minima_loftr": Checkpoint(
         name="minima_loftr",
