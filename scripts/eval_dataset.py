@@ -90,8 +90,12 @@ def _build_or_load_index(case, region, cell_px, rotations, encoder, basemap, arg
     Волгоград ×4) делят приор и нарезку, и по имени карта пересобиралась бы на
     каждый кадр заново.
     """
+    # В ключ входит ВСЁ, что меняет содержимое карты. Перекрытие сперва забыли —
+    # и прогон с другой плотностью сетки молча брал старую карту, показывая, что
+    # изменение «не помогло». Тихое переиспользование хуже лишней пересборки.
     tag = (f"{region.center_lat:.4f}_{region.center_lon:.4f}_z{region.zoom}"
-           f"_r{int(args.radius_km * 1000)}_c{cell_px}_rot{len(rotations)}")
+           f"_r{int(args.radius_km * 1000)}_c{cell_px}_o{int(args.overlap * 100)}"
+           f"_rot{len(rotations)}_pca{args.pca_dim}")
     path = Path(args.maps_dir) / f"eval_{tag}.npz"
     if path.exists() and not args.rebuild:
         index = TerrainIndex.load(path, encoder)
@@ -360,7 +364,14 @@ def main() -> int:
                         help="переопределить σ приора, м (0 = как в манифесте)")
     parser.add_argument("--radius-km", type=float, default=2.0, help="радиус региона индексации")
     parser.add_argument("--cell-px", type=int, default=350, help="целевой размер клетки индекса, px")
-    parser.add_argument("--overlap", type=float, default=0.5)
+    parser.add_argument("--overlap", type=float, default=0.75,
+                        help="перекрытие клеток индекса. Связано с окном точного "
+                             "уровня: оно ограничено 1.5x отпечатка, значит центр "
+                             "клетки должен быть ближе 0.25*footprint к истинному "
+                             "центру. Худший случай при перекрытии o равен "
+                             "0.707*(1-o)*footprint, отсюда o >= 0.65. Дефолт 0.5 это "
+                             "нарушал: Volgograd3 то находился, то нет в зависимости "
+                             "от того, куда легла сетка (с 0.75 — ошибка 0.8 м)")
     parser.add_argument("--pca-dim", type=int, default=1024)
     parser.add_argument("--top-k", type=int, default=25)
     parser.add_argument("--min-inliers", type=int, default=6)
