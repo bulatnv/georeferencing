@@ -47,6 +47,11 @@ dense = [
     "einops",
     "timm",
     "loguru",
+    # RoMa v2 (проверен, результат отрицательный — см. JOURNAL; оставлен ради
+    # воспроизводимости). Ставится тем же --no-deps: его eval-extra тоже тянет
+    # opencv-python. Замороженный DINOv3 лежит ВНУТРИ чекпоинта, gated-доступ к
+    # HuggingFace не нужен; лицензия Meta на веса бэкбона при этом сохраняется.
+    "romav2 @ git+https://github.com/Parskatt/RoMaV2@v2.0.1",
 ]
 # ANN-поиск Этажа 1 для больших территорий (TerrainIndex.use_faiss). Без него
 # работает точный numpy-kNN (по умолчанию); нужен лишь для FAISS/HNSW-масштаба.

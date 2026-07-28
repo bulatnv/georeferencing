@@ -35,6 +35,7 @@ __all__ = [
     "LightGlueMatcher",
     "LoFTRMatcher",
     "RoMaMatcher",
+    "RoMaV2Matcher",
     "create_matcher",
     "lightglue_state_dict",
 ]
@@ -596,6 +597,82 @@ class RoMaMatcher(_LearnedMatcher):
         return corr.take(keep) if not keep.all() else corr
 
 
+
+class RoMaV2Matcher(_LearnedMatcher):
+    """RoMa v2 (``romav2``) на замороженном DINOv3 — фаза 3 из ``docs/ROADMAP.md``.
+
+    Отличие от :class:`RoMaMatcher` (v1) не только в качестве. У v1 уверенность
+    возвращённых пар оказалась **константой 1.0** — режим сэмплирования обрезает
+    всё выше порога, — и сигнал приходилось доставать из плотного поля отдельно.
+    У v2 порог по умолчанию не задан, и ``overlaps`` выходят живыми (медиана
+    0.97 при минимуме 0.20 на контрольной паре). Вдобавок v2 отдаёт **матрицу
+    точности 2×2 на каждую пару** — ту самую ковариацию ошибки, ради которой
+    направление и выбиралось.
+
+    **Про веса и лицензии.** ``romav2`` тянет один чекпоинт (~1.02 ГБ) из релиза
+    MIT-лицензированного репозитория, и замороженный **DINOv3 лежит внутри
+    него** — поэтому доступ к gated-репозиторию Meta на HuggingFace не нужен.
+    Юридически это не отменяет лицензию Meta на сами веса бэкбона: код RoMa v2
+    под MIT, а веса DINOv3 распространяются под собственной лицензией Meta.
+    Для проприетарного использования это проверять отдельно.
+
+    Args:
+        max_samples: сколько пар сэмплировать из плотного поля.
+        min_conf: порог ``overlap`` для пары.
+        compile: ``torch.compile`` модели. По умолчанию выключено: на Windows
+            компиляция либо падает, либо стоит минуты при первом вызове, а выигрыш
+            для наших размеров не измерен.
+    """
+
+    _requires = "torch и romav2"
+
+    def __init__(self, *, max_samples: int = 2048, min_conf: float = 0.5,
+                 compile: bool = False, device: str | None = None) -> None:
+        super().__init__(device=device)
+        self.max_samples = max_samples
+        self.min_conf = min_conf
+        self.compile = compile
+        self._model = None
+
+    def _import(self) -> None:  # pragma: no cover - требует torch+romav2
+        from romav2 import RoMaV2
+
+        self._model = RoMaV2(RoMaV2.Cfg(compile=self.compile)).to(self._device).eval()
+
+    def match(self, query_gray: np.ndarray, ref_gray: np.ndarray) -> Correspondences:
+        _check_gray(query_gray, "query_gray")
+        _check_gray(ref_gray, "ref_gray")
+        self._ensure()
+        from PIL import Image  # pragma: no cover
+
+        with self._torch.inference_mode():  # pragma: no cover - требует torch
+            im_q = Image.fromarray(cv2.cvtColor(query_gray, cv2.COLOR_GRAY2RGB))
+            im_r = Image.fromarray(cv2.cvtColor(ref_gray, cv2.COLOR_GRAY2RGB))
+            preds = self._model.match(im_q, im_r)
+            matches, overlaps, precision_ab, _ = self._model.sample(preds, self.max_samples)
+            if matches.shape[0] == 0:
+                return Correspondences.empty()
+            hq, wq = query_gray.shape[:2]
+            hr, wr = ref_gray.shape[:2]
+            pts_q, pts_r = self._model.to_pixel_coordinates(matches, hq, wq, hr, wr)
+            # След матрицы точности — насколько туго локализована пара. Больше =
+            # увереннее. Это pair-level свидетельство: наружу идёт сводка, потому
+            # что связке качества нужно одно число, а не 2048 матриц.
+            trace = precision_ab.diagonal(dim1=-2, dim2=-1).sum(-1)
+            evidence = {
+                "overlap_mean": float(overlaps.mean().item()),
+                "precision_median": float(trace.median().item()),
+            }
+        corr = Correspondences(
+            pts_q.detach().cpu().numpy().astype(np.float32),
+            pts_r.detach().cpu().numpy().astype(np.float32),
+            overlaps.detach().cpu().numpy().astype(np.float32).reshape(-1),
+            evidence=evidence,
+        )
+        keep = corr.conf >= self.min_conf
+        return corr.take(keep) if not keep.all() else corr
+
+
 #: Ядра по имени. Подмены весов — те же классы с другим чекпоинтом: архитектура
 #: не меняется, меняется обучение (``docs/ROADMAP.md``, фаза 2).
 _REGISTRY = {
@@ -607,6 +684,7 @@ _REGISTRY = {
     "minima_lightglue": lambda **kw: LightGlueMatcher(checkpoint="minima_lightglue", **kw),
     "minima_loftr": lambda **kw: LoFTRMatcher(checkpoint="minima_loftr", **kw),
     "minima_roma": lambda **kw: RoMaMatcher(checkpoint="minima_roma", **kw),
+    "romav2": RoMaV2Matcher,
     "roma": lambda **kw: RoMaMatcher(checkpoint=None, **kw),
 }
 
