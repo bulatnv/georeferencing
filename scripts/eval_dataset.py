@@ -63,7 +63,7 @@ FIELDS = [
     "status", "accepted", "error_m", "tolerance_m", "correct", "blame",
     "true_cell_rank", "true_cell_m", "top1_to_truth_m", "uniqueness",
     "n_inliers", "photometric_ncc", "ellipse_m",
-    "found_lat", "found_lon", "offline_s", "online_s", "reason",
+    "found_lat", "found_lon", "heading_deg", "offline_s", "online_s", "reason",
 ]
 
 
@@ -298,6 +298,10 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
         ellipse_m=(round(result.error_ellipse_m[0], 3) if result.error_ellipse_m else ""),
         found_lat=round(result.center_lat, 6) if result.center_lat is not None else "",
         found_lon=round(result.center_lon, 6) if result.center_lon is not None else "",
+        # Курс нужен не отчёту, а анализу сигналов (scripts/e1_signals.py): у
+        # кадров без EXIF это единственный способ построить оракульное
+        # выравнивание — из позы, подтверждённой владельцем.
+        heading_deg=round(result.heading_deg, 3) if result.heading_deg is not None else "",
         reason=diag.get("reason", ""),
     )
 

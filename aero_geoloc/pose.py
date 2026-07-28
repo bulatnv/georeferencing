@@ -30,6 +30,10 @@ __all__ = [
     "PoseEstimate",
     "estimate_similarity",
     "refine_ecc",
+    "fit_similarity",
+    "inlier_spread",
+    "bootstrap_center_scatter_px",
+    "UNIFORM_SPREAD",
 ]
 
 
@@ -310,3 +314,108 @@ def refine_ecc(
         return None
 
     return refined
+
+
+# --- геометрические сигналы согласия (E2 из docs/ROADMAP.md) -----------------
+#
+# Зачем они. Существующая связка качества опирается на фотометрию (NCC) и на
+# счётчик инлайеров. Первое измеренно рушится на смене сезона (0.53-0.69 летом
+# против 0.04-0.11 весной при ВЕРНОЙ позе), второе — просто число, ничего не
+# говорящее о том, КАК инлайеры лежат. Сигналы ниже смотрят только на геометрию
+# соответствий и потому от сезона не зависят в принципе: тридцать точек, сбитых
+# в один угол, подозрительны и летом, и весной.
+
+#: Ожидаемый ``inlier_spread`` при РАВНОМЕРНОМ разбросе точек по квадрату.
+#:
+#: Среднее попарное расстояние для равномерных точек в квадрате со стороной L
+#: равно ≈0.5214·L, диагональ равна √2·L, отсюда 0.5214/√2. Константа нужна как
+#: точка отсчёта: 0.37 — «разбросаны как попало по кадру», близко к нулю — «сбиты
+#: в кучу».
+UNIFORM_SPREAD = 0.3687
+
+
+def fit_similarity(pts_q: np.ndarray, pts_r: np.ndarray) -> SimilarityTransform | None:
+    """Подобие по МНК на ВСЕХ поданных парах, без робастности.
+
+    Отличие от :func:`estimate_similarity` принципиальное: там RANSAC отбирает
+    инлайеры, здесь модель считается по тому, что дали. Нужно для бутстрэпа, где
+    выборка уже состоит из инлайеров и повторный отбор исказил бы разброс.
+
+    Решение замкнутое: в комплексной записи подобие — это умножение на число,
+    поэтому МНК даёт ``c = Σ conj(z)·w / Σ |z|²``.
+    """
+    q = np.asarray(pts_q, dtype=float)
+    r = np.asarray(pts_r, dtype=float)
+    if q.shape != r.shape or q.ndim != 2 or q.shape[0] < 2:
+        return None
+    mq, mr = q.mean(axis=0), r.mean(axis=0)
+    z = (q[:, 0] - mq[0]) + 1j * (q[:, 1] - mq[1])
+    w = (r[:, 0] - mr[0]) + 1j * (r[:, 1] - mr[1])
+    denom = float(np.sum(np.abs(z) ** 2))
+    if denom <= 1e-12:
+        return None                       # все точки в одной позиции — модели нет
+    c = complex(np.sum(np.conj(z) * w) / denom)
+    a, b = float(c.real), float(c.imag)
+    if math.hypot(a, b) <= 0.0:
+        return None
+    tx = mr[0] - (a * mq[0] - b * mq[1])
+    ty = mr[1] - (b * mq[0] + a * mq[1])
+    return SimilarityTransform(np.array([[a, -b, tx], [b, a, ty]], dtype=float))
+
+
+def inlier_spread(pts: np.ndarray, diagonal_px: float) -> float:
+    """Насколько широко инлайеры разбросаны по кадру, в долях его диагонали.
+
+    Среднее попарное расстояние, делённое на диагональ кадра. Мера **не зависит
+    от числа точек** — этим она отличается от «покрытия сетки», которое при
+    восьми инлайерах не может превысить 8/16 и потому мерит счётчик, а не
+    геометрию.
+
+    Ориентир — :data:`UNIFORM_SPREAD` ≈ 0.37 (равномерный разброс по квадрату).
+    Значение около нуля означает, что вся поза держится на одном пятачке: такая
+    выборка задаёт масштаб и поворот крайне плохо, даже если инлайеров много.
+    """
+    p = np.asarray(pts, dtype=float)
+    if p.ndim != 2 or p.shape[0] < 2 or diagonal_px <= 0.0:
+        return 0.0
+    diff = p[:, None, :] - p[None, :, :]
+    distances = np.linalg.norm(diff, axis=-1)
+    n = p.shape[0]
+    mean_pairwise = float(distances.sum() / (n * (n - 1)))
+    return mean_pairwise / float(diagonal_px)
+
+
+def bootstrap_center_scatter_px(
+    corr: Correspondences, inlier_mask: np.ndarray, centre_px: tuple[float, float],
+    *, draws: int = 32, seed: int = 0
+) -> float:
+    """Насколько «шатается» центр кадра, если пересобрать позу по подвыборке инлайеров.
+
+    Инлайеры берутся с возвращением ``draws`` раз, по каждой выборке считается
+    подобие, и смотрится, куда уезжает центр кадра. Возвращается медианное
+    отклонение от медианной точки, в пикселях подложки.
+
+    Смысл сигнала — **самосогласованность** позы, и он не смотрит на яркости
+    вообще. Верная поза опирается на много независимых точек: выбрось любую
+    треть — центр не сдвинется. Ложная держится на случайном совпадении
+    нескольких точек, и её центр гуляет. Это ровно то свойство, которое NCC
+    измерить не может ни в какой сезон.
+    """
+    mask = np.asarray(inlier_mask, dtype=bool)
+    q, r = corr.pts_q[mask], corr.pts_r[mask]
+    n = int(q.shape[0])
+    if n < 4:
+        return float("inf")               # по трём точкам разброс не оценить
+    rng = np.random.default_rng(seed)
+    centre = np.asarray(centre_px, dtype=float)
+    centres = []
+    for _ in range(draws):
+        idx = rng.integers(0, n, n)
+        transform = fit_similarity(q[idx], r[idx])
+        if transform is not None:
+            centres.append(transform.apply(centre))
+    if len(centres) < draws // 2:
+        return float("inf")
+    stacked = np.asarray(centres, dtype=float)
+    median = np.median(stacked, axis=0)
+    return float(np.median(np.linalg.norm(stacked - median, axis=1)))

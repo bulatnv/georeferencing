@@ -58,6 +58,10 @@ class EvalCase:
         truth_source: ``exif`` | ``manual`` | ``none`` — откуда истина.
         trust_yaw: известен ли курс. У снимков без метаданных — ``False``,
             и тогда предповорот кадра невозможен (см. EVAL_PLAN, Б1/Б3).
+        regime: ``in_season`` | ``cross_season`` — совпадает ли сезон съёмки с
+            сезоном подложки. Свойство ДАННЫХ, а не алгоритма, поэтому живёт в
+            манифесте: без него анализ сигналов усредняет два разных режима в
+            одну кучу и получает бессмысленную середину.
         notes: заметка из манифеста (чем кейс интересен или труден).
     """
 
@@ -70,6 +74,7 @@ class EvalCase:
     truth_lon: float | None = None
     truth_source: str = "none"
     trust_yaw: bool = True
+    regime: str = "in_season"
     notes: str = ""
 
     @property
@@ -162,6 +167,7 @@ def _case_from_exif(entry: dict, path: Path, root: Path) -> EvalCase:
         truth_lon=shot.true_lon,
         truth_source="exif",
         trust_yaw=True,
+        regime=str(entry.get("regime", "in_season")).strip(),
         notes=str(entry.get("notes", "")).strip(),
     )
 
@@ -213,6 +219,7 @@ def _case_from_manifest(entry: dict, path: Path) -> EvalCase:
         truth_lon=truth_lon,
         truth_source=truth_source,
         trust_yaw=False,
+        regime=str(entry.get("regime", "in_season")).strip(),
         notes=str(entry.get("notes", "")).strip(),
     )
 
