@@ -42,6 +42,41 @@ cases:
       Съёмка 2022-04-30 в 19:25 — длинные тени вдобавок к кросс-сезону.
       Ожидание хуже, чем у Ufa2.
 
+  # --- Уфа, ЛЕТНИЕ снимки: контроль к апрельским Ufa2/Ufa3 -------------------
+  # GSD и координаты заданы владельцем в Ufa_geolocation.txt. Ufa_sample4 снят в
+  # ТОМ ЖЕ месте, что Ufa2 (координаты совпадают), но летом — это контролируемая
+  # пара «одно место, разные сезоны», которой проверяется, сезон ли виноват в
+  # провале апрельских кадров.
+  - name: Ufa_sample1
+    path: Ufa/Ufa_sample1.png
+    truth: {lat: 54.713978, lon: 56.007399}
+    gsd_m: 0.60
+    gsd_source: "Ufa_geolocation.txt: ~60 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 54.713978, lon: 56.007399, sigma_m: 1500.0}
+  - name: Ufa_sample2
+    path: Ufa/Ufa_sample2.png
+    truth: {lat: 54.708611, lon: 55.969114}
+    gsd_m: 0.60
+    gsd_source: "Ufa_geolocation.txt: ~60 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 54.708611, lon: 55.969114, sigma_m: 1500.0}
+  - name: Ufa_sample3
+    path: Ufa/Ufa_sample3.png
+    truth: {lat: 54.810466, lon: 56.055609}
+    gsd_m: 0.20
+    gsd_source: "Ufa_geolocation.txt: ~20 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 54.810466, lon: 56.055609, sigma_m: 1500.0}
+  - name: Ufa_sample4
+    path: Ufa/Ufa_sample4.png
+    # ТО ЖЕ МЕСТО, что Ufa2 (54.810675, 56.087295), но летняя съёмка.
+    truth: {lat: 54.810675, lon: 56.087295}
+    gsd_m: 0.20
+    gsd_source: "Ufa_geolocation.txt: ~20 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 54.810675, lon: 56.087295, sigma_m: 1500.0}
+
   # --- трудный: 52 м AGL, кадр в 8 раз детальнее подложки --------------------
   - name: train_SB_0023
     path: train_SB_0023.JPG
