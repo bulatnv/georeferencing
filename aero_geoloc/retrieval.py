@@ -59,7 +59,13 @@ __all__ = [
 
 @runtime_checkable
 class Encoder(Protocol):
-    """Сменное ядро retrieval-этажа: grayscale-изображение → нормированный вектор."""
+    """Сменное ядро retrieval-этажа: grayscale-изображение → нормированный вектор.
+
+    Метод :meth:`encode_batch` **необязателен**: он есть у тяжёлых ядер, где пачка
+    заметно дешевле поштучной обработки, и его наличие проверяется через
+    ``hasattr``. Обвязка обязана работать и без него — тогда клетки кодируются по
+    одной. Это оптимизация, а не расширение контракта.
+    """
 
     @property
     def dim(self) -> int:
@@ -69,6 +75,31 @@ class Encoder(Protocol):
     def encode(self, gray: np.ndarray) -> np.ndarray:
         """Закодировать изображение в L2-нормированный вектор ``(dim,)`` float32."""
         ...
+
+
+def _l2_rows(matrix: np.ndarray) -> np.ndarray:
+    """Построчная L2-нормировка; нулевые строки остаются нулевыми."""
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    return np.divide(matrix, norms, out=np.zeros_like(matrix), where=norms > 0.0)
+
+
+def _gray_batch_to_tensor(grays, image_size: int, torch, device):
+    """Пачка серых кадров → тензор ``(N, 3, S, S)`` с ImageNet-нормализацией.
+
+    Половина стоимости кодирования приходилась не на GPU, а на подготовку входа
+    (см. ``docs/OPTIMIZATION_PLAN.md``): каждый кадр разворачивался в float32 RGB
+    ещё на CPU и в таком виде уезжал на устройство. Здесь на устройство едет
+    **uint8 в один канал** — в 12 раз меньше данных, — а разворот в три канала
+    делается broadcast-ом уже на GPU и без копии.
+    """
+    stacked = np.stack([
+        cv2.resize(g, (image_size, image_size), interpolation=cv2.INTER_AREA) for g in grays
+    ])
+    tensor = torch.from_numpy(stacked).to(device)
+    tensor = tensor.to(torch.float32).div_(255.0).unsqueeze(1).expand(-1, 3, -1, -1)
+    mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+    return (tensor - mean) / std
 
 
 class AveragePoolEncoder:
@@ -156,20 +187,22 @@ class DinoV2Encoder:
         self._model = self._model.to(self._device).eval()
 
     def encode(self, gray: np.ndarray) -> np.ndarray:
-        if gray.ndim != 2:
-            raise ValueError(f"энкодер ждёт grayscale, получено {gray.ndim}D {gray.shape}")
+        return self.encode_batch([gray])[0]
+
+    def encode_batch(self, grays) -> np.ndarray:
+        """Закодировать пачку кадров: ``(N, dim)`` L2-нормированных строк."""
+        grays = list(grays)
+        for gray in grays:
+            if gray.ndim != 2:
+                raise ValueError(f"энкодер ждёт grayscale, получено {gray.ndim}D {gray.shape}")
+        if not grays:
+            return np.empty((0, self.dim), np.float32)
         self._ensure_model()
         torch = self._torch
-        small = cv2.resize(gray, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
-        rgb = np.repeat(small[:, :, None], 3, axis=2).astype(np.float32) / 255.0
-        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-        rgb = (rgb - mean) / std
-        tensor = torch.from_numpy(rgb.transpose(2, 0, 1)[None]).to(self._device)
+        tensor = _gray_batch_to_tensor(grays, self.image_size, torch, self._device)
         with torch.no_grad():
-            feat = self._model(tensor).cpu().numpy().ravel().astype(np.float32)
-        norm = float(np.linalg.norm(feat))
-        return feat / norm if norm > 0.0 else feat
+            feats = self._model(tensor).cpu().numpy().astype(np.float32)
+        return _l2_rows(feats.reshape(len(grays), -1))
 
 
 class MegaLocEncoder:
@@ -233,20 +266,22 @@ class MegaLocEncoder:
         self._model = self._model.to(self._device).eval()
 
     def encode(self, gray: np.ndarray) -> np.ndarray:
-        if gray.ndim != 2:
-            raise ValueError(f"энкодер ждёт grayscale, получено {gray.ndim}D {gray.shape}")
+        return self.encode_batch([gray])[0]
+
+    def encode_batch(self, grays) -> np.ndarray:
+        """Закодировать пачку кадров: ``(N, dim)`` L2-нормированных строк."""
+        grays = list(grays)
+        for gray in grays:
+            if gray.ndim != 2:
+                raise ValueError(f"энкодер ждёт grayscale, получено {gray.ndim}D {gray.shape}")
+        if not grays:
+            return np.empty((0, self.dim), np.float32)
         self._ensure_model()
         torch = self._torch
-        small = cv2.resize(gray, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
-        rgb = np.repeat(small[:, :, None], 3, axis=2).astype(np.float32) / 255.0
-        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-        rgb = (rgb - mean) / std
-        tensor = torch.from_numpy(rgb.transpose(2, 0, 1)[None]).to(self._device)
+        tensor = _gray_batch_to_tensor(grays, self.image_size, torch, self._device)
         with torch.no_grad():
-            feat = self._model(tensor).cpu().numpy().ravel().astype(np.float32)
-        norm = float(np.linalg.norm(feat))
-        return feat / norm if norm > 0.0 else feat
+            feats = self._model(tensor).cpu().numpy().astype(np.float32)
+        return _l2_rows(feats.reshape(len(grays), -1))
 
 
 @dataclass(frozen=True)
@@ -558,6 +593,7 @@ class TerrainIndex:
         overlap: float = 0.5,
         rotations_deg: Sequence[float] = (0.0,),
         zoom: int | None = None,
+        batch_size: int = 8,
     ) -> TerrainIndex:
         """Нарезать ``region`` на перекрывающиеся клетки и проиндексировать их.
 
@@ -574,12 +610,38 @@ class TerrainIndex:
             overlap: доля перекрытия соседних клеток в ``[0, 1)``.
             rotations_deg: углы ротационной аугментации.
             zoom: зум клеток; по умолчанию — зум ``region``.
+            batch_size: сколько клеток кодировать за раз, если энкодер умеет
+                :meth:`Encoder.encode_batch`. Поштучный вызов оставляет GPU
+                простаивать; замер на MegaLoc — 10.0 мс/вектор при батче 1 против
+                5.1 мс при батче 8 (``docs/OPTIMIZATION_PLAN.md``). Больше 8 брать
+                смысла мало: батч 32 даёт лишь +15% скорости ценой 2.4× памяти.
         """
         if not 0.0 <= overlap < 1.0:
             raise ValueError(f"overlap должен лежать в [0, 1), получено {overlap}")
+        if batch_size < 1:
+            raise ValueError(f"batch_size должен быть >= 1, получено {batch_size}")
         zoom = int(region.zoom if zoom is None else zoom)
         step = max(1, int(round(cell_size_px * (1.0 - overlap))))
         half = cell_size_px / 2.0
+
+        # Батч копится только если ядро его поддерживает: наличие encode_batch —
+        # необязательная часть протокола (см. :class:`Encoder`), и стенд-энкодер
+        # без него обязан работать по-прежнему.
+        batched = batch_size > 1 and hasattr(self.encoder, "encode_batch")
+        pending_images: list[np.ndarray] = []
+        pending_cells: list[Cell] = []
+
+        def flush() -> None:
+            if not pending_images:
+                return
+            vectors = self.encoder.encode_batch(pending_images)
+            self._vectors.extend(np.asarray(v, dtype=np.float32) for v in vectors)
+            self._cells.extend(pending_cells)
+            self._matrix = None
+            self._reduced = None
+            self._ann = None
+            pending_images.clear()
+            pending_cells.clear()
 
         centers_x = np.arange(half, region.width - half + 1e-6, step)
         centers_y = np.arange(half, region.height - half + 1e-6, step)
@@ -590,16 +652,21 @@ class TerrainIndex:
                 if cell_gray.ndim == 3:
                     cell_gray = cv2.cvtColor(cell_gray, cv2.COLOR_BGR2GRAY)
                 for rot in rotations_deg:
-                    self.add(
-                        cell_gray,
-                        Cell(
-                            center_lon=cell_georef.center_lon,
-                            center_lat=cell_georef.center_lat,
-                            zoom=zoom,
-                            size_px=cell_size_px,
-                            rotation_deg=float(rot),
-                        ),
+                    cell = Cell(
+                        center_lon=cell_georef.center_lon,
+                        center_lat=cell_georef.center_lat,
+                        zoom=zoom,
+                        size_px=cell_size_px,
+                        rotation_deg=float(rot),
                     )
+                    if batched:
+                        pending_images.append(_rotate(cell_gray, cell.rotation_deg))
+                        pending_cells.append(cell)
+                        if len(pending_images) >= batch_size:
+                            flush()
+                    else:
+                        self.add(cell_gray, cell)
+        flush()
         return self
 
     # --- сжатие и движок поиска (масштаб на большие территории) --------------
