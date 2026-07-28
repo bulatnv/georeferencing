@@ -84,8 +84,14 @@ def _index_geometry(case: EvalCase, radius_m: float, cell_px_target: int, max_zo
 
 
 def _build_or_load_index(case, region, cell_px, rotations, encoder, basemap, args):
-    """Офлайн-карта кейса: с диска, если есть, иначе построить и сохранить."""
-    tag = f"{case.name}_r{int(args.radius_km * 1000)}_rot{len(rotations)}"
+    """Офлайн-карта: с диска, если есть, иначе построить и сохранить.
+
+    Ключ — **геометрия**, а не имя кейса: снимки одной серии (Саратов ×4,
+    Волгоград ×4) делят приор и нарезку, и по имени карта пересобиралась бы на
+    каждый кадр заново.
+    """
+    tag = (f"{region.center_lat:.4f}_{region.center_lon:.4f}_z{region.zoom}"
+           f"_r{int(args.radius_km * 1000)}_c{cell_px}_rot{len(rotations)}")
     path = Path(args.maps_dir) / f"eval_{tag}.npz"
     if path.exists() and not args.rebuild:
         index = TerrainIndex.load(path, encoder)
@@ -165,7 +171,14 @@ def _blame(result, case, rank, error_m, accepted, pose_found, args) -> str:
             return f"Этаж 1 (верная клетка на {rank}, top-K={args.top_k})"
         if rank is not None:
             return "Этаж 2 (клетка доставлена, поза не сошлась)"
-        return "поза не найдена (истины нет)"
+        # Истины нет, ранг не посчитать — но причина отказа всё равно называет
+        # виновного: если точный уровень перебрал кандидатов, Этаж 1 отработал.
+        reason = str(diag.get("reason", ""))
+        if "точный уровень не сошёлся" in reason:
+            return "Этаж 2 (кандидаты были, поза не сошлась)"
+        if "retrieval" in reason or "уникальност" in reason:
+            return f"Этаж 1 ({reason})"
+        return f"поза не найдена ({reason or 'причина не записана'})"
 
     right_place = error_m is not None and error_m <= args.correct_m
     if accepted:

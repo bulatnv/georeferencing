@@ -469,12 +469,20 @@ def _retrieval_candidates(
     trust_yaw: bool,
     min_uniqueness: float,
     gate_sigma: float,
-) -> tuple[list[tuple[float, float, float]], dict]:
+) -> tuple[list[tuple[float, float, float, float]], dict]:
     """Кандидаты грубого уровня из retrieval-индекса (Этаж 1).
 
-    Возвращает список ``(lon, lat, coarse_mpp)`` внутри диска приора и диагностику.
-    Пустой список — либо низкая уникальность (самоподобие), либо все клетки вне
-    диска; причина в диагностике под ключом ``retrieval_reason``.
+    Возвращает список ``(lon, lat, coarse_mpp, cell_rotation_deg)`` внутри диска
+    приора и диагностику. Пустой список — либо низкая уникальность (самоподобие),
+    либо все клетки вне диска; причина в диагностике под ключом ``retrieval_reason``.
+
+    **Курс из ротации клетки.** Когда yaw неизвестен (``trust_yaw=False``), индекс
+    строят с ротационной аугментацией, и совпавшая клетка несёт угол, под которым
+    она совпала: ``rotate(клетка, R) ≈ кадр`` ⟹ курс кадра ≈ ``R``, а выровнять
+    кадр к северной подложке можно предповоротом на ``−R``. Угол отдаётся наружу
+    (решение о предповороте принимает :func:`localize`): без него аугментация
+    чинила бы только Этаж 1, а Этаж 2 всё равно получал бы кадр под произвольным
+    углом — и не-инвариантный к повороту матчер (LightGlue/LoFTR) на нём падает.
     """
     prerotate = -prior.yaw_deg if trust_yaw else 0.0
     result = index.query(image_gray, k=top_k, prerotate_deg=prerotate)
@@ -493,7 +501,9 @@ def _retrieval_candidates(
             # coarse_mpp кандидата задаёт запас точного окна: 6·coarse_mpp = полклетки
             # (истинный центр может лежать где угодно в клетке retrieval).
             cell_footprint_m = cell.size_px * ground_mpp(cell.center_lat, cell.zoom)
-            candidates.append((cell.center_lon, cell.center_lat, cell_footprint_m / 12.0))
+            candidates.append(
+                (cell.center_lon, cell.center_lat, cell_footprint_m / 12.0, cell.rotation_deg)
+            )
     if not candidates:
         diag["retrieval_reason"] = "все клетки вне диска приора"
     return candidates, diag
@@ -648,18 +658,27 @@ def localize(
         base_diagnostics["coarse_offset_m"] = coarse_offset_m
         if coarse_offset_m > gate_sigma * prior.sigma_m:  # инвариант 3
             return LocalizationResult.failed("кандидат вне диска приора", **base_diagnostics)
-        candidates = [(cand_lon, cand_lat, coarse_mpp)]
+        candidates = [(cand_lon, cand_lat, coarse_mpp, 0.0)]
 
     # Точный уровень + цикл масштаба по каждому кандидату; берём лучший по инлайерам
     # (мультигипотезность ловит неоднозначность на самоподобной местности).
     best: LocalizationResult | None = None
-    for cand_lon, cand_lat, cand_coarse_mpp in candidates:
+    for cand_lon, cand_lat, cand_coarse_mpp, cell_rotation_deg in candidates:
+        # Чем выравнивать кадр под не-инвариантный матчер:
+        #   курс известен  → общим −yaw приора (``prerotate_deg``);
+        #   курс неизвестен → углом совпавшей клетки индекса (−R), иначе Этаж 2
+        #     получит кадр под произвольным поворотом и провалится.
+        # Флаг ``prerotate`` остаётся хозяином решения: для SIFT (инвариантен)
+        # предповорот не нужен и не делается.
+        cand_prerotate = (
+            prerotate_deg if trust_yaw else (-cell_rotation_deg if prerotate else 0.0)
+        )
         r = _fine_with_scale_loop(
             image, camera, prior, cand_lon, cand_lat, cand_coarse_mpp, z_fine, basemap,
             scale_iters=scale_iters, matcher=matcher, refine=refine, trust_yaw=trust_yaw,
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
-            max_zoom=max_zoom, prerotate_deg=prerotate_deg, min_ncc=min_ncc,
+            max_zoom=max_zoom, prerotate_deg=cand_prerotate, min_ncc=min_ncc,
         )
         if r.is_localized and (
             best is None

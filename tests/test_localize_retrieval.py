@@ -91,6 +91,65 @@ def test_localize_index_refuses_on_homogeneous_terrain(camera):
     assert not r.is_localized
 
 
+def test_retrieval_candidates_carry_cell_rotation(scene, camera):
+    """Кандидат несёт угол клетки — из него восстанавливается неизвестный курс.
+
+    При неизвестном yaw индекс аугментируют повёрнутыми копиями; совпавшая клетка
+    знает свой угол ``R`` (``rotate(клетка, R) ≈ кадр``), и это единственная оценка
+    курса, которая есть у системы. Без неё Этаж 2 получил бы кадр под произвольным
+    поворотом (см. `_retrieval_candidates`).
+    """
+    from aero_geoloc.localize import _retrieval_candidates, normalize_gray
+
+    rotations = (0.0, 90.0, 180.0, 270.0)
+    idx = TerrainIndex(AveragePoolEncoder(24)).build(
+        SceneBasemap(scene), scene.georef, cell_size_px=CELL, overlap=0.5, rotations_deg=rotations
+    )
+    s = generate_sample(scene, camera, SampleSpec(yaw_deg=90.0), prior_sigma_m=400.0,
+                        reference_size=1024)
+    candidates, diag = _retrieval_candidates(
+        idx, normalize_gray(s.query), s.prior, top_k=8, trust_yaw=False,
+        min_uniqueness=0.0, gate_sigma=3.0,
+    )
+    assert candidates, diag
+    assert all(len(c) == 4 for c in candidates)  # (lon, lat, coarse_mpp, rotation)
+    assert {c[3] for c in candidates} <= set(rotations)
+
+
+def test_prerotate_flag_governs_use_of_cell_rotation(scene, camera):
+    """Флаг ``prerotate`` остаётся хозяином: для инвариантного матчера поворота нет.
+
+    Иначе изменение ради не-инвариантных ядер втихую меняло бы путь SIFT.
+    """
+    bm = SceneBasemap(scene)
+    idx = TerrainIndex(AveragePoolEncoder(24)).build(
+        bm, scene.georef, cell_size_px=CELL, overlap=0.5, rotations_deg=(0.0, 90.0)
+    )
+    s = generate_sample(scene, camera, SampleSpec(yaw_deg=90.0), prior_sigma_m=400.0,
+                        reference_size=1024)
+    seen: list[float] = []
+    import importlib
+
+    # Не `import aero_geoloc.localize as loc`: в пакете имя `localize`
+    # переэкспортировано как ФУНКЦИЯ и затеняет одноимённый модуль.
+    loc = importlib.import_module("aero_geoloc.localize")
+    original = loc._fine_with_scale_loop
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("prerotate_deg"))
+        return original(*args, **kwargs)
+
+    loc._fine_with_scale_loop = spy
+    try:
+        loc.localize(s.query, camera, s.prior, bm, index=idx, trust_yaw=False, prerotate=False)
+        assert set(seen) == {0.0}  # инвариантный матчер — кадр не крутим
+        seen.clear()
+        loc.localize(s.query, camera, s.prior, bm, index=idx, trust_yaw=False, prerotate=True)
+        assert seen and set(seen) <= {0.0, -90.0}  # углы взяты у клеток (−R)
+    finally:
+        loc._fine_with_scale_loop = original
+
+
 def test_localize_window_path_unchanged_without_index(scene, camera):
     """Без индекса — прежний путь по окну (регресс поведения фазы 2)."""
     bm = SceneBasemap(scene)
