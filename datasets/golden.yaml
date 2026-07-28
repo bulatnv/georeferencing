@@ -8,8 +8,8 @@
 # outcome — класс исхода (aero_geoloc/regression.py), именно он даёт вердикт.
 # error_m / true_cell_rank / n_inliers / ncc — справочные: по ним видно, ЧТО
 # изменилось, но сами по себе они шумят и сборку не рушат.
-note: 'E3 (2026-07-29): в связке качества NCC заменена косинусом плотных DINOv2-фич, порог 0.35. 11/11
-  верных мест, 0 ложных, гейт больше не режет верных (00049 принят).'
+note: 'База E3 + запись max_fine_window_px в конфигурацию (2026-07-29). Поведение не менялось: 16/16 совпало
+  с прежним золотом, перезаморозка только ради нового ключа конфигурации.'
 config:
   cell_px: 350
   correct_m: 50.0
@@ -17,6 +17,7 @@ config:
   manual_tol_frac: 0.25
   matcher: lightglue
   matcher_max_side: 0
+  max_fine_window_px: 4000
   min_inliers: 6
   min_photometric: null
   offset_km: 0.0
@@ -123,5 +124,5 @@ cases:
     note: ok
   train_SB_0023:
     outcome: refused_floor1
-    true_cell_rank: 695
-    note: Этаж 1 (верная клетка на 695, top-K=15)
+    true_cell_rank: 704
+    note: Этаж 1 (верная клетка на 704, top-K=15)

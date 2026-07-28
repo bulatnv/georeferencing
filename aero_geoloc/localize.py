@@ -30,6 +30,7 @@ from .types import LocalizationResult, Prior, Status
 
 __all__ = [
     "MAX_FINE_WINDOW_PX",
+    "fine_margin_m",
     "normalize_gray",
     "localize_against_reference",
     "localize",
@@ -43,37 +44,83 @@ __all__ = [
 MAX_FINE_WINDOW_PX = 4000
 
 
-def required_cell_overlap(footprint_m: float, mpp_fine: float, *, coarse_mpp: float | None = None) -> float:
-    """Минимальное перекрытие клеток индекса, при котором окно накрывает кадр.
+def fine_margin_m(footprint_m: float, coarse_mpp: float, mpp_fine: float,
+                  *, max_window_px: int = MAX_FINE_WINDOW_PX) -> float:
+    """Запас окна точного уровня вокруг кандидата, метры.
 
-    Связь неочевидная, но жёсткая. Окно точного уровня строится вокруг **центра
-    клетки**, а истинный центр кадра от него отстоит; чтобы кадр целиком попал в
-    окно, запас окна должен покрывать это отклонение. При перекрытии ``o`` худшее
-    отклонение равно ``0.707·(1−o)·footprint`` (диагональ полушага сетки), а запас
-    окна — ``fine_margin``. Отсюда ``o ≥ 1 − margin/(0.707·footprint)``.
+    **Единственное место**, где этот запас считается, — и это главное свойство
+    функции. Раньше формула жила в двух: в ``_fine_pass`` и, в виде грубой
+    прикидки, в :func:`required_cell_overlap`. Они не совпадали. Вторая
+    подставляла ``coarse = footprint/12`` — для Уфы 19 м/px вместо реальных
+    0.68 — и потому «ожидала» запас 115 м там, где окно строилось с запасом 34 м.
+    Сетка объявлялась достаточной при перекрытии 0.5, хотя центр клетки мог
+    отстоять от истинного центра кадра на 81 м — вдвое дальше, чем накрывает окно.
 
-    Именно эта связь объясняла «плавающий» результат: с перекрытием 0.5 клетка
-    могла оказаться дальше, чем накрывает окно, и кейс то находился, то нет
-    (``Volgograd3``).
+    Измерено на ``Ufa3`` с MINIMA-LightGlue при неизменном окне: смещение центра
+    0 м → 35 инлайеров, 20 м → 18, 40 м → позы нет. То есть расхождение двух
+    формул и было тем, что не пускало кросс-сезонный кадр в пайплайн.
 
-    **Где формуле нельзя доверять.** Она считает отпечаток квадратом со стороной
-    ``footprint``, а кадр прямоугольный и повёрнут на неизвестный угол: у кадра
-    517×345 м диагональ 621 м, и накрыть нужно её. Поэтому там, где потолок окна
-    (:data:`MAX_FINE_WINDOW_PX`) реально связывает — то есть запас урезан и вся
-    эта тонкость становится критичной, — возвращается не расчёт, а измеренно
-    безопасные 0.75. Попытка отдать там расчётные 0.68 стоила потери кейса
-    (``Volgograd3``: 0.8 м → отказ). Формула работает там, где запас окна и так
-    щедрый: у мелких кадров (00049, Ufa) она честно даёт 0.5 и экономит вчетверо.
+    Нижняя граница запаса — доля отпечатка, чтобы окно не выродилось; верхняя —
+    ``max_window_px``: у матчера бюджет ключевых точек фиксирован, и на слишком
+    большом В ПИКСЕЛЯХ окне их плотность падает так, что матч разваливается.
+    Измерено на Саратове (кадр 2783 px): окно 3339 px → 21 инлайер, 3895 px → 31,
+    5008 px → 5. Ограничение именно абсолютное, а не доля отпечатка: у ``00049``
+    окно всего ~1000 px, размазывания там нет, и урезать запас ему незачем.
     """
     if footprint_m <= 0.0 or mpp_fine <= 0.0:
         raise ValueError("footprint_m и mpp_fine должны быть > 0")
+    requested = max(6.0 * coarse_mpp, 0.15 * footprint_m)
+    allowed = max(0.0, (max_window_px * mpp_fine - footprint_m) / 2.0)
+    return min(requested, allowed)
+
+
+def required_cell_overlap(footprint_m: float, mpp_fine: float, *, coarse_mpp: float | None = None,
+                          max_window_px: int = MAX_FINE_WINDOW_PX) -> float:
+    """Перекрытие клеток индекса — **измеренная политика**, а не вывод из формулы.
+
+    Связь, из которой всё начиналось, реальна: окно точного уровня строится вокруг
+    **центра клетки**, а истинный центр кадра от него отстоит. При перекрытии ``o``
+    худшее отклонение равно ``0.707·(1−o)·footprint`` (диагональ полушага сетки), и
+    «по теории» его должен накрывать запас окна :func:`fine_margin_m`, откуда
+    ``o ≥ 1 − margin/(0.707·footprint)``. Для Уфы это даёт 0.84, для Саратова — 0.84.
+
+    **Эта теория проверена целиком и отвергнута замером (2026-07-29).** Прогон всего
+    набора с расчётными перекрытиями (сетка плотнее в 3–10 раз, пересборка карт
+    1173 с) дал **10/16 вместо 11/16: потерян `Volgograd3`** — тот самый кейс, ради
+    которого связка когда-то и выводилась. Причина в том, чего формула не знает:
+    перекрытие связано не только с окном, но и с ``top_k``. При ``o = 0.84``
+    окрестность точки покрывают ~38 почти одинаковых клеток, и первые 15 кандидатов
+    оказываются **одним и тем же местом в 15 копиях**. Плотная сетка повышает
+    покрытие одной клетки ценой разнообразия кандидатов, и на этом наборе размен
+    отрицательный.
+
+    Поэтому возвращаются измеренные значения: **0.75** там, где потолок окна
+    связывает (крупные кадры: Саратов, Волгоград), и расчёт с осторожной прикидкой
+    запаса — там, где окно и так щедрое (мелкие кадры: 00049, Уфа, где выходит 0.5).
+    Попытка отдать крупным кадрам расчётные 0.68 стоила потери `Volgograd3`
+    (0.8 м → отказ) — то есть ошибка в обе стороны стоит одного и того же кейса.
+
+    Формула считает отпечаток квадратом со стороной ``footprint``, а кадр
+    прямоугольный и повёрнут на неизвестный угол: у кадра 517×345 м диагональ
+    621 м. Это одна из причин, по которой её значениям нельзя доверять буквально.
+
+    **Что здесь на самом деле не закрыто.** Настоящая связка — тройная:
+    запас окна ↔ плотность сетки ↔ ``top_k``. Пока меняются только первые две,
+    результат ухудшается. Это открытый пункт, а не решённый (``docs/ROADMAP.md``).
+    """
+    if footprint_m <= 0.0 or mpp_fine <= 0.0:
+        raise ValueError("footprint_m и mpp_fine должны быть > 0")
+    # Прикидка запаса намеренно грубее реальной (footprint/12 против настоящего
+    # разрешения индекса): она завышает ожидаемый запас и потому даёт сетку РЕЖЕ.
+    # Точный расчёт проверен и оказался хуже — см. выше.
     coarse = coarse_mpp if coarse_mpp is not None else footprint_m / 12.0
     requested = max(6.0 * coarse, 0.15 * footprint_m)
-    allowed = max(0.0, (MAX_FINE_WINDOW_PX * mpp_fine - footprint_m) / 2.0)
+    allowed = max(0.0, (max_window_px * mpp_fine - footprint_m) / 2.0)
     if requested > allowed:  # потолок окна связывает — доверяем замеру, а не формуле
         return 0.75
     needed = 1.0 - requested / (0.707 * footprint_m)
     return float(min(0.85, max(0.5, needed + 0.05)))
+
 
 #: Во сколько σ приора укладывается допустимое отклонение центра (инвариант 3).
 PRIOR_GATE_SIGMA = 3.0
@@ -420,6 +467,7 @@ def _fine_pass(
     prerotate_deg: float = 0.0,
     min_photometric: float | None,
     photometric_kind: str,
+    max_fine_window_px: int = MAX_FINE_WINDOW_PX,
 ) -> LocalizationResult:
     """Точный уровень (стадии 3–6): окно нативного разрешения вокруг кандидата.
 
@@ -433,28 +481,16 @@ def _fine_pass(
     для кадра и подложки. Иначе при ``clahe=True`` кадр выравнивался бы дважды.
     """
     footprint_max = max(camera.footprint_m(altitude_m))
-    # Запас вокруг кандидата покрывает неопределённость грубого уровня (единицы
-    # его пикселей); нижняя граница — доля footprint, чтобы окно не выродилось.
-    fine_margin_m = max(6.0 * coarse_mpp, 0.15 * footprint_max)
-    # ...но сверху запас ограничен: у обученного матчера бюджет ключевых точек
-    # фиксирован (SuperPoint ~2048), и когда окно становится слишком большим В
-    # ПИКСЕЛЯХ, их плотность падает так, что матч разваливается. Измерено на
-    # Саратове (кадр 2783 px): окно 3339 px → 21 инлайер, 3895 px → 31, 5008 px → 5.
-    #
-    # Ограничение именно абсолютное, а не доля отпечатка. Раньше стояло
-    # 0.25·footprint, и это било по мелким кадрам: у 00049 окно всего ~1000 px,
-    # никакого размазывания там нет, а урезанный запас требовал вчетверо более
-    # плотной сетки клеток (12544 клетки против 4608 у крупных кадров при том же
-    # радиусе поиска). Лекарство от проблемы больших окон применялось ко всем.
-    max_margin_m = max(0.0, (MAX_FINE_WINDOW_PX * ground_mpp(cand_lat, z_fine) - footprint_max) / 2.0)
-    fine_margin_m = min(fine_margin_m, max_margin_m)
-    fine_size = _even(2.0 * (0.5 * footprint_max + fine_margin_m) / ground_mpp(cand_lat, z_fine))
+    mpp_fine_here = ground_mpp(cand_lat, z_fine)
+    margin_m = fine_margin_m(footprint_max, coarse_mpp, mpp_fine_here,
+                             max_window_px=max_fine_window_px)
+    fine_size = _even(2.0 * (0.5 * footprint_max + margin_m) / mpp_fine_here)
     fine_ref, fine_georef = basemap(cand_lon, cand_lat, z_fine, fine_size, fine_size)
 
     prior_fine = Prior(
         lat=cand_lat,
         lon=cand_lon,
-        sigma_m=fine_margin_m,
+        sigma_m=margin_m,
         altitude_m=altitude_m,
         altitude_sigma_m=prior.altitude_sigma_m,
         yaw_deg=prior.yaw_deg,
@@ -502,6 +538,7 @@ def _fine_with_scale_loop(
     prerotate_deg: float = 0.0,
     min_photometric: float | None,
     photometric_kind: str,
+    max_fine_window_px: int = MAX_FINE_WINDOW_PX,
 ) -> LocalizationResult:
     """Точный уровень вокруг одного кандидата + цикл переуточнения масштаба (стадия 5).
 
@@ -520,7 +557,7 @@ def _fine_with_scale_loop(
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
             prerotate_deg=prerotate_deg, min_photometric=min_photometric,
-            photometric_kind=photometric_kind,
+            photometric_kind=photometric_kind, max_fine_window_px=max_fine_window_px,
         )
 
     def n_inliers(result: LocalizationResult) -> int:
@@ -619,6 +656,7 @@ def localize(
     prerotate: bool = False,
     min_photometric: float | None = None,
     photometric_kind: str = DEFAULT_PHOTOMETRIC,
+    max_fine_window_px: int = MAX_FINE_WINDOW_PX,
     gate_sigma: float = PRIOR_GATE_SIGMA,
 ) -> LocalizationResult:
     """Полная одиночная локализация: подложка из источника + coarse-to-fine.
@@ -670,6 +708,13 @@ def localize(
             наборе и живут в ``quality.PHOTOMETRIC_THRESHOLDS``; поднимать
             имеет смысл на same-domain, где согласие верных матчей близко к
             единице.
+        max_fine_window_px: потолок окна точного уровня, пиксели. Свойство ЯДРА
+            матчинга, а не сцены: у каждого свой предел, за которым плотность
+            соответствий падает и матч разваливается. Дефолт
+            :data:`MAX_FINE_WINDOW_PX` замерен на SuperPoint+LightGlue. Менять
+            его в одиночку нельзя — перекрытие сетки индекса выводится из того же
+            числа (:func:`required_cell_overlap`), и рассогласование этих двух
+            мест уже стоило кросс-сезонных кадров.
         gate_sigma: во сколько σ приора укладывается допустимое отклонение центра.
 
     Returns:
@@ -778,6 +823,7 @@ def localize(
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
             max_zoom=max_zoom, prerotate_deg=cand_prerotate,
             min_photometric=min_photometric, photometric_kind=photometric_kind,
+            max_fine_window_px=max_fine_window_px,
         )
         if r.is_localized and (
             best is None
@@ -799,6 +845,7 @@ def localize(
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
             max_zoom=max_zoom, prerotate_deg=cand_prerotate,
             min_photometric=min_photometric, photometric_kind=photometric_kind,
+            max_fine_window_px=max_fine_window_px,
         )
         # Если уточнённый проход почему-то не сошёлся, остаётся неуточнённый:
         # отказываться от найденного места из-за refinement нельзя.

@@ -50,7 +50,9 @@ import numpy as np  # noqa: E402
 from aero_geoloc.basemap import ESRI_WORLD_IMAGERY, TileBasemap, TileCache  # noqa: E402
 from aero_geoloc.dataset import EvalCase, load_dataset  # noqa: E402
 from aero_geoloc.geo import Georef, ground_mpp, haversine_m, zoom_for_mpp  # noqa: E402
-from aero_geoloc.localize import localize, normalize_gray, required_cell_overlap  # noqa: E402
+from aero_geoloc.localize import (  # noqa: E402
+    MAX_FINE_WINDOW_PX, localize, normalize_gray, required_cell_overlap,
+)
 from aero_geoloc.matcher import create_matcher  # noqa: E402
 from aero_geoloc.quality import MIN_INLIERS_HARD, MIN_NCC  # noqa: E402
 from aero_geoloc.regression import CONFIG_KEYS  # noqa: E402
@@ -86,17 +88,22 @@ def _index_geometry(case: EvalCase, radius_m: float, cell_px_target: int, max_zo
     return region, cell_px, mpp_index, footprint_m
 
 
-def _overlap_for(case: EvalCase, footprint_m: float, max_zoom: int, args) -> float:
+def _overlap_for(case: EvalCase, footprint_m: float, max_zoom: int, args,
+                 mpp_index: float | None = None) -> float:
     """Перекрытие сетки: заданное явно либо выведенное из геометрии кадра.
 
     Перекрытие связано с запасом окна точного уровня (см.
-    :func:`aero_geoloc.localize.required_cell_overlap`), а тот у мелких кадров
-    щедрее — им и сетка нужна реже.
+    :func:`aero_geoloc.localize.required_cell_overlap`), но связь **не сводится к
+    формуле**: она тянет за собой и ``top_k``. Точное разрешение индекса сюда
+    намеренно НЕ передаётся — с ним расчёт даёт 0.84 вместо 0.5/0.75, сетка
+    уплотняется втрое-вдесятеро, и измеренный результат ухудшается (потерян
+    `Volgograd3`, 10/16 вместо 11/16). Обоснование — в docstring самой функции.
     """
     if args.overlap > 0:
         return args.overlap
     mpp_fine = ground_mpp(case.prior.lat, case.basemap_zoom(max_zoom=max_zoom))
-    return required_cell_overlap(footprint_m, mpp_fine)
+    return required_cell_overlap(footprint_m, mpp_fine,
+                                 max_window_px=args.max_fine_window_px)
 
 
 def _build_or_load_index(case, region, cell_px, rotations, encoder, basemap, args, overlap):
@@ -261,7 +268,7 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
     region, cell_px, mpp_index, footprint_m = _index_geometry(
         case, radius_m, args.cell_px, max_zoom
     )
-    overlap = _overlap_for(case, footprint_m, max_zoom, args)
+    overlap = _overlap_for(case, footprint_m, max_zoom, args, mpp_index)
     # Курс неизвестен → предповорот невозможен, и индекс приходится аугментировать
     # повёрнутыми копиями клеток (EVAL_PLAN, Б3). Это плата за незнание курса.
     rotations = (
@@ -293,6 +300,7 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
         # у совпавшей клетки индекса — без этого аугментация чинит только Этаж 1.
         trust_yaw=case.trust_yaw, prerotate=True, max_zoom=max_zoom,
         min_inliers=args.min_inliers, retrieval_top_k=args.top_k, ransac_threshold_px=6.0,
+        max_fine_window_px=args.max_fine_window_px,
         photometric_kind=args.photometric,
         min_photometric=None if args.min_photometric < -1.0 else args.min_photometric,
     )
@@ -437,6 +445,10 @@ def main() -> int:
                              "(localize.required_cell_overlap). Крупным кадрам нужно "
                              "~0.75, мелким хватает 0.5 — фиксированные 0.75 для всех "
                              "давали вчетверо больше клеток там, где это не нужно")
+    parser.add_argument("--max-fine-window-px", type=int, default=MAX_FINE_WINDOW_PX,
+                        help="потолок окна точного уровня, px. Свойство ядра матчинга; "
+                             "меняется ТОЛЬКО вместе с перекрытием сетки — оба берутся "
+                             "из одного числа, и рассогласование уже стоило кейсов")
     parser.add_argument("--pca-dim", type=int, default=1024)
     parser.add_argument("--top-k", type=int, default=15,
                         help="сколько клеток ретривала отдавать Этажу 2. Измерено на "

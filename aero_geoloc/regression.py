@@ -85,7 +85,7 @@ OUTCOME_RU: dict[str, str] = {
 #: другим матчером — это не регрессия, а другой эксперимент, и путать их нельзя.
 CONFIG_KEYS = (
     "manifest", "matcher", "matcher_max_side", "photometric", "min_photometric",
-    "radius_km", "cell_px", "overlap", "pca_dim",
+    "radius_km", "cell_px", "overlap", "pca_dim", "max_fine_window_px",
     "top_k", "min_inliers", "rotation_step", "correct_m", "manual_tol_frac",
     "offset_km", "sigma_m",
 )
