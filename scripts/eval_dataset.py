@@ -182,7 +182,7 @@ def _failed_gate(diag: dict, args) -> str:
     return ", ".join(reasons) if reasons else "связка качества"
 
 
-def _blame(result, case, rank, error_m, accepted, pose_found, args) -> str:
+def _blame(result, case, rank, error_m, accepted, pose_found, tolerance_m, args) -> str:
     """Кому предъявлять претензию: Этажу 1, Этажу 2 или гейту качества."""
     diag = result.diagnostics or {}
     if not pose_found:
@@ -199,7 +199,8 @@ def _blame(result, case, rank, error_m, accepted, pose_found, args) -> str:
             return f"Этаж 1 ({reason})"
         return f"поза не найдена ({reason or 'причина не записана'})"
 
-    right_place = error_m is not None and error_m <= args.correct_m
+    # Допуск тот же, что и у поля correct, иначе таблица противоречит сводке.
+    right_place = error_m is not None and error_m <= tolerance_m
     if accepted:
         if error_m is None:
             return "принято, истины нет — проверить оверлей"
@@ -283,7 +284,7 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
         row["error_m"] = round(error_m, 1)
         row["correct"] = int(error_m <= tolerance_m)
 
-    row["blame"] = _blame(result, case, rank, error_m, accepted, pose_found, args)
+    row["blame"] = _blame(result, case, rank, error_m, accepted, pose_found, tolerance_m, args)
 
     if not args.no_overlay:
         centre = (result.center_lat, result.center_lon) if result.center_lat is not None else (
