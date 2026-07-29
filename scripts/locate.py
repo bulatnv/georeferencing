@@ -42,7 +42,7 @@ from aero_geoloc.region import (  # noqa: E402
     human_time,
     plan_region,
 )
-from aero_geoloc.report import save_report  # noqa: E402
+from aero_geoloc.report import save_report, save_summary  # noqa: E402
 from aero_geoloc.request import InputError, build_request  # noqa: E402
 from aero_geoloc.retrieval import MegaLocEncoder  # noqa: E402
 from aero_geoloc.types import Status  # noqa: E402
@@ -88,8 +88,8 @@ def _overlay_window(basemap, result, request, plan, z_fine, camera):
     return ref, georef, matrix
 
 
-def locate_one(path: Path, args, basemap, encoder, matcher, max_zoom) -> tuple[Path, str]:
-    """Локализовать один снимок и записать отчёт. Возвращает путь и краткий итог."""
+def locate_one(path: Path, args, basemap, encoder, matcher, max_zoom) -> dict:
+    """Локализовать один снимок и записать отчёт. Возвращает строку для сводки."""
     timings: dict[str, float] = {}
 
     request = build_request(
@@ -216,15 +216,18 @@ def main() -> int:
     matcher = create_matcher(args.matcher)
 
     failures = 0
+    rows: list[dict] = []
     for image_path in images:
         try:
-            locate_one(image_path, args, basemap, encoder, matcher, max_zoom)
+            rows.append(locate_one(image_path, args, basemap, encoder, matcher, max_zoom))
         except InputError as exc:
             print(f"\nНе хватает данных для {image_path.name}:\n  {exc}\n")
             failures += 1
         except Exception as exc:  # noqa: BLE001 — один снимок не должен ронять пачку
             print(f"\nОШИБКА на {image_path.name}: {type(exc).__name__}: {exc}\n")
             failures += 1
+    if len(images) > 1 and rows:
+        print(f"Сводка → {save_summary(args.out, rows)}", flush=True)
     return 1 if failures == len(images) else 0
 
 

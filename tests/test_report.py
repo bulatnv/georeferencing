@@ -15,6 +15,7 @@ import pytest
 
 from aero_geoloc.report import (
     advice_for,
+    save_summary,
     footprint_geojson,
     footprint_kml,
     result_payload,
@@ -143,3 +144,27 @@ def test_geojson_and_kml_carry_both_shapes():
 def test_geojson_of_a_refusal_is_empty_but_valid():
     gj = footprint_geojson(refusal("нет позы"), name="frame")
     assert gj["type"] == "FeatureCollection" and gj["features"] == []
+
+
+# --- сводка по пачке --------------------------------------------------------
+
+def test_summary_counts_and_links(tmp_path):
+    """Главный вопрос при прогоне серии — «сколько взято и что с остальными»."""
+    rows = [
+        {"name": "a", "status": "localized", "lat": 54.8, "lon": 56.1,
+         "ellipse": "<0.1 м", "inliers": 400, "seconds": 30.0},
+        {"name": "b", "status": "not_localized", "lat": None, "lon": None,
+         "reason": "низкая уникальность (самоподобие)", "seconds": 12.0},
+    ]
+    html = save_summary(tmp_path, rows).read_text(encoding="utf-8")
+    assert "2 снимков" in html and "локализовано 1" in html and "не принято 1" in html
+    assert "a/report.html" in html and "b/report.html" in html
+
+
+def test_summary_shows_the_reason_of_a_refusal(tmp_path):
+    """Отказ в сводке — полноправная строка: по ней видно, повторяется ли причина."""
+    rows = [{"name": "b", "status": "not_localized", "lat": None, "lon": None,
+             "reason": "решение вне диска приора", "seconds": 5.0}]
+    html = save_summary(tmp_path, rows).read_text(encoding="utf-8")
+    assert "вне диска приора" in html
+    assert "отказ легитимен" in html.lower() or "лучше уверенно-неверной" in html

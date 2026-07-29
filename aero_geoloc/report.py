@@ -31,7 +31,8 @@ import numpy as np
 from .request import LocateRequest
 from .types import LocalizationResult, Status
 
-__all__ = ["save_report", "result_payload", "footprint_geojson", "footprint_kml", "advice_for"]
+__all__ = ["save_report", "save_summary", "result_payload",
+           "footprint_geojson", "footprint_kml", "advice_for"]
 
 _STATUS_RU = {
     Status.LOCALIZED: ("ЛОКАЛИЗОВАНО", "ok"),
@@ -341,3 +342,43 @@ def save_report(
         _html(request, result, payload, overlay, matcher=matcher, region=region),
         encoding="utf-8")
     return report
+
+
+def save_summary(out_dir: str | Path, rows: list[dict]) -> Path:
+    """Сводка по пачке снимков: таблица со ссылками на отдельные отчёты.
+
+    Нужна не ради красоты. При прогоне серии главный вопрос — «сколько взято и
+    что с остальными», и отвечать на него, открывая двадцать отчётов по одному,
+    невозможно. Строки-отказы здесь такие же полноправные, как успехи: по ним
+    видно, повторяется ли причина.
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    total = len(rows)
+    localized = sum(1 for r in rows if r["status"] == Status.LOCALIZED.value)
+    refused = total - localized
+
+    parts = [f"<style>{_CSS}</style>", "<h1>Сводка по локализации</h1>",
+             f"<div class='sub'>{total} снимков · локализовано {localized} · "
+             f"не принято {refused}</div>"]
+    parts.append("<table><tr><th style='width:22%'>снимок</th><th>статус</th>"
+                 "<th>координаты</th><th>эллипс</th><th>инлайеры</th><th>время</th></tr>")
+    for r in rows:
+        css = {"localized": "ok", "low_confidence": "warn"}.get(r["status"], "bad")
+        coord = (f"{r['lat']:.6f}, {r['lon']:.6f}" if r.get("lat") is not None
+                 else f"<span class='sub'>{r.get('reason', '') or '—'}</span>")
+        parts.append(
+            f"<tr><td><a href='{r['name']}/report.html'>{r['name']}</a></td>"
+            f"<td class='{css}'>{_STATUS_RU[Status(r['status'])][0]}</td>"
+            f"<td>{coord}</td><td>{r.get('ellipse', '—')}</td>"
+            f"<td>{r.get('inliers', '—')}</td><td>{r.get('seconds', '—')} с</td></tr>")
+    parts.append("</table>")
+    if refused:
+        parts.append(
+            "<div class='tip'>Непринятые снимки — не обязательно ошибка: отказ "
+            "легитимен и лучше уверенно-неверной точки. Откройте их отчёты: там "
+            "причина и что можно поменять во входных данных.</div>")
+
+    path = out / "summary.html"
+    path.write_text(chr(10).join(parts), encoding="utf-8")
+    return path
