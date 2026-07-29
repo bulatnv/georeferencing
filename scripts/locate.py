@@ -111,14 +111,27 @@ def locate_one(path: Path, args, basemap, encoder, matcher, max_zoom) -> dict:
         radius_m=args.radius_km * 1000.0, max_zoom=max_zoom, fine_zoom=z_fine,
         trust_yaw=request.trust_yaw, cache_dir=args.maps_dir, prefix="tool",
     )
-    _say("2/4", "Карта района: " + plan.describe())
-    if not plan.cached:
-        _say("  …", f"сборка займёт примерно {human_time(estimated_build_seconds(plan))} "
-                    f"плюс загрузка тайлов, если район новый; дальше он берётся из кэша")
-    index, offline_s = build_or_load(plan, basemap, encoder)
+    index, offline_s = None, 0.0
+    if args.no_index:
+        # Окно вместо карты района: грубый уровень ищет прямо вокруг приора. Имеет
+        # смысл только когда приор уже точен — иначе окно раздувается, а матчер на
+        # большом окне разваливается (см. веху про окно в JOURNAL).
+        _say("2/4", f"Карта района не строится (--no-index): грубый поиск идёт окном "
+                    f"вокруг приора ±{request.prior.sigma_m:.0f} м")
+        _say("  !", "это легаси-путь со стенда, на реальных кадрах он не подтверждён; "
+                    "при отказе повторите без --no-index")
+        if request.prior.sigma_m > 2.0 * plan.footprint_m:
+            _say("  !", f"приор ±{request.prior.sigma_m:.0f} м намного шире отпечатка "
+                        f"{plan.footprint_m:.0f} м — без карты района шансы малы")
+    else:
+        _say("2/4", "Карта района: " + plan.describe())
+        if not plan.cached:
+            _say("  …", f"сборка займёт примерно {human_time(estimated_build_seconds(plan))} "
+                        f"плюс загрузка тайлов, если район новый; дальше он берётся из кэша")
+        index, offline_s = build_or_load(plan, basemap, encoder)
+        if offline_s:
+            _say("  ✓", f"карта построена за {human_time(offline_s)} → {plan.path.name}")
     timings["карта района"] = offline_s
-    if offline_s:
-        _say("  ✓", f"карта построена за {human_time(offline_s)} → {plan.path.name}")
 
     _say("3/4", f"Локализация: ядро {args.matcher}, top-K {args.top_k}")
     started = time.perf_counter()
@@ -142,7 +155,8 @@ def locate_one(path: Path, args, basemap, encoder, matcher, max_zoom) -> dict:
 
     out_dir = Path(args.out) / path.stem
     report = save_report(out_dir, request, result, overlay=overlay,
-                         matcher=args.matcher, timings=timings, region=plan.path.name)
+                         matcher=args.matcher, timings=timings,
+                         region=None if args.no_index else plan.path.name)
     if result.center_lat is not None:
         # «эллипс 0.0 м» читается как «ошибки нет», хотя это просто округление
         # субсантиметровой величины: показываем порог, а не ноль.
@@ -190,6 +204,11 @@ def main() -> int:
     parser.add_argument("--out", default="out", help="каталог отчётов")
     parser.add_argument("--maps-dir", default="maps", help="кэш карт районов")
     parser.add_argument("--cache", default="tiles", help="кэш тайлов подложки")
+    parser.add_argument("--no-index", action="store_true",
+                        help="ЛЕГАСИ: без карты района, грубый поиск окном вокруг "
+                             "приора. Путь остался со стенда и на реальных кадрах "
+                             "НЕ подтверждён — проверено на Volgograd3, отказ при "
+                             "любом ядре и любом приоре. Обычный путь — с картой")
     parser.add_argument("--no-overlay", action="store_true")
     args = parser.parse_args()
 

@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document>
 <name>Volgograd3</name>
-<Placemark><name>отпечаток кадра</name><Style><LineStyle><color>ff00ffff</color><width>3</width></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style><Polygon><outerBoundaryIs><LinearRing><coordinates>44.48773066928999,48.67819323181016,0 44.48283879157657,48.68113523865901,0 44.4858104415967,48.683289252337445,0 44.49070231931012,48.68034737130178,0 44.48773066928999,48.67819323181016,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
-<Placemark><name>центр кадра</name><Point><coordinates>44.48677055544337,48.68074130652083,0</coordinates></Point></Placemark>
 </Document></kml>
