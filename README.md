@@ -67,7 +67,17 @@ pip install -r requirements-dev.txt
   `opencv-contrib-python` (AKAZE живёт в `xfeatures2d`). Команда — в шапке
   `requirements-real.txt`.
 
-## Быстрый старт
+## Быстрый старт: локализовать свой снимок
+
+```bash
+.venv/Scripts/python.exe scripts/locate.py --image DJI_0123.JPG     --lat 54.81 --lon 56.09 --sigma-km 1.5
+```
+
+На выходе `out/DJI_0123/report.html` — открыть двойным кликом: координаты, четыре
+панели для проверки глазами, контур отпечатка для Google Earth и QGIS. Отказ даёт
+такой же отчёт — с причиной и советом, что поменять. Подробно: [docs/USAGE.md](docs/USAGE.md).
+
+## Быстрый старт: как библиотека
 
 ```python
 from aero_geoloc import localize, Camera, Prior, TileCache
