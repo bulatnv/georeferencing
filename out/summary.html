@@ -1,0 +1,33 @@
+<style>
+:root { color-scheme: light dark; }
+body { font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 1100px;
+       padding: 24px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.sub { opacity: .7; font-size: 13px; margin-bottom: 20px; }
+.verdict { padding: 16px 20px; border-radius: 10px; margin: 0 0 20px;
+           border: 2px solid; }
+.verdict.ok   { border-color: #2e7d32; background: #2e7d3216; }
+.verdict.warn { border-color: #ef6c00; background: #ef6c0016; }
+.verdict.bad  { border-color: #c62828; background: #c6282816; }
+.verdict .big { font-size: 26px; font-weight: 700; letter-spacing: .5px; }
+.coord { font: 20px ui-monospace, monospace; margin: 6px 0; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0 22px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #8884; }
+th { width: 34%; font-weight: 600; opacity: .8; }
+img { max-width: 100%; border-radius: 8px; border: 1px solid #8884; }
+.note { border-left: 3px solid #ef6c00; padding: 6px 12px; margin: 6px 0;
+        background: #ef6c000d; font-size: 14px; }
+.tip  { border-left: 3px solid #1565c0; padding: 6px 12px; margin: 6px 0;
+        background: #1565c00d; font-size: 14px; }
+h2 { font-size: 17px; margin: 26px 0 8px; }
+code { font: 13px ui-monospace, monospace; background: #8881; padding: 1px 5px;
+       border-radius: 4px; }
+</style>
+<h1>Сводка по локализации</h1>
+<div class='sub'>3 снимков · локализовано 1 · не принято 2</div>
+<table><tr><th style='width:22%'>снимок</th><th>статус</th><th>координаты</th><th>эллипс</th><th>инлайеры</th><th>время</th></tr>
+<tr><td><a href='Volgograd3/report.html'>Volgograd3</a></td><td class='ok'>ЛОКАЛИЗОВАНО</td><td>48.680741, 44.486771</td><td><0.1 м</td><td>423</td><td>30.1 с</td></tr>
+<tr><td><a href='Ufa2/report.html'>Ufa2</a></td><td class='warn'>НИЗКОЕ ДОВЕРИЕ</td><td>54.802901, 56.099455</td><td>0.27 м</td><td>59</td><td>27.4 с</td></tr>
+<tr><td><a href='поле/report.html'>поле</a></td><td class='bad'>НЕ ЛОКАЛИЗОВАНО</td><td><span class='sub'>низкая уникальность (самоподобие)</span></td><td>—</td><td>—</td><td>12.0 с</td></tr>
+</table>
+<div class='tip'>Непринятые снимки — не обязательно ошибка: отказ легитимен и лучше уверенно-неверной точки. Откройте их отчёты: там причина и что можно поменять во входных данных.</div>

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["Camera"]
+__all__ = ["Camera", "resample_to_mpp"]
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,39 @@ class Camera:
     focal_mm: float | None = None
     sensor_width_mm: float | None = None
     fov_deg: float | None = None
+
+    @classmethod
+    def from_gsd(
+        cls, image_width: int, image_height: int, gsd_m: float, altitude_m: float
+    ) -> Camera:
+        """Камера по **известному GSD** — для снимков без метаданных объектива.
+
+        Пайплайну нужен не фокус сам по себе, а GSD: им выбирается зум подложки и
+        задаётся ожидаемый масштаб. Когда EXIF срезан (см. ``docs/EVAL_PLAN.md``),
+        фокуса нет, но GSD часто известен из паспорта съёмки — тогда камера
+        восстанавливается отсюда: ``f_px = altitude_m / gsd_m``.
+
+        ``altitude_m`` здесь — **опорная** высота, а не измеренная: геометрию
+        задаёт только отношение ``altitude_m / gsd_m``. Пара подбирается так,
+        чтобы ``camera.gsd(altitude_m) == gsd_m`` (это и проверяется тестом), а
+        высота дальше живёт в :class:`~aero_geoloc.types.Prior` и уточняется
+        восстановленным масштабом.
+
+        Args:
+            image_width, image_height: размер кадра в пикселях.
+            gsd_m: разрешение кадра на земле, м/пиксель.
+            altitude_m: опорная высота, м (та, при которой GSD равен заданному).
+        """
+        if gsd_m <= 0.0:
+            raise ValueError(f"gsd_m должен быть > 0, получено {gsd_m}")
+        if altitude_m <= 0.0:
+            raise ValueError(f"altitude_m должен быть > 0, получено {altitude_m}")
+        focal_px = altitude_m / gsd_m
+        # Задаём именно FOV, а не focal+sensor: физическая оптика неизвестна, а
+        # угол поля зрения — то, что сохраняется при ресемпле кадра
+        # (``drone.frame_at_mpp`` пересобирает камеру как ``Camera(w, h, fov_deg=...)``).
+        fov_deg = 2.0 * math.degrees(math.atan((image_width / 2.0) / focal_px))
+        return cls(image_width=image_width, image_height=image_height, fov_deg=fov_deg)
 
     def __post_init__(self) -> None:
         if self.image_width <= 0 or self.image_height <= 0:
@@ -164,3 +197,27 @@ class Camera:
 
         h = self.K() @ (rx @ ry) @ self.K_inv()
         return h / h[2, 2]
+
+
+def resample_to_mpp(image_bgr, camera: "Camera", gsd_m: float, target_mpp: float):
+    """Кадр, приведённый к разрешению подложки, и согласованная с ним камера.
+
+    Стадия 1 из ``docs/PIPELINE.md``: кадр бывает в разы детальнее подложки, и
+    матчинг на нативном разрешении дорог и неустойчив. Ресемпл до ``mpp ≈ GSD``
+    делает масштаб ≈ 1. **FOV сохраняется**, поэтому камера просто пересобирается
+    под новый размер — именно это и делает результат независимым от того, кто
+    вызвал: EXIF-снимок, кейс оценки или запрос инструмента.
+
+    Функция общая намеренно: реализация была написана трижды (drone, dataset,
+    request), а контракт у неё один, и расхождение трёх копий здесь означало бы
+    три разных масштаба на одном и том же кадре.
+    """
+    import cv2
+
+    if target_mpp <= 0.0:
+        raise ValueError("target_mpp должен быть > 0")
+    scale = gsd_m / target_mpp
+    new_w = max(16, round(camera.image_width * scale))
+    new_h = max(16, round(camera.image_height * scale))
+    frame = cv2.resize(image_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return frame, Camera(new_w, new_h, fov_deg=camera.fov_deg)

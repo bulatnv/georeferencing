@@ -231,14 +231,10 @@ def frame_at_mpp(shot: DroneShot, target_mpp: float) -> tuple[np.ndarray, Camera
     ``mpp ≈ GSD_подложки`` делает масштаб ≈ 1. FOV сохраняется, поэтому камера
     просто пересобирается под новый размер.
     """
-    import cv2
+    from .camera import resample_to_mpp
 
-    scale = shot.camera.gsd(shot.altitude_m) / target_mpp
-    new_w = max(16, round(shot.camera.image_width * scale))
-    new_h = max(16, round(shot.camera.image_height * scale))
-    frame = cv2.resize(shot.image_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
-    camera = Camera(new_w, new_h, fov_deg=shot.camera.fov_deg)
-    return frame, camera
+    return resample_to_mpp(shot.image_bgr, shot.camera,
+                           shot.camera.gsd(shot.altitude_m), target_mpp)
 
 
 def basemap_zoom_for(shot: DroneShot, *, max_zoom: int) -> int:

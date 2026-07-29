@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RESEARCH B — чем проверять вместо NCC: обзор кандидатов</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F2F4EF;
+  --paper-2:#E9EDE4;
+  --ink:#1E2A26;
+  --ink-soft:#48544F;
+  --summer:#4C7A45;
+  --april:#A8763E;
+  --water:#2E6E8C;
+  --signal:#C8452C;
+  --line:rgba(30,42,38,.14);
+  --line-strong:rgba(30,42,38,.32);
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --body:'Golos Text',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --disp:'Unbounded','Golos Text',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{
+  font-family:var(--body);color:var(--ink);background:var(--paper);
+  font-size:16px;line-height:1.62;
+  background-image:
+    linear-gradient(var(--line) 1px,transparent 1px),
+    linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:56px 56px;
+}
+a{color:var(--water);text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{color:var(--ink)}
+a:focus-visible{outline:2px solid var(--water);outline-offset:2px}
+
+.wrap{max-width:1240px;margin:0 auto;padding:0 24px}
+.layout{display:grid;grid-template-columns:264px minmax(0,1fr);gap:56px;align-items:start}
+@media (max-width:1080px){.layout{display:block}}
+
+header.masthead{border-bottom:2px solid var(--ink);background:var(--paper)}
+.mast-inner{padding:26px 0 22px;display:flex;flex-wrap:wrap;gap:14px 32px;align-items:baseline;justify-content:space-between}
+.mast-brand{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+.mast-brand b{color:var(--ink);font-weight:500}
+.mast-meta{font-family:var(--mono);font-size:12px;color:var(--ink-soft);display:flex;gap:22px;flex-wrap:wrap}
+.mast-meta span b{color:var(--ink);font-weight:500}
+
+.hero{padding:56px 0 44px;border-bottom:1px solid var(--line-strong)}
+.hero-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(320px,.95fr);gap:48px;align-items:center}
+@media (max-width:920px){.hero-grid{grid-template-columns:1fr}}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:18px}
+.eyebrow .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;vertical-align:baseline;background:linear-gradient(90deg,var(--summer) 50%,var(--april) 50%)}
+h1{font-family:var(--disp);font-weight:700;font-size:clamp(26px,3.6vw,42px);line-height:1.16;letter-spacing:-.01em;margin-bottom:20px}
+h1 .accent{color:var(--summer)}
+h1 .accent2{color:var(--april)}
+.hero p.lede{font-size:17.5px;color:var(--ink-soft);max-width:56ch;margin-bottom:26px}
+.hero-facts{display:flex;gap:0;border:1px solid var(--line-strong);background:#fff;max-width:600px}
+.hero-facts div{flex:1;padding:12px 16px;border-right:1px solid var(--line)}
+.hero-facts div:last-child{border-right:none}
+.hero-facts .k{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)}
+.hero-facts .v{font-family:var(--mono);font-size:15px;font-weight:500;margin-top:2px}
+.hero-fig{background:#fff;border:1px solid var(--line-strong);padding:18px 18px 12px}
+.hero-fig figcaption{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:10px;line-height:1.5}
+.hero-fig svg{width:100%;height:auto;display:block}
+
+nav.toc{position:sticky;top:24px;border:1px solid var(--line-strong);background:#fff;padding:20px 0 8px;margin:48px 0}
+@media (max-width:1080px){nav.toc{position:static;margin:36px 0 8px}}
+.toc h2{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;font-weight:500;padding:0 20px 12px;border-bottom:1px solid var(--line);color:var(--ink-soft)}
+.toc ol{list-style:none;counter-reset:toc;padding:8px 0}
+.toc li{counter-increment:toc}
+.toc a{display:flex;gap:12px;align-items:baseline;padding:7px 20px;color:var(--ink);text-decoration:none;font-size:14px;line-height:1.4;border-left:3px solid transparent}
+.toc a::before{content:counter(toc,decimal-leading-zero);font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);flex:0 0 auto}
+.toc a:hover{background:var(--paper-2)}
+.toc a.active{border-left-color:var(--april);background:var(--paper-2);font-weight:500}
+
+main{padding:16px 0 96px;min-width:0}
+section{padding:44px 0 8px;scroll-margin-top:24px}
+section + section{border-top:1px solid var(--line)}
+h2.sec{font-family:var(--disp);font-weight:500;font-size:clamp(20px,2.3vw,27px);line-height:1.25;margin-bottom:8px;display:flex;gap:16px;align-items:baseline}
+h2.sec .num{font-family:var(--mono);font-size:14px;font-weight:400;color:var(--ink-soft);flex:0 0 auto}
+.season-rule{height:3px;width:120px;background:linear-gradient(90deg,var(--summer) 50%,var(--april) 50%);margin:14px 0 26px}
+h3{font-family:var(--body);font-weight:600;font-size:18px;margin:32px 0 10px}
+p{margin-bottom:14px;max-width:72ch}
+p.note{color:var(--ink-soft);font-size:14.5px}
+strong{font-weight:600}
+code{font-family:var(--mono);font-size:.88em;background:var(--paper-2);border:1px solid var(--line);padding:1px 5px;border-radius:3px}
+ul.plain{margin:0 0 16px 20px}
+ul.plain li{margin-bottom:8px;max-width:70ch}
+.footref{font-family:var(--mono);font-size:.72em;vertical-align:super;text-decoration:none;color:var(--water)}
+
+.callout{border:1px solid var(--line-strong);border-left:4px solid var(--summer);background:#fff;padding:18px 22px;margin:22px 0;max-width:760px}
+.callout.warn{border-left-color:var(--signal)}
+.callout.april{border-left-color:var(--april)}
+.callout .tag{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:8px}
+.callout p{margin-bottom:6px}
+.callout p:last-child{margin-bottom:0}
+
+.tbl-scroll{overflow-x:auto;margin:20px 0 26px;border:1px solid var(--line-strong);background:#fff}
+table{border-collapse:collapse;width:100%;font-size:14px}
+caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);padding:12px 16px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.05em;text-transform:uppercase;text-align:left;color:var(--ink-soft);padding:10px 14px;border-bottom:2px solid var(--ink);background:var(--paper-2);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td.num,th.num{font-family:var(--mono);white-space:nowrap}
+td .ok{color:var(--summer);font-weight:600}
+td .bad{color:var(--signal);font-weight:600}
+td .mid{color:var(--april);font-weight:600}
+.tbl-note{font-family:var(--mono);font-size:12px;color:var(--ink-soft);padding:10px 16px;border-top:1px solid var(--line)}
+
+.chart{background:#fff;border:1px solid var(--line-strong);padding:20px 22px 16px;margin:22px 0;max-width:760px}
+.chart h4{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:16px}
+.bar-row{display:grid;grid-template-columns:190px 1fr 84px;gap:12px;align-items:center;margin-bottom:10px}
+@media (max-width:560px){.bar-row{grid-template-columns:120px 1fr 70px}}
+.bar-label{font-size:13.5px;line-height:1.3}
+.bar-label small{display:block;font-family:var(--mono);font-size:11px;color:var(--ink-soft)}
+.bar-track{height:16px;background:var(--paper-2);position:relative}
+.bar-fill{height:100%;min-width:2px}
+.bar-fill.summer{background:var(--summer)}
+.bar-fill.april{background:var(--april)}
+.bar-fill.fail{background:var(--signal)}
+.bar-val{font-family:var(--mono);font-size:13px;text-align:right;white-space:nowrap}
+.chart .thresh{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--signal)}
+.chart-note{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:12px;line-height:1.5}
+
+.cand{border:1px solid var(--line-strong);background:#fff;margin:22px 0;max-width:860px}
+.cand-head{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:baseline;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,rgba(76,122,69,.06) 50%,rgba(168,118,62,.06) 50%)}
+.cand-head h3{margin:0;font-size:18.5px}
+.cand-head h3 small{font-family:var(--mono);font-size:12px;font-weight:400;color:var(--ink-soft);margin-left:10px}
+.chip{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border:1px solid currentColor;border-radius:99px;white-space:nowrap}
+.chip.p1{color:var(--summer)}
+.chip.p2{color:var(--april)}
+.chip.p3{color:var(--ink-soft)}
+.cand-body{padding:18px 22px 8px}
+.cand-stats{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--line);font-family:var(--mono);font-size:12.5px}
+.cand-stats div{padding:10px 18px;border-right:1px solid var(--line)}
+.cand-stats div:last-child{border-right:none}
+.cand-stats .k{color:var(--ink-soft);font-size:11px;letter-spacing:.06em;text-transform:uppercase;display:block}
+
+.steps{counter-reset:step;margin:26px 0;max-width:800px}
+.step{display:grid;grid-template-columns:56px 1fr;gap:20px;padding:16px 0;border-bottom:1px solid var(--line);counter-increment:step}
+.step:last-child{border-bottom:none}
+.step::before{content:counter(step,decimal-leading-zero);font-family:var(--disp);font-weight:500;font-size:20px;color:var(--summer);line-height:1.3}
+.step:nth-child(n+4)::before{color:var(--april)}
+.step h4{font-weight:600;font-size:16px;margin-bottom:4px}
+.step p{margin-bottom:0;font-size:15px;color:var(--ink-soft)}
+
+.src-list{list-style:none;counter-reset:src;margin:20px 0;max-width:860px}
+.src-list li{counter-increment:src;display:grid;grid-template-columns:44px 1fr;gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+.src-list li::before{content:"["counter(src)"]";font-family:var(--mono);font-size:13px;color:var(--ink-soft)}
+.src-list .t{font-weight:500}
+.src-list .m{font-family:var(--mono);font-size:12.5px;color:var(--ink-soft);margin-top:2px}
+.src-list .m a{margin-right:14px}
+
+footer{border-top:2px solid var(--ink);padding:22px 0 40px;font-family:var(--mono);font-size:12px;color:var(--ink-soft);display:flex;flex-wrap:wrap;gap:10px 30px;justify-content:space-between}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap mast-inner">
+    <div class="mast-brand">AERO-GEOLOC · ТРЕК <b>RESEARCH / CROSS-SEASON</b> · НАПРАВЛЕНИЕ B</div>
+    <div class="mast-meta">
+      <span>дата <b>2026-07-28</b></span>
+      <span>статус <b>обзор, до кода</b></span>
+      <span>смежный трек <b>RESEARCH A (матчинг)</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+<section class="hero">
+  <div class="hero-grid">
+    <div>
+      <div class="eyebrow"><span class="dot"></span>Связка качества · чем проверять вместо NCC</div>
+      <h1>Сигнал «верно / ложно», который <span class="accent">не зависит</span> от <span class="accent2">сезона</span></h1>
+      <p class="lede">Фотометрический NCC отделяет верные позы от ложных, но его шкала уезжает со сменой сезона на порядок — один порог не обслуживает оба режима. Обзор собирает кандидатов на замену и дополнение: сезонно-нейтральные метрики выравнивания, чисто геометрическую верификацию, обучаемую связку — и запасной путь через режимный порог от Этажа 1.</p>
+      <div class="hero-facts">
+        <div><span class="k">NCC верных · в сезон</span><span class="v" style="color:var(--summer)">0.635–0.694</span></div>
+        <div><span class="k">NCC верных · кросс-сезон</span><span class="v" style="color:var(--april)">0.04–0.11</span></div>
+        <div><span class="k">Порог связки</span><span class="v" style="color:var(--signal)">0.12</span></div>
+      </div>
+    </div>
+    <figure class="hero-fig">
+      <svg viewBox="0 0 640 330" role="img" aria-label="Распределения NCC: порог 0.12 не может разделить режимы">
+        <!-- оси -->
+        <line x1="50" y1="270" x2="610" y2="270" stroke="#1E2A26" stroke-width="2"/>
+        <line x1="50" y1="270" x2="50" y2="30" stroke="#1E2A26" stroke-width="2"/>
+        <g font-family="IBM Plex Mono,monospace" font-size="12" fill="#48544F">
+          <text x="42" y="290">0</text>
+          <text x="200" y="290">0.2</text>
+          <text x="360" y="290">0.4</text>
+          <text x="520" y="290">0.6</text>
+          <text x="556" y="312">NCC →</text>
+          <text x="40" y="22">плотность</text>
+        </g>
+        <!-- ложные (красная штриховка): 0 .. ~0.18 -->
+        <defs>
+          <pattern id="hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+            <rect width="7" height="7" fill="rgba(200,69,44,.10)"/>
+            <line x1="0" y1="0" x2="0" y2="7" stroke="rgba(200,69,44,.55)" stroke-width="1.6"/>
+          </pattern>
+        </defs>
+        <path d="M50,270 C80,140 130,140 195,268 L195,270 Z" fill="url(#hatch)" stroke="#C8452C" stroke-width="2"/>
+        <!-- верные кросс-сезон (охра): 0.04..0.11 -->
+        <path d="M78,270 C95,90 130,90 145,268 L145,270 Z" fill="rgba(168,118,62,.30)" stroke="#A8763E" stroke-width="2.5"/>
+        <!-- верные в сезон (зелёные): 0.63..0.69 -->
+        <path d="M545,270 C560,70 585,70 600,268 L600,270 Z" fill="rgba(76,122,69,.30)" stroke="#4C7A45" stroke-width="2.5"/>
+        <!-- порог -->
+        <line x1="146" y1="40" x2="146" y2="270" stroke="#C8452C" stroke-width="2.5" stroke-dasharray="7 5"/>
+        <text x="154" y="52" font-family="IBM Plex Mono,monospace" font-size="12.5" fill="#C8452C">порог 0.12</text>
+        <!-- подписи -->
+        <text x="86" y="78" font-family="IBM Plex Mono,monospace" font-size="12.5" fill="#A8763E">верные ·</text>
+        <text x="86" y="93" font-family="IBM Plex Mono,monospace" font-size="12.5" fill="#A8763E">кросс-сезон</text>
+        <text x="60" y="128" font-family="IBM Plex Mono,monospace" font-size="12.5" fill="#C8452C">ложные</text>
+        <text x="500" y="56" font-family="IBM Plex Mono,monospace" font-size="12.5" fill="#4C7A45">верные · в сезон</text>
+      </svg>
+      <figcaption>Дилемма связки: верные кросс-сезонные локализации сидят в зоне ложных. Строгий порог режет верное (эталонный <code>00049</code>: NCC 0.113 при ошибке 8.5 м), мягкий — впускает ложное. Форма распределения ложных в кросс-сезоне не измерена — это первый вопрос протокола (§8, E1).</figcaption>
+    </figure>
+  </div>
+</section>
+
+<div class="layout">
+<nav class="toc" aria-label="Содержание">
+  <h2>Содержание</h2>
+  <ol>
+    <li><a href="#s1">Проблематика: две работы NCC</a></li>
+    <li><a href="#s2">Измеренное основание</a></li>
+    <li><a href="#s3">Основные открытия</a></li>
+    <li><a href="#s4">B1 · метрики выравнивания</a></li>
+    <li><a href="#s5">B2 · геометрическая верификация</a></li>
+    <li><a href="#s6">B3 · обучаемый верификатор</a></li>
+    <li><a href="#s7">Режимный порог от Этажа 1</a></li>
+    <li><a href="#s8">Протокол оценки и порядок</a></li>
+    <li><a href="#s9">Интеграционные ограничения</a></li>
+    <li><a href="#s10">Первоисточники</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ================= 1 ================= -->
+<section id="s1">
+  <h2 class="sec"><span class="num">01</span>Проблематика: две работы NCC и требования к сигналу</h2>
+  <div class="season-rule"></div>
+  <p>Связка качества решает последний вопрос пайплайна: можно ли доверять позе. Действующий состав — <code>инлайеры ≥ 8 ∧ NCC ≥ 0.12 ∧ эллипс</code>: ~96% точности, 0 ложных срабатываний, но ценой полноты на кросс-сезонных и слабых кросс-дата кадрах.</p>
+  <p>Уточнение постановки, которого нет в исходном треке: NCC выполняет <strong>две разные работы</strong>. Первая — <em>метрика выравнивания</em>: похож ли выровненный патч на подложку. Вторая — <em>дискриминатор</em>: отделяет ли значение метрики верные позы от ложных. Сезонный сдвиг ломает первую работу напрямую — а вторую только в том случае, если сдвиг у верных и ложных <strong>различен</strong>. Возможно, NCC ложных в кросс-сезоне тоже падает, и тогда даже старый NCC остаётся дискриминатором при пороге, зависимом от режима. Это эмпирический вопрос, и именно он открывает протокол (§8, эксперимент E1).</p>
+  <h3>Требования к кандидату</h3>
+  <ul class="plain">
+    <li><strong>Разделимость</strong> верных и ложных внутри каждого режима — метрика: AUC / индекс Юдена на харнессе <code>calibrate_quality</code>.</li>
+    <li><strong>Сопоставимость шкалы между режимами</strong>: распределение сигнала у верных не должно съезжать с сезоном так, чтобы порог пришлось раздваивать. Если съезжает у всех — переходим к режимному порогу (§7).</li>
+    <li><strong>Стоимость</strong> заметно ниже ECC (~90% времени точного уровня): сигнал не должен стать новым узким местом.</li>
+    <li><strong>Инвариант 4 проекта</strong>: честный отказ дороже красивой точки — кандидат, поднимающий полноту ценой ложных, не принимается.</li>
+  </ul>
+</section>
+
+<!-- ================= 2 ================= -->
+<section id="s2">
+  <h2 class="sec"><span class="num">02</span>Измеренное основание (не перепроверять)</h2>
+  <div class="season-rule"></div>
+  <div class="chart">
+    <h4>NCC верных локализаций по режимам · порог 0.12 отмечен красным</h4>
+    <div class="bar-row">
+      <div class="bar-label">Съёмка в сезон<small>диапазон верных</small></div>
+      <div class="bar-track"><div class="thresh" style="left:17.3%"></div><div class="bar-fill summer" style="margin-left:91.5%;width:8.5%"></div></div>
+      <div class="bar-val">0.635–0.694</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Кросс-сезон<small>диапазон верных</small></div>
+      <div class="bar-track"><div class="thresh" style="left:17.3%"></div><div class="bar-fill april" style="margin-left:5.8%;width:10.1%"></div></div>
+      <div class="bar-val">0.04–0.11</div>
+    </div>
+    <div class="chart-note">Сдвиг на порядок. Порог 0.12 калиброван на 11 верных / 26 ложных (преимущественно немецкие кадры) — выборка мала и однобока — и впритык режет эталонный <code>00049</code> (NCC 0.113, ошибка 8.5 м, место верное).</div>
+  </div>
+  <ul class="plain">
+    <li><strong>Репроекционный RMSE как сигнал бесполезен</strong> — индекс Юдена 0. Вычеркнут.</li>
+    <li><strong>Одиночный NCC ненадёжен на любом пороге</strong> (хоть 0.05, хоть 0.3): на реальных дрон↔Esri ни инлайеры, ни NCC по отдельности не делят верный слабый матч и ложный — решает связка.</li>
+    <li>Связка проверена и в обратную сторону: ложняк <strong>2126 м отвергнут</strong>, 0 ложных — ценой полноты 3/15 на трудном кросс-дата кластере.</li>
+    <li>Кросс-сезонных <strong>позитивов с выровненной парой почти не существует</strong>: Этаж 2 на них отказывает, значит сигналам не на чем мериться штатным путём. Этот замкнутый круг разрубается оракульным выравниванием (§8, E1).</li>
+  </ul>
+</section>
+
+<!-- ================= 3 ================= -->
+<section id="s3">
+  <h2 class="sec"><span class="num">03</span>Основные открытия</h2>
+  <div class="season-rule"></div>
+
+  <div class="callout">
+    <div class="tag">Открытие 1 · нужная метрика уже стандарт в соседнем домене</div>
+    <p>В мультимодальном remote sensing — где разрыв оптика↔SAR↔LiDAR жёстче нашего сезонного — стандартом стали <strong>плотные структурные дескрипторы с корреляцией поверх них</strong>: HOPC<a class="footref" href="#s10">[5]</a> (гистограммы ориентированной фазовой конгруэнтности, метрика HOPCncc — NCC по дескрипторам, а не по яркостям) и его попиксельное развитие CFOG<a class="footref" href="#s10">[6]</a>. Для нас это буквально «NCC, но в сезонно-устойчивом домене»: drop-in замена <code>aligned_ncc</code> без torch и без обучения, валидированная на разрывах сильнее нашего в нашем же домене (аэро/спутник).</p>
+  </div>
+
+  <div class="callout">
+    <div class="tag">Открытие 2 · «география соответствий» доказуемо несёт сигнал верности</div>
+    <p>Задача «уверенный ложняк на визуально похожем месте» имеет имя в литературе — иллюзорные совпадения — и обученное решение: Doppelgangers<a class="footref" href="#s10">[8]</a> (ICCV 2023) классифицирует пары в том числе по <strong>пространственным картам ключевых точек и матчей</strong> и чисто разделяет верные и ложные пары даже при смене освещения. Это внешнее подтверждение нашей гипотезы B2.1: кучность против разброса инлайеров — информативная ось, у самого проекта уже есть её аналог уровнем выше (пространственное подавление в сигнале уникальности Этажа 1).</p>
+  </div>
+
+  <div class="callout april">
+    <div class="tag">Открытие 3 · протокол B блокирован без оракула — и разблокируется им</div>
+    <p>Пока трек A не даёт кросс-сезонных локализаций, у направления B нет кросс-сезонных позитивов. Выход — <strong>оракульное выравнивание</strong>: выровнять кадры по истине (EXIF / разметка) без матчера и измерить все сигналы на полученных парах. Один дешёвый прогон отвечает на главный вопрос — какой сигнал не различает в принципе, какой различает со съехавшей шкалой (лечится §7), какой сезонно-сопоставим. Эксперименты E1–E2 не зависят от трека A и запускаются немедленно.</p>
+  </div>
+
+  <p>Отдельно: у MI — главного кандидата исходной постановки — известный недостаток (сильная невыпуклость, множество локальных максимумов<a class="footref" href="#s10">[4]</a>) для нас <strong>малозначим</strong>: мы не оптимизируем по MI, а считаем её один раз на уже выровненной паре как скор. Зато значима другая оговорка: сезон — не глобальное перекрашивание яркостей, листва меняет их локально и неоднородно, поэтому шкала MI, вероятно, тоже поедет — вопрос лишь, насколько меньше NCC.</p>
+</section>
+
+<!-- ================= 4 ================= -->
+<section id="s4">
+  <h2 class="sec"><span class="num">04</span>Класс B1 — сезонно-нейтральные метрики выравнивания</h2>
+  <div class="season-rule"></div>
+  <p>Все кандидаты класса — скалярная функция от пары «выровненный кадр ↔ окно подложки», прямая замена <code>aligned_ncc</code> в <code>quality.py</code>. Считаются без обучения (кроме B1.6–B1.7, где нужен уже имеющийся в стеке энкодер/матчер).</p>
+  <div class="tbl-scroll">
+    <table>
+      <caption>Сводная таблица · кандидаты класса B1</caption>
+      <thead>
+        <tr><th>#</th><th>Сигнал</th><th>Домен сравнения</th><th>Обучение</th><th>Стоимость</th><th>Ожидание: шкала сопоставима</th><th>Ожидание: разделимость</th><th>Зависимости</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="num">B1.1</td><td><strong>MI / NMI</strong></td><td>совместная статистика яркостей</td><td>нет</td><td><span class="ok">копеечная</span></td><td><span class="mid">частично — сезон не биекция яркостей</span></td><td><span class="mid">лучше NCC</span></td><td>NumPy</td></tr>
+        <tr><td class="num">B1.2</td><td><strong>NGF</strong></td><td>направления градиентов</td><td>нет</td><td><span class="ok">копеечная</span></td><td><span class="mid">среднее</span></td><td><span class="mid">среднее; взвешивать по силе градиента</span></td><td>OpenCV</td></tr>
+        <tr><td class="num">B1.3</td><td><strong>CFOG-NCC / HOPCncc</strong> ★</td><td>структурные дескрипторы (фазовая конгруэнтность / ориент. градиенты)</td><td>нет</td><td><span class="ok">низкая</span></td><td><span class="ok">высокое — создан для жёстких разрывов</span></td><td><span class="ok">высокое</span></td><td>NumPy/OpenCV</td></tr>
+        <tr><td class="num">B1.4</td><td>Edge overlap (Dice / chamfer)</td><td>карты рёбер</td><td>нет</td><td><span class="ok">копеечная</span></td><td><span class="mid">хрупко к детектору и кронам</span></td><td><span class="mid">бейзлайн</span></td><td>OpenCV</td></tr>
+        <tr><td class="num">B1.5</td><td>MIND / SSC</td><td>самоподобие окрестностей</td><td>нет</td><td><span class="ok">низкая</span></td><td><span class="mid">высокое в медицине, домен другой</span></td><td><span class="mid">проверять после CFOG</span></td><td>NumPy</td></tr>
+        <tr><td class="num">B1.6</td><td><strong>Косинус плотных DINO-фич</strong> ★</td><td>семантические патч-фичи (класс фич Этажа 1)</td><td>претрейн</td><td><span class="mid">1 прогон энкодера</span></td><td><span class="ok">лучшее априорное — фичи измеренно переживают сезон</span></td><td><span class="ok">высокое</span></td><td>torch (уже в стеке)</td></tr>
+        <tr><td class="num">B1.7</td><td>Certainty / ковариация плотного матчера</td><td>внутренняя уверенность ядра</td><td>с матчером</td><td><span class="ok">бесплатно при плотном ядре</span></td><td><span class="mid">не данность — мерить</span></td><td><span class="ok">вероятно высокое</span></td><td>наследство трека A</td></tr>
+      </tbody>
+      <tfoot><tr><td colspan="8" class="tbl-note">★ — фавориты класса по соотношению «ожидание × стоимость». Все колонки «ожидание» — априорные оценки; арбитр — таблица разделимости эксперимента E1 (§8).</td></tr></tfoot>
+    </table>
+  </div>
+
+  <article class="cand">
+    <div class="cand-head"><h3>CFOG / HOPC — структурная корреляция из remote sensing<small>Ye et al., IEEE TGRS 2017 / 2019 [5][6]</small></h3><span class="chip p1">★ фаворит B1</span></div>
+    <div class="cand-body">
+      <p>HOPC строит дескриптор из гистограмм ориентированной фазовой конгруэнтности — модель расширена до инвариантности к освещению и контрасту — и определяет метрику HOPCncc: нормированную корреляцию <strong>по дескрипторам</strong>. CFOG — попиксельное развитие: канальные признаки ориентированных градиентов с 3D-гауссовым сглаживанием, быстрее и плотнее, создан для template matching оптика↔SAR.</p>
+      <p>Схема для нас: CFOG-карты выровненного кадра и окна → NCC/косинус между картами → скаляр в связку. Никакого torch, никакого обучения, один настроечный параметр сглаживания. Лучший кандидат для немедленной проверки в E1.</p>
+    </div>
+    <div class="cand-stats"><div><span class="k">замена</span>aligned_ncc → cfog_ncc</div><div><span class="k">стоимость</span>≪ ECC</div><div><span class="k">валидация</span>оптика↔SAR↔LiDAR↔карта</div></div>
+  </article>
+
+  <article class="cand">
+    <div class="cand-head"><h3>Косинус плотных DINO-фич выровненной пары<small>гипотеза проекта · DINOv2/v3 [10]</small></h3><span class="chip p1">★ фаворит B1</span></div>
+    <div class="cand-body">
+      <p>Прямой перенос «сигнала Этажа 1» в роль NCC: патч-фичи выровненного кадра и окна → средний косинус по сетке (или доля патчей выше порога). Эти представления <strong>измеренно</strong> переживают сезон — ранг верной клетки 1–2 у апрельских кадров — самое сильное априорное ожидание сезонной сопоставимости шкалы среди всех кандидатов.</p>
+      <p>Стоимость: один прогон энкодера на пару, считать только для победителя веера — дешевле ECC. Синергия с треком A: при выборе там DINODenseMatcher или RoMa v2 фичи уже посчитаны, сигнал почти бесплатен.</p>
+    </div>
+    <div class="cand-stats"><div><span class="k">замена</span>aligned_ncc → dino_cos</div><div><span class="k">стоимость</span>1 encode / победитель</div><div><span class="k">синергия</span>трек A, шаги 5–7</div></div>
+  </article>
+
+  <p class="note">MI/NMI и NGF остаются в обязательной программе E1 как классические референсы: MI инвариантна к любому взаимно-однозначному перекрашиванию яркостей (но сезон им не является), NGF сравнивает направления градиентов — то, что сезон меняет слабее амплитуд; считать со взвешиванием по силе градиента в обоих изображениях, иначе доминирует шум плоских областей.</p>
+</section>
+
+<!-- ================= 5 ================= -->
+<section id="s5">
+  <h2 class="sec"><span class="num">05</span>Класс B2 — геометрическая верификация без фотометрии</h2>
+  <div class="season-rule"></div>
+  <p>Сигналы, не смотрящие на яркости вообще — сезонно-нейтральные <strong>по построению</strong>. Плата: они видят только геометрию соответствий и слепы к «похожести» места, то есть к части ложняков на самоподобных структурах. Их роль — не замена фотометрики, а независимая ось связки.</p>
+  <div class="tbl-scroll">
+    <table>
+      <caption>Сводная таблица · сигналы класса B2</caption>
+      <thead><tr><th>#</th><th>Сигнал</th><th>Что ловит</th><th>Стоимость</th><th>Когда считать</th></tr></thead>
+      <tbody>
+        <tr><td class="num">B2.1</td><td><strong>Пространственный разброс инлайеров</strong></td><td>ложную позу на компактном пятне повторяющейся текстуры</td><td><span class="ok">нулевая — из готовых инлайеров</span></td><td>всегда, первый ярус</td></tr>
+        <tr><td class="num">B2.2</td><td><strong>Bootstrap-устойчивость позы</strong> (+ jackknife-влиятельность)</td><td>вырожденное решение, «гуляющее» при подвыборке; заодно — независимая проверка аналитической ковариации</td><td><span class="ok">мс — N≈30–50 лёгких подгонок</span></td><td>всегда, первый ярус</td></tr>
+        <tr><td class="num">B2.3</td><td><strong>Согласие двух матчеров</strong></td><td>сговор на ложном месте маловероятен у ядер разной природы</td><td><span class="bad">≈ ×2 точного уровня</span></td><td>эскалация по LOW_CONFIDENCE</td></tr>
+        <tr><td class="num">B2.4</td><td>Бесплатные: стабильность позы между итерациями цикла масштаба; зазор победителя веера</td><td>рассогласованность решения; двусмысленность top-K (с пространственным подавлением)</td><td><span class="ok">нулевая — уже считаются</span></td><td>всегда</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Прецеденты в пользу B2.1 — двойные: внутренний (сигнал уникальности Этажа 1 потребовал пространственного подавления: кучность ≠ подтверждение) и внешний (классификатор Doppelgangers строит решение в том числе на пространственных картах матчей<a class="footref" href="#s10">[8]</a>). B2.2 — сезонно-нейтральна по построению и даёт побочный продукт: расхождение bootstrap-ковариации с аналитической — само по себе флаг.</p>
+</section>
+
+<!-- ================= 6 ================= -->
+<section id="s6">
+  <h2 class="sec"><span class="num">06</span>Класс B3 — обучаемый верификатор</h2>
+  <div class="season-rule"></div>
+
+  <article class="cand">
+    <div class="cand-head"><h3>Лёгкая обучаемая связка над сигналами B1+B2<small>логистическая регрессия / бустинг + изотоническая калибровка</small></h3><span class="chip p1">практичный первый шаг</span></div>
+    <div class="cand-body">
+      <p>Действующая связка — ручной классификатор из двух признаков с порогами. Естественное обобщение: вектор всех сигналов (инлайеры, разброс, bootstrap-дисперсия, NGF, CFOG-NCC, DINO-косинус, согласованности с приорами, режимный признак из §7) → логистическая регрессия → изотоническая калибровка выхода в вероятность. Работает на десятках примеров (харнесс уже собирает позитивы и трудные негативы), интерпретируема — веса показывают, какие сигналы реально режут, — а порог по калиброванной вероятности честно управляет балансом полнота/ложные.</p>
+    </div>
+    <div class="cand-stats"><div><span class="k">данные</span>харнесс calibrate_quality</div><div><span class="k">замена</span>ручное ∧ → P(верно)</div><div><span class="k">риск</span>низкий, всё интерпретируемо</div></div>
+  </article>
+
+  <article class="cand">
+    <div class="cand-head"><h3>Doppelgangers-подход<small>Cai et al., ICCV 2023 [8] · Doppelgangers++ 2024 [9]</small></h3><span class="chip p3">по мере накопления данных</span></div>
+    <div class="cand-body">
+      <p>Бинарный классификатор пары изображений с масками ключевых точек и матчей на входе; создан ровно против иллюзорных совпадений — визуально похожих, но разных мест, то есть против нашего класса уверенных ложняков на самоподобной местности. Опубликованы код, веса и датасет; Doppelgangers++ добавляет геометрические 3D-фичи и повышает точность.</p>
+      <p>Для нас — дальний ярус: претрейн на наземных интернет-фото (домен-гэп к надиру), а дообучение требует объёма, которого нет (367 кадров без GPS, кросс-сезонная Уфа — 267 кадров без позитивов). В план — как цель после накопления pipeline-позитивов; до того работает лёгкая связка выше.</p>
+    </div>
+    <div class="cand-stats"><div><span class="k">веса</span>опубликованы</div><div><span class="k">домен</span>наземные фото — гэп</div><div><span class="k">блокер</span>объём кросс-сезонных позитивов</div></div>
+  </article>
+</section>
+
+<!-- ================= 7 ================= -->
+<section id="s7">
+  <h2 class="sec"><span class="num">07</span>Режимный порог от Этажа 1 (фолбэк)</h2>
+  <div class="season-rule"></div>
+  <p>Если E1 покажет, что шкала едет у всех кандидатов, — фолбэк-ветка исходной постановки, оформленная в процедуру из трёх шагов:</p>
+  <ul class="plain">
+    <li><strong>Индикатор режима</strong> — из уже посчитанного: косинусное расстояние эмбеддинга кадра до эмбеддинга совпавшей клетки индекса. MegaLoc устойчив к сезону по <em>рангу</em>, но абсолютное расстояние сезонный сдвиг отражает — дешёвый «сезонный термометр». Валидация — маленький эксперимент E0: расстояние против известного сезона кадров набора.</li>
+    <li><strong>Порог как функция режима</strong>: два режима (в сезон / кросс-сезон) с раздельной калибровкой — или непрерывно, порог как монотонная функция индикатора. Формально это условная калибровка: фиксируем допустимый уровень ложных <strong>в каждом режиме</strong> (в духе групповой / Mondrian-конформной калибровки<a class="footref" href="#s10">[11]</a>), а не один глобальный порог.</li>
+    <li><strong>Граница применимости</strong>: режимный порог спасает, только если внутри режима разделимость сохраняется. Если в кросс-сезонном режиме распределения верных и ложных перекрываются (AUC → 0.5), никакой порог не поможет — нужен другой сигнал, а до его появления честный ответ — <code>LOW_CONFIDENCE</code> / отказ. Прямое следствие инварианта 4.</li>
+  </ul>
+  <div class="callout warn">
+    <div class="tag">Названный риск</div>
+    <p>Индикатор режима сам зависит от места: однородная местность тоже увеличивает расстояния Этажа 1. Разводить сезонный сдвиг и самоподобие — через уже существующий сигнал уникальности: режим = f(расстояние до своей клетки), самоподобие = f(зазор до далёкого двойника). Это разные оси, и смешивать их нельзя.</p>
+  </div>
+</section>
+
+<!-- ================= 8 ================= -->
+<section id="s8">
+  <h2 class="sec"><span class="num">08</span>Протокол оценки и рекомендуемый порядок</h2>
+  <div class="season-rule"></div>
+  <p>Ключевое отличие от протокола трека A: мерить нечем не матчер, а <em>сигнал</em>, и для этого не нужен рабочий кросс-сезонный матчинг — нужны выровненные пары. Их даёт оракул.</p>
+  <div class="steps">
+    <div class="step"><div><h4>E1 · Оракульное выравнивание — главный эксперимент</h4><p>Выровнять кадры по истине (EXIF / разметка) без матчера. Посчитать ВСЕ сигналы B1 на: верных парах в сезон · верных кросс-сезонных (оракул делает Ufa2/Ufa3 позитивами, недоступными пайплайну) · ложных парах обоих режимов (смещённые/чужие окна — харнесс негативов есть). Итог — одна таблица: AUC/Юден на сигнал на режим + сдвиг медианы верных между режимами. Аналог «теста потолка» трека A.</p></div></div>
+    <div class="step"><div><h4>E2 · Геометрические сигналы на существующих логах</h4><p>Разброс инлайеров и bootstrap-дисперсия считаются по сохранённым соответствиям прошлых прогонов eval_dataset.py — без новых матчей. Контроль на известных кейсах: ложняк 2126 м должен светиться, верные слабые кросс-дата кадры — нет.</p></div></div>
+    <div class="step"><div><h4>E3 · Обучаемая связка</h4><p>Победители E1–E2 → логистическая связка + изотоническая калибровка на объединённом наборе; сравнение с ручной связкой по паре «полнота при 0 ложных».</p></div></div>
+    <div class="step"><div><h4>E4 · Режимный порог — только по показаниям E1</h4><p>Если «различает, но шкала едет» у всех: валидация индикатора режима (E0) + раздельная калибровка порогов.</p></div></div>
+    <div class="step"><div><h4>Эскалация · второй матчер</h4><p>После выбора ядра в треке A: считать согласие двух матчеров только на LOW_CONFIDENCE-случаях — там, где сейчас режется полнота.</p></div></div>
+    <div class="step"><div><h4>Дальний ярус · Doppelgangers-верификатор</h4><p>По мере накопления pipeline-позитивов; до того его работу выполняет лёгкая связка E3.</p></div></div>
+  </div>
+  <div class="callout april">
+    <div class="tag">Критерий приёмки — двойной</div>
+    <p><strong>0 ложных</strong> на всём наборе — как сейчас; <strong>возврат полноты</strong>: <code>00049</code> перестаёт резаться порогом, а кросс-сезонные верные локализации (когда их начнёт давать трек A) проходят связку без ослабления режима «в сезон». Связь треков — встречное движение: A даёт позы, B решает, верить ли им; E1–E2 от трека A не зависят и запускаются немедленно.</p>
+  </div>
+</section>
+
+<!-- ================= 9 ================= -->
+<section id="s9">
+  <h2 class="sec"><span class="num">09</span>Интеграционные ограничения</h2>
+  <div class="season-rule"></div>
+  <ul class="plain">
+    <li><strong>Точка замены — <code>quality.py</code></strong>: <code>aligned_ncc</code> → семейство сигналов, <code>assess</code> → связка. Интерфейс статуса <code>LOCALIZED / LOW_CONFIDENCE / NOT_LOCALIZED</code> не меняется.</li>
+    <li><strong>Первый ярус считается из уже доступного</strong> в <code>assess</code>: выровненный патч, соответствия, инлайеры, приоры, (опционально) фичи/certainty матчера. Ничего, требующего повторного матчинга, в первый ярус не допускается.</li>
+    <li><strong>Бюджет</strong>: первый ярус дешевле одного ECC; дорогие сигналы (второй матчер) — только эскалационный ярус по <code>LOW_CONFIDENCE</code>.</li>
+    <li><strong>Калибровка — только через харнесс</strong> (<code>calibrate_quality</code>), с раздельным учётом режимов; ослабление порога без пере-калибровки запрещено инвариантом 4.</li>
+  </ul>
+</section>
+
+<!-- ================= 10 ================= -->
+<section id="s10">
+  <h2 class="sec"><span class="num">10</span>Первоисточники</h2>
+  <div class="season-rule"></div>
+  <p class="note">Ссылки на статьи и официальные репозитории. Позиции, отмеченные «≈», приведены по общеизвестным данным без сверки идентификатора в этой сессии — проверить при формальном цитировании.</p>
+  <ol class="src-list">
+    <li><div><div class="t">Viola, Wells. Alignment by Maximization of Mutual Information. IJCV 1997. — основание MI-регистрации.</div><div class="m">≈ DOI:10.1023/A:1007958904918</div></div></li>
+    <li><div><div class="t">Maes et al. Multimodality Image Registration by Maximization of Mutual Information. IEEE TMI 1997.</div><div class="m">≈ DOI:10.1109/42.563664</div></div></li>
+    <li><div><div class="t">Pluim, Maintz, Viergever. Mutual-information-based registration of medical images: a survey. IEEE TMI 2003.</div><div class="m">≈ DOI:10.1109/TMI.2003.815867</div></div></li>
+    <li><div><div class="t">Haber, Modersitzki. Intensity Gradient Based Registration and Fusion of Multi-modal Images. MICCAI 2006. — Normalized Gradient Fields; предложена как устойчивая к мультимодальности альтернатива MI с лучшей геометрией оптимизации.</div><div class="m"><a href="https://link.springer.com/chapter/10.1007/11866763_89">Springer, MICCAI 2006</a><a href="https://pubmed.ncbi.nlm.nih.gov/17354837/">PubMed:17354837</a></div></div></li>
+    <li><div><div class="t">Ye, Shan, Bruzzone, Shen. Robust Registration of Multimodal Remote Sensing Images Based on Structural Similarity. IEEE TGRS 2017. — HOPC / метрика HOPCncc.</div><div class="m"><a href="https://arxiv.org/abs/2103.16871">arXiv:2103.16871</a><a href="https://isprs-annals.copernicus.org/articles/III-1/9/2016/">ISPRS Annals 2016 (ранняя версия)</a></div></div></li>
+    <li><div><div class="t">Ye et al. Fast and Robust Matching for Multimodal Remote Sensing Image Registration. IEEE TGRS 2019. — CFOG.</div><div class="m">≈ DOI:10.1109/TGRS.2019.2924684</div></div></li>
+    <li><div><div class="t">Heinrich et al. MIND: Modality Independent Neighbourhood Descriptor for Multi-modal Deformable Registration. Medical Image Analysis 2012 (+ SSC, MICCAI 2013).</div><div class="m">≈ DOI:10.1016/j.media.2012.05.008</div></div></li>
+    <li><div><div class="t">Cai, Tung, Averbuch-Elor, Hariharan, Snavely et al. Doppelgangers: Learning to Disambiguate Images of Similar Structures. ICCV 2023.</div><div class="m"><a href="https://arxiv.org/abs/2309.02420">arXiv:2309.02420</a><a href="https://github.com/RuojinCai/doppelgangers">github.com/RuojinCai/doppelgangers</a><a href="https://doppelgangers-3d.github.io/">проектная страница</a></div></div></li>
+    <li><div><div class="t">Doppelgangers++: Improved Visual Disambiguation with Geometric 3D Features. 2024.</div><div class="m"><a href="https://arxiv.org/abs/2412.05826">arXiv:2412.05826</a></div></div></li>
+    <li><div><div class="t">Oquab et al. DINOv2, 2023 · DINOv3, Meta AI, 2025 — плотные патч-фичи для B1.6.</div><div class="m"><a href="https://arxiv.org/abs/2304.07193">arXiv:2304.07193</a><a href="https://github.com/facebookresearch/dinov2">github.com/facebookresearch/dinov2</a><a href="https://github.com/facebookresearch/dinov3">github.com/facebookresearch/dinov3</a></div></div></li>
+    <li><div><div class="t">Vovk, Gammerman, Shafer. Algorithmic Learning in a Random World. Springer. — конформная (в т.ч. групповая / Mondrian) калибровка для режимного порога §7.</div><div class="m">≈ Springer, 2005 / 2-е изд. 2022</div></div></li>
+    <li><div><div class="t">Edstedt et al. RoMa v2: Harder Better Faster Denser Feature Matching. 2025. — попиксельная certainty и ковариация ошибки (кандидат B1.7, наследство трека A).</div><div class="m"><a href="https://arxiv.org/abs/2511.15706">arXiv:2511.15706</a><a href="https://github.com/Parskatt/romav2">github.com/Parskatt/romav2</a></div></div></li>
+  </ol>
+</section>
+
+</main>
+</div><!-- /layout -->
+
+<footer class="wrap">
+  <span>AERO-GEOLOC · RESEARCH B · обзор кандидатов верификации на кросс-сезоне</span>
+  <span>родительский трек: RESEARCH_CROSS_SEASON.md · смежный: RESEARCH A · 2026-07-28</span>
+</footer>
+</div><!-- /wrap -->
+
+<script>
+(function(){
+  var links=document.querySelectorAll('.toc a');
+  var map={};
+  links.forEach(function(a){map[a.getAttribute('href').slice(1)]=a;});
+  if(!('IntersectionObserver' in window))return;
+  var obs=new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){
+        links.forEach(function(a){a.classList.remove('active');});
+        var a=map[e.target.id];
+        if(a)a.classList.add('active');
+      }
+    });
+  },{rootMargin:'-15% 0px -70% 0px'});
+  document.querySelectorAll('main section').forEach(function(s){obs.observe(s);});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+# Золотой набор: ЗАМОРОЖЕННОЕ поведение оценки на test_images/.
+#
+# Не редактировать руками ради того, чтобы прогон «прошёл». Файл существует ровно
+# затем, чтобы изменение поведения нельзя было не заметить: если прогон разошёлся
+# с золотом — либо чинить код, либо осознанно перезаморозить (--freeze) с записью
+# причины в docs/JOURNAL.md.
+#
+# outcome — класс исхода (aero_geoloc/regression.py), именно он даёт вердикт.
+# error_m / true_cell_rank / n_inliers / ncc — справочные: по ним видно, ЧТО
+# изменилось, но сами по себе они шумят и сборку не рушат.
+note: 'База minima_roma (2026-07-29). 16/16 поз, 0 ложных. ВНИМАНИЕ: Volgograd4 стоит вплотную к порогу
+  плотного ядра (MIN_INLIERS_DENSE=185) и колеблется между прогонами — 191 инлайер в одном, ниже порога
+  в другом. Заморожен по ПЕССИМИСТИЧНОМУ исходу: если пройдёт гейт, сторож покажет улучшение, а не ложную
+  регрессию.'
+config:
+  cell_px: 350
+  correct_m: 50.0
+  manifest: datasets/test_images.yaml
+  manual_tol_frac: 0.25
+  matcher: minima_roma
+  matcher_max_side: 0
+  max_fine_window_px: 4000
+  min_inliers: 6
+  min_photometric: null
+  offset_km: 0.0
+  overlap: 0.0
+  pca_dim: 1024
+  photometric: dino
+  radius_km: 1.5
+  rotation_step: 45
+  sigma_m: 0.0
+  top_k: 15
+cases:
+  00049:
+    outcome: accepted_correct
+    error_m: 7.5
+    true_cell_rank: 2
+    n_inliers: 412
+    ncc: 0.492
+    note: ok
+  Saratov:
+    outcome: accepted_correct
+    error_m: 2.9
+    true_cell_rank: 2
+    n_inliers: 308
+    ncc: 0.6535
+    note: ok
+  Saratov2:
+    outcome: accepted_correct
+    error_m: 52.9
+    true_cell_rank: 1
+    n_inliers: 410
+    ncc: 0.5626
+    note: ok
+  Saratov3:
+    outcome: accepted_correct
+    error_m: 60.7
+    true_cell_rank: 11
+    n_inliers: 388
+    ncc: 0.7116
+    note: ok
+  Saratov4:
+    outcome: accepted_correct
+    error_m: 35.5
+    true_cell_rank: 1
+    n_inliers: 680
+    ncc: 0.7229
+    note: ok
+  Ufa2:
+    outcome: pose_wrong_gated
+    error_m: 1632.4
+    true_cell_rank: 1
+    n_inliers: 55
+    ncc: 0.3965
+    note: гейт отверг неверную — верно (связка качества)
+  Ufa3:
+    outcome: accepted_correct
+    error_m: 5.0
+    true_cell_rank: 2
+    n_inliers: 614
+    ncc: 0.5749
+    note: ok
+  Ufa_sample1:
+    outcome: pose_wrong_gated
+    error_m: 570.3
+    true_cell_rank: 10
+    n_inliers: 98
+    ncc: 0.4917
+    note: гейт отверг неверную — верно (связка качества)
+  Ufa_sample2:
+    outcome: accepted_correct
+    error_m: 118.9
+    true_cell_rank: 25
+    n_inliers: 1933
+    ncc: 0.8138
+    note: ok
+  Ufa_sample3:
+    outcome: accepted_correct
+    error_m: 10.2
+    true_cell_rank: 3
+    n_inliers: 662
+    ncc: 0.7062
+    note: ok
+  Ufa_sample4:
+    outcome: accepted_correct
+    error_m: 3.5
+    true_cell_rank: 27
+    n_inliers: 546
+    ncc: 0.7179
+    note: ok
+  Volgograd:
+    outcome: accepted_correct
+    error_m: 123.9
+    true_cell_rank: 7
+    n_inliers: 300
+    ncc: 0.6911
+    note: ok
+  Volgograd2:
+    outcome: accepted_correct
+    error_m: 3.8
+    true_cell_rank: 12
+    n_inliers: 366
+    ncc: 0.6247
+    note: ok
+  Volgograd3:
+    outcome: accepted_correct
+    error_m: 1.2
+    true_cell_rank: 15
+    n_inliers: 430
+    ncc: 0.6467
+    note: ok
+  Volgograd4:
+    outcome: pose_correct_gated
+    error_m: 47.6
+    true_cell_rank: 2
+    n_inliers: 180
+    ncc: 0.625
+    note: ГЕЙТ отверг ВЕРНУЮ (связка качества)
+  train_SB_0023:
+    outcome: pose_wrong_gated
+    error_m: 930.3
+    true_cell_rank: 385
+    n_inliers: 93
+    ncc: 0.1475
+    note: гейт отверг неверную — верно (dino 0.147<0.35)

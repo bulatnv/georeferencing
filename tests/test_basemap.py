@@ -191,6 +191,118 @@ def test_fetch_basemap_zoom_out_of_provider_range(tmp_path):
         )
 
 
+# --- параллельная загрузка тайлов (O1) ---------------------------------------
+
+
+def test_prefetch_downloads_only_missing_tiles(tmp_path, monkeypatch):
+    """Префетч качает лишь недостающее: тайлы из кэша сеть не трогают."""
+    import aero_geoloc.basemap as bm
+
+    cache = TileCache(tmp_path)
+    populate_cache(cache, 10, range(0, 2), range(0, 1))  # (0,0) и (1,0) уже есть
+    asked: list[str] = []
+
+    def fake_get(url, *, timeout, retries=2):
+        asked.append(url)
+        import cv2
+        ok, buf = cv2.imencode(".png", synth_tile(9, 9))
+        return buf.tobytes()
+
+    monkeypatch.setattr(bm, "_http_get_retrying", fake_get)
+    tiles = [(0, 0), (1, 0), (5, 5), (6, 5)]
+    downloaded = bm.prefetch_tiles(FAKE_PROVIDER, 10, tiles, cache=cache)
+    assert downloaded == 2  # только (5,5) и (6,5)
+    assert len(asked) == 2
+    assert cache.get(FAKE_PROVIDER, 10, 5, 5) is not None
+
+
+def test_prefetch_failure_is_best_effort(tmp_path, monkeypatch):
+    """Сбой тайла не поднимается наружу: строгую ошибку даст уже сшивка.
+
+    Так поведение при недоступной сети остаётся прежним, а префетч влияет
+    только на скорость.
+    """
+    import aero_geoloc.basemap as bm
+
+    cache = TileCache(tmp_path)
+
+    def always_fail(url, *, timeout, retries=2):
+        raise OSError("сеть недоступна")
+
+    monkeypatch.setattr(bm, "_http_get_retrying", always_fail)
+    assert bm.prefetch_tiles(FAKE_PROVIDER, 10, [(1, 1), (2, 2)], cache=cache) == 0
+    assert cache.get(FAKE_PROVIDER, 10, 1, 1) is None
+
+
+def test_fetch_basemap_prefetches_window_tiles(tmp_path, monkeypatch):
+    """Сшивка окна сначала тянет недостающие тайлы пачкой, а не по одному.
+
+    Проверяем именно факт префетча: к моменту последовательной сборки мозаики
+    все тайлы окна уже в кэше, поэтому одиночная загрузка не вызывается.
+    """
+    import cv2
+
+    import aero_geoloc.basemap as bm
+
+    cache = TileCache(tmp_path)
+    prefetched: list[tuple] = []
+
+    def fake_get(url, *, timeout, retries=2):
+        ok, buf = cv2.imencode(".png", synth_tile(0, 0))
+        return buf.tobytes()
+
+    real_prefetch = bm.prefetch_tiles
+
+    def spy_prefetch(provider, zoom, tiles, **kw):
+        tiles = list(tiles)
+        prefetched.append(tuple(tiles))
+        return real_prefetch(provider, zoom, tiles, **kw)
+
+    monkeypatch.setattr(bm, "_http_get_retrying", fake_get)
+    monkeypatch.setattr(bm, "prefetch_tiles", spy_prefetch)
+    bm.fetch_basemap(0.0, 0.0, 10, 400, 400, provider=FAKE_PROVIDER, cache=cache)
+
+    assert prefetched, "префетч не вызывался"
+    assert len(prefetched[0]) >= 4  # окно 400x400 накрывает несколько тайлов 256px
+
+
+def test_fetch_basemap_without_cache_keeps_serial_path(tmp_path, monkeypatch):
+    """Без кэша префетчу некуда складывать — работает прежний путь по тайлу."""
+    import cv2
+
+    import aero_geoloc.basemap as bm
+
+    called: list[int] = []
+
+    def fake_get(url, *, timeout, retries=2):
+        ok, buf = cv2.imencode(".png", synth_tile(0, 0))
+        return buf.tobytes()
+
+    monkeypatch.setattr(bm, "_http_get_retrying", fake_get)
+    monkeypatch.setattr(bm, "prefetch_tiles",
+                        lambda *a, **k: called.append(1) or 0)
+    bm.fetch_basemap(0.0, 0.0, 10, 300, 300, provider=FAKE_PROVIDER, cache=None)
+    assert not called
+
+
+def test_http_get_retries_transient_failure(monkeypatch):
+    """Разовый сетевой сбой переживается ретраем, а не роняет сборку карты."""
+    import aero_geoloc.basemap as bm
+
+    attempts = []
+
+    def flaky(url, *, timeout):
+        attempts.append(url)
+        if len(attempts) < 3:
+            raise OSError("SSL handshake timed out")
+        return b"ok"
+
+    monkeypatch.setattr(bm, "_http_get", flaky)
+    monkeypatch.setattr(bm.time, "sleep", lambda *_: None)
+    assert bm._http_get_retrying("http://x", timeout=1.0, retries=2) == b"ok"
+    assert len(attempts) == 3
+
+
 # --- дымовой тест с реальной сетью (по умолчанию пропускается) ---------------
 
 

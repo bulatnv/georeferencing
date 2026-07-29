@@ -121,6 +121,35 @@ def test_altitude_for_gsd_is_inverse_of_gsd():
         )
 
 
+def test_from_gsd_reproduces_requested_gsd():
+    """Камера по GSD: на опорной высоте её GSD равен заданному (главный инвариант)."""
+    cam = Camera.from_gsd(7952, 5304, gsd_m=0.065, altitude_m=500.0)
+    assert cam.image_width == 7952 and cam.image_height == 5304
+    assert cam.gsd(500.0) == pytest.approx(0.065, rel=1e-12)
+    # Отпечаток следует из GSD напрямую — им и выбирается зум подложки.
+    assert cam.footprint_m(500.0)[0] == pytest.approx(7952 * 0.065, rel=1e-12)
+    # Камера задана через FOV — значит переживает ресемпл кадра (frame_at_mpp
+    # пересобирает её как Camera(w, h, fov_deg=...)), а не падает на fov_deg=None.
+    assert cam.fov_deg is not None
+    resized = Camera(1988, 1326, fov_deg=cam.fov_deg)
+    assert resized.gsd(500.0) == pytest.approx(0.065 * 4, rel=1e-9)  # в 4 раза грубее
+
+
+def test_from_gsd_depends_only_on_altitude_over_gsd_ratio():
+    """Геометрию задаёт отношение altitude/gsd: пары с одним отношением совпадают."""
+    a = Camera.from_gsd(4000, 3000, gsd_m=0.08, altitude_m=400.0)
+    b = Camera.from_gsd(4000, 3000, gsd_m=0.04, altitude_m=200.0)
+    assert a.focal_px() == pytest.approx(b.focal_px(), rel=1e-12)
+    assert a.hfov_deg() == pytest.approx(b.hfov_deg(), rel=1e-12)
+
+
+def test_from_gsd_rejects_nonpositive_inputs():
+    with pytest.raises(ValueError, match="gsd_m"):
+        Camera.from_gsd(4000, 3000, gsd_m=0.0, altitude_m=500.0)
+    with pytest.raises(ValueError, match="altitude_m"):
+        Camera.from_gsd(4000, 3000, gsd_m=0.065, altitude_m=-1.0)
+
+
 def test_gsd_rejects_nonpositive_altitude():
     with pytest.raises(ValueError):
         PIPELINE_CAM.gsd(0.0)

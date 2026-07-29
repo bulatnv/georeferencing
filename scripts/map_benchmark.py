@@ -151,7 +151,7 @@ def main() -> int:
 
             t0 = time.perf_counter()
             r = localize(frame, camera, prior, basemap, index=index, matcher=LightGlueMatcher(),
-                         prerotate=True, max_zoom=mz, min_ncc=0.12, min_inliers=args.min_inliers,
+                         prerotate=True, max_zoom=mz, min_photometric=0.12, min_inliers=args.min_inliers,
                          retrieval_top_k=args.top_k, ransac_threshold_px=6.0)
             search_s = time.perf_counter() - t0
             # Поиск по карте: принимаем только LOCALIZED (связка калиброванного качества);

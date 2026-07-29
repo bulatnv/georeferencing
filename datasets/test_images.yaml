@@ -1,0 +1,182 @@
+# Манифест набора test_images/ — единственный источник правды о кейсах оценки.
+#
+# Зачем: раньше каждый скрипт сам сканировал папку и сам строил приор, а знание
+# «Ufa.JPG — горизонт, его нельзя» жило в голове, а не в данных. Здесь оно
+# записано, и харнесс (scripts/eval_dataset.py) читает только отсюда.
+#
+# Почему файл лежит в datasets/, а не в test_images/: сами снимки — чужие данные
+# и лежат в .gitignore, а манифест (особенно ручная разметка истины, которую
+# подтверждает владелец глазами) обязан быть в git. Пути — от корня репозитория.
+#
+# truth:
+#   exif   — истина берётся из GPS снимка (load_drone_shot), поле truth не нужно
+#   manual — истина размечена по подложке и подтверждена владельцем, лежит здесь
+#   none   — истины пока нет; кейс участвует в прогонах, но ошибку по нему не мерить
+#
+# regime: in_season (по умолчанию) | cross_season — совпадает ли сезон съёмки с
+# сезоном подложки Esri (летняя). Это свойство ДАННЫХ, и анализ сигналов качества
+# (scripts/e1_signals.py) обязан считать режимы раздельно: измерено, что при ВЕРНОЙ
+# позе NCC даёт 0.53-0.69 летом и 0.04-0.11 на апрельских кадрах — усреднение двух
+# режимов даёт середину, которой не соответствует ни один из них.
+#
+# Кейс с ключом `exclude` не участвует в оценке; причина обязательна.
+
+dataset: test_images
+root: test_images
+
+cases:
+  # --- эталон: на нём проверялись MegaLoc/PCA/FAISS (docs/JOURNAL.md) ---------
+  - name: 00049
+    path: 00049.JPG
+    truth: exif
+    notes: >-
+      Германия, поле, лето. Эталонный кейс: из приора 1-2 км даёт 9.1 / 9.4 м.
+      Кадр в 6 раз детальнее Esri z19.
+
+  # --- Уфа: точный GPS есть, но апрель против летней Esri --------------------
+  - name: Ufa2
+    path: Ufa/Ufa2.JPG
+    truth: exif
+    regime: cross_season
+    notes: >-
+      Съёмка 2022-04-26. Кросс-сезон против летней Esri — тот самый режим, где
+      на 267 снимках Уфы ранее получено 0 позитивов (docs/JOURNAL.md). Провал
+      здесь — воспроизведение известной границы, а не баг.
+  - name: Ufa3
+    path: Ufa/Ufa3.JPG
+    truth: exif
+    regime: cross_season
+    notes: >-
+      Съёмка 2022-04-30 в 19:25 — длинные тени вдобавок к кросс-сезону.
+      Ожидание хуже, чем у Ufa2.
+
+  # --- Уфа, ЛЕТНИЕ снимки: контроль к апрельским Ufa2/Ufa3 -------------------
+  # GSD и координаты заданы владельцем в Ufa_geolocation.txt. Ufa_sample4 снят в
+  # ТОМ ЖЕ месте, что Ufa2 (координаты совпадают), но летом — это контролируемая
+  # пара «одно место, разные сезоны», которой проверяется, сезон ли виноват в
+  # провале апрельских кадров.
+  - name: Ufa_sample1
+    path: Ufa/Ufa_sample1.png
+    truth: {lat: 54.713978, lon: 56.007399}
+    gsd_m: 0.60
+    gsd_source: "Ufa_geolocation.txt: ~60 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 54.713978, lon: 56.007399, sigma_m: 1500.0}
+  - name: Ufa_sample2
+    path: Ufa/Ufa_sample2.png
+    truth: {lat: 54.708611, lon: 55.969114}
+    gsd_m: 0.60
+    gsd_source: "Ufa_geolocation.txt: ~60 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 54.708611, lon: 55.969114, sigma_m: 1500.0}
+  - name: Ufa_sample3
+    path: Ufa/Ufa_sample3.png
+    truth: {lat: 54.810466, lon: 56.055609}
+    gsd_m: 0.20
+    gsd_source: "Ufa_geolocation.txt: ~20 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 54.810466, lon: 56.055609, sigma_m: 1500.0}
+  - name: Ufa_sample4
+    path: Ufa/Ufa_sample4.png
+    # ТО ЖЕ МЕСТО, что Ufa2 (54.810675, 56.087295), но летняя съёмка.
+    truth: {lat: 54.810675, lon: 56.087295}
+    gsd_m: 0.20
+    gsd_source: "Ufa_geolocation.txt: ~20 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 54.810675, lon: 56.087295, sigma_m: 1500.0}
+
+  # --- трудный: 52 м AGL, кадр в 8 раз детальнее подложки --------------------
+  - name: train_SB_0023
+    path: train_SB_0023.JPG
+    truth: exif
+    notes: >-
+      AGL 51.9 м — информационный дефицит: footprint мал, кадр в ~8 раз
+      детальнее Esri. Ожидается отказ; ценен как честный негативный случай.
+
+  # --- Саратов: EXIF срезан, GSD из паспорта съёмки --------------------------
+  # 7952x5304, метаданных нет вообще (только JFIF APP0). GSD взят из
+  # Saratov_geolocation.txt («GSD: ~6.5 cm/pixel»), приблизительная точка оттуда же
+  # (51°32'26"N 46°00'30"E) — она одна на всю папку, поэтому годится как ПРИОР,
+  # но не как истина. Истину размечает владелец по оверлею (scripts/annotate_gt.py).
+  - name: Saratov
+    path: Saratov/Saratov.jpg
+    # Истина размечена по подложке и ПОДТВЕРЖДЕНА владельцем 2026-07-28: мост через
+    # Волгу с развязкой. Локализация дала 18 инлайеров, NCC 0.597, эллипс 0.14 м.
+    truth: {lat: 51.528219, lon: 46.062912}
+    gsd_m: 0.065
+    gsd_source: "Saratov_geolocation.txt: GSD ~6.5 cm/pixel"
+    altitude_m: 500.0
+    # ВАЖНО: точка из Saratov_geolocation.txt (51.540556, 46.008333) промахивается
+    # мимо места съёмки на ~4 км — она в городской застройке, а кадр над мостом.
+    # Приор поставлен по подтверждённой истине; исходная точка сохранена ниже.
+    prior: {lat: 51.528219, lon: 46.062912, sigma_m: 1500.0}
+    approx_point_from_txt: {lat: 51.540556, lon: 46.008333, off_by_m: 4000}
+  # Истина трёх кадров ниже ЗАДАНА ВЛАДЕЛЬЦЕМ по карте (2026-07-28) — это не
+  # результат пайплайна, а независимый эталон, против которого он и меряется.
+  - name: Saratov2
+    path: Saratov/Saratov2.jpg
+    truth: {lat: 51.487031, lon: 45.966006}   # затон с баржами, портовая зона
+    gsd_m: 0.065
+    gsd_source: "Saratov_geolocation.txt: GSD ~6.5 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 51.487031, lon: 45.966006, sigma_m: 1500.0}
+  - name: Saratov3
+    path: Saratov/Saratov3.jpg
+    truth: {lat: 51.455153, lon: 45.958228}   # сортировочная станция у воды
+    gsd_m: 0.065
+    gsd_source: "Saratov_geolocation.txt: GSD ~6.5 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 51.455153, lon: 45.958228, sigma_m: 1500.0}
+  - name: Saratov4
+    path: Saratov/Saratov4.jpg
+    truth: {lat: 51.461175, lon: 45.954580}   # дачи вдоль берега
+    gsd_m: 0.065
+    gsd_source: "Saratov_geolocation.txt: GSD ~6.5 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 51.461175, lon: 45.954580, sigma_m: 1500.0}
+
+  # --- Волгоград: то же, приблизительная точка 48.7194, 44.5018 --------------
+  - name: Volgograd
+    path: Volgograd/Volgograd.jpg
+    truth: {lat: 48.716270, lon: 44.531047}   # задана владельцем по карте
+    gsd_m: 0.065
+    gsd_source: "Volgograd_geolocation.txt: GSD ~6.5 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 48.716270, lon: 44.531047, sigma_m: 1500.0}
+  - name: Volgograd2
+    path: Volgograd/Volgograd2.jpg
+    # ПОДТВЕРЖДЕНО владельцем 2026-07-28: пляж, дачи, петля дороги.
+    # 58 инлайеров, NCC 0.547, эллипс 0.09 м.
+    truth: {lat: 48.715919, lon: 44.557524}
+    gsd_m: 0.065
+    gsd_source: "Volgograd_geolocation.txt: GSD ~6.5 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 48.715919, lon: 44.557524, sigma_m: 1500.0}
+  - name: Volgograd3
+    path: Volgograd/Volgograd3.jpg
+    # ПОДТВЕРЖДЕНО владельцем 2026-07-28: марина с понтонами и катерами.
+    # 18 инлайеров, NCC 0.623, эллипс 0.17 м.
+    truth: {lat: 48.680748, lon: 44.486746}
+    gsd_m: 0.065
+    gsd_source: "Volgograd_geolocation.txt: GSD ~6.5 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 48.680748, lon: 44.486746, sigma_m: 1500.0}
+  - name: Volgograd4
+    path: Volgograd/Volgograd4.jpg
+    truth: {lat: 48.769562, lon: 44.582255}   # задана владельцем по карте
+    gsd_m: 0.065
+    gsd_source: "Volgograd_geolocation.txt: GSD ~6.5 cm/pixel"
+    altitude_m: 500.0
+    prior: {lat: 48.769562, lon: 44.582255, sigma_m: 1500.0}
+
+  # --- исключённые: причина в данных, а не в голове --------------------------
+  - name: Ufa
+    path: Ufa/Ufa.JPG
+    exclude: >-
+      Питч подвеса 0° = съёмка в горизонт (наклон от надира 90°). Вне надирной
+      модели проекта — плоская земля тут неприменима.
+  - name: DSC00045
+    path: DSC00045.JPG
+    exclude: >-
+      Нет GPS в EXIF и нет приблизительной точки: приор построить не из чего.
+      Вдобавок съёмка в 23:33 — ночь, подложка Esri дневная.

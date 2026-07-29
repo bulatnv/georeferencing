@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RESEARCH A — Этаж 2 на смене сезона: обзор кандидатов</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F2F4EF;
+  --paper-2:#E9EDE4;
+  --ink:#1E2A26;
+  --ink-soft:#48544F;
+  --summer:#4C7A45;
+  --april:#A8763E;
+  --water:#2E6E8C;
+  --signal:#C8452C;
+  --line:rgba(30,42,38,.14);
+  --line-strong:rgba(30,42,38,.32);
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --body:'Golos Text',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --disp:'Unbounded','Golos Text',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{
+  font-family:var(--body);color:var(--ink);background:var(--paper);
+  font-size:16px;line-height:1.62;
+  background-image:
+    linear-gradient(var(--line) 1px,transparent 1px),
+    linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:56px 56px;
+}
+a{color:var(--water);text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{color:var(--ink)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--water);outline-offset:2px}
+
+.wrap{max-width:1240px;margin:0 auto;padding:0 24px}
+.layout{display:grid;grid-template-columns:264px minmax(0,1fr);gap:56px;align-items:start}
+@media (max-width:1080px){.layout{display:block}}
+
+/* ---------- шапка ---------- */
+header.masthead{border-bottom:2px solid var(--ink);background:var(--paper)}
+.mast-inner{padding:26px 0 22px;display:flex;flex-wrap:wrap;gap:14px 32px;align-items:baseline;justify-content:space-between}
+.mast-brand{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+.mast-brand b{color:var(--ink);font-weight:500}
+.mast-meta{font-family:var(--mono);font-size:12px;color:var(--ink-soft);display:flex;gap:22px;flex-wrap:wrap}
+.mast-meta span b{color:var(--ink);font-weight:500}
+
+/* ---------- герой ---------- */
+.hero{padding:56px 0 44px;border-bottom:1px solid var(--line-strong)}
+.hero-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(320px,.95fr);gap:48px;align-items:center}
+@media (max-width:920px){.hero-grid{grid-template-columns:1fr}}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:18px}
+.eyebrow .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;vertical-align:baseline;background:linear-gradient(90deg,var(--summer) 50%,var(--april) 50%)}
+h1{font-family:var(--disp);font-weight:700;font-size:clamp(26px,3.6vw,42px);line-height:1.16;letter-spacing:-.01em;margin-bottom:20px}
+h1 .accent{color:var(--summer)}
+h1 .accent2{color:var(--april)}
+.hero p.lede{font-size:17.5px;color:var(--ink-soft);max-width:56ch;margin-bottom:26px}
+.hero-facts{display:flex;gap:0;border:1px solid var(--line-strong);background:#fff;max-width:560px}
+.hero-facts div{flex:1;padding:12px 16px;border-right:1px solid var(--line)}
+.hero-facts div:last-child{border-right:none}
+.hero-facts .k{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)}
+.hero-facts .v{font-family:var(--mono);font-size:15px;font-weight:500;margin-top:2px}
+.hero-fig{background:#fff;border:1px solid var(--line-strong);padding:18px 18px 12px}
+.hero-fig figcaption{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:10px;line-height:1.5}
+.hero-fig svg{width:100%;height:auto;display:block}
+
+/* ---------- оглавление ---------- */
+nav.toc{position:sticky;top:24px;border:1px solid var(--line-strong);background:#fff;padding:20px 0 8px;margin:48px 0}
+@media (max-width:1080px){nav.toc{position:static;margin:36px 0 8px}}
+.toc h2{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;font-weight:500;padding:0 20px 12px;border-bottom:1px solid var(--line);color:var(--ink-soft)}
+.toc ol{list-style:none;counter-reset:toc;padding:8px 0}
+.toc li{counter-increment:toc}
+.toc a{display:flex;gap:12px;align-items:baseline;padding:7px 20px;color:var(--ink);text-decoration:none;font-size:14px;line-height:1.4;border-left:3px solid transparent}
+.toc a::before{content:counter(toc,decimal-leading-zero);font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);flex:0 0 auto}
+.toc a:hover{background:var(--paper-2)}
+.toc a.active{border-left-color:var(--summer);background:var(--paper-2);font-weight:500}
+
+/* ---------- контент ---------- */
+main{padding:16px 0 96px;min-width:0}
+section{padding:44px 0 8px;scroll-margin-top:24px}
+section + section{border-top:1px solid var(--line)}
+h2.sec{font-family:var(--disp);font-weight:500;font-size:clamp(20px,2.3vw,27px);line-height:1.25;margin-bottom:8px;display:flex;gap:16px;align-items:baseline}
+h2.sec .num{font-family:var(--mono);font-size:14px;font-weight:400;color:var(--ink-soft);flex:0 0 auto}
+.season-rule{height:3px;width:120px;background:linear-gradient(90deg,var(--summer) 50%,var(--april) 50%);margin:14px 0 26px}
+h3{font-family:var(--body);font-weight:600;font-size:18px;margin:32px 0 10px}
+p{margin-bottom:14px;max-width:72ch}
+p.note{color:var(--ink-soft);font-size:14.5px}
+strong{font-weight:600}
+em{font-style:italic}
+code{font-family:var(--mono);font-size:.88em;background:var(--paper-2);border:1px solid var(--line);padding:1px 5px;border-radius:3px}
+ul.plain{margin:0 0 16px 20px}
+ul.plain li{margin-bottom:8px;max-width:70ch}
+.footref{font-family:var(--mono);font-size:.72em;vertical-align:super;text-decoration:none;color:var(--water)}
+
+/* ---------- карточки-факты, таблицы ---------- */
+.callout{border:1px solid var(--line-strong);border-left:4px solid var(--summer);background:#fff;padding:18px 22px;margin:22px 0;max-width:760px}
+.callout.warn{border-left-color:var(--signal)}
+.callout.april{border-left-color:var(--april)}
+.callout .tag{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:8px}
+.callout p{margin-bottom:6px}
+.callout p:last-child{margin-bottom:0}
+
+.tbl-scroll{overflow-x:auto;margin:20px 0 26px;border:1px solid var(--line-strong);background:#fff}
+table{border-collapse:collapse;width:100%;font-size:14px}
+caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);padding:12px 16px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.05em;text-transform:uppercase;text-align:left;color:var(--ink-soft);padding:10px 14px;border-bottom:2px solid var(--ink);background:var(--paper-2);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td.num,th.num{font-family:var(--mono);white-space:nowrap}
+td .ok{color:var(--summer);font-weight:600}
+td .bad{color:var(--signal);font-weight:600}
+td .mid{color:var(--april);font-weight:600}
+.tbl-note{font-family:var(--mono);font-size:12px;color:var(--ink-soft);padding:10px 16px;border-top:1px solid var(--line)}
+
+/* ---------- бар-чарты ---------- */
+.chart{background:#fff;border:1px solid var(--line-strong);padding:20px 22px 16px;margin:22px 0;max-width:760px}
+.chart h4{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:16px}
+.bar-row{display:grid;grid-template-columns:190px 1fr 74px;gap:12px;align-items:center;margin-bottom:10px}
+@media (max-width:560px){.bar-row{grid-template-columns:120px 1fr 64px}}
+.bar-label{font-size:13.5px;line-height:1.3}
+.bar-label small{display:block;font-family:var(--mono);font-size:11px;color:var(--ink-soft)}
+.bar-track{height:16px;background:var(--paper-2);position:relative}
+.bar-fill{height:100%;min-width:2px}
+.bar-fill.summer{background:var(--summer)}
+.bar-fill.april{background:var(--april)}
+.bar-fill.fail{background:var(--signal)}
+.bar-val{font-family:var(--mono);font-size:13px;text-align:right;white-space:nowrap}
+.chart .thresh{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--signal)}
+.chart-note{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:12px;line-height:1.5}
+
+/* ---------- карточки кандидатов ---------- */
+.cand{border:1px solid var(--line-strong);background:#fff;margin:22px 0;max-width:860px}
+.cand-head{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:baseline;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,rgba(76,122,69,.06) 50%,rgba(168,118,62,.06) 50%)}
+.cand-head h3{margin:0;font-size:18.5px}
+.cand-head h3 small{font-family:var(--mono);font-size:12px;font-weight:400;color:var(--ink-soft);margin-left:10px}
+.chip{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border:1px solid currentColor;border-radius:99px;white-space:nowrap}
+.chip.p1{color:var(--summer)}
+.chip.p2{color:var(--april)}
+.chip.p3{color:var(--ink-soft)}
+.cand-body{padding:18px 22px 8px}
+.cand-stats{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--line);font-family:var(--mono);font-size:12.5px}
+.cand-stats div{padding:10px 18px;border-right:1px solid var(--line)}
+.cand-stats div:last-child{border-right:none}
+.cand-stats .k{color:var(--ink-soft);font-size:11px;letter-spacing:.06em;text-transform:uppercase;display:block}
+
+/* ---------- порядок проверки ---------- */
+.steps{counter-reset:step;margin:26px 0;max-width:800px}
+.step{display:grid;grid-template-columns:56px 1fr;gap:20px;padding:16px 0;border-bottom:1px solid var(--line);counter-increment:step}
+.step:last-child{border-bottom:none}
+.step::before{content:counter(step,decimal-leading-zero);font-family:var(--disp);font-weight:500;font-size:20px;color:var(--summer);line-height:1.3}
+.step:nth-child(n+5)::before{color:var(--april)}
+.step h4{font-weight:600;font-size:16px;margin-bottom:4px}
+.step p{margin-bottom:0;font-size:15px;color:var(--ink-soft)}
+
+/* ---------- источники ---------- */
+.src-list{list-style:none;counter-reset:src;margin:20px 0;max-width:860px}
+.src-list li{counter-increment:src;display:grid;grid-template-columns:44px 1fr;gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+.src-list li::before{content:"["counter(src)"]";font-family:var(--mono);font-size:13px;color:var(--ink-soft)}
+.src-list .t{font-weight:500}
+.src-list .m{font-family:var(--mono);font-size:12.5px;color:var(--ink-soft);margin-top:2px}
+.src-list .m a{margin-right:14px}
+
+footer{border-top:2px solid var(--ink);padding:22px 0 40px;font-family:var(--mono);font-size:12px;color:var(--ink-soft);display:flex;flex-wrap:wrap;gap:10px 30px;justify-content:space-between}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap mast-inner">
+    <div class="mast-brand">AERO-GEOLOC · ТРЕК <b>RESEARCH / CROSS-SEASON</b> · НАПРАВЛЕНИЕ A</div>
+    <div class="mast-meta">
+      <span>дата <b>2026-07-28</b></span>
+      <span>статус <b>обзор, до кода</b></span>
+      <span>железо <b>RTX 4090 · 24 ГБ</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+<section class="hero">
+  <div class="hero-grid">
+    <div>
+      <div class="eyebrow"><span class="dot"></span>Этаж 2 · чем матчить вместо разреженных точек</div>
+      <h1>Кросс-сезонный матчинг кадр&nbsp;↔&nbsp;подложка:<br><span class="accent">лето</span> против <span class="accent2">апреля</span></h1>
+      <p class="lede">Retrieval-этаж узнаёт место через смену сезона, а точный матчинг на тех же кадрах даёт ноль инлайеров. Обзор собирает измеренную проблематику, ключевые сдвиги в области за 2024–2026 и сравнение девяти кандидатов на замену разреженного матчинга — с порядком проверки и первоисточниками.</p>
+      <div class="hero-facts">
+        <div><span class="k">Этаж 1, ранг верной клетки</span><span class="v">1–2 из тысяч</span></div>
+        <div><span class="k">Этаж 2, инлайеры (апрель)</span><span class="v" style="color:var(--signal)">0</span></div>
+        <div><span class="k">Кандидатов в обзоре</span><span class="v">9</span></div>
+      </div>
+    </div>
+    <figure class="hero-fig">
+      <svg viewBox="0 0 640 330" role="img" aria-label="Одно место в двух сезонах: устойчивые структуры совпадают, растительность — нет">
+        <!-- летний тайл -->
+        <g>
+          <rect x="10" y="20" width="270" height="270" fill="#8FAF64"/>
+          <polygon points="10,20 150,20 90,150 10,120" fill="#7FA455"/>
+          <polygon points="150,290 280,290 280,180 200,200" fill="#9DBB6C"/>
+          <path d="M10,230 C80,210 120,260 190,240 C230,228 260,250 280,244" stroke="#6FA3BC" stroke-width="10" fill="none"/>
+          <path d="M10,60 L280,250" stroke="#3B463F" stroke-width="9" fill="none"/>
+          <path d="M10,60 L280,250" stroke="#E8E4D8" stroke-width="5" fill="none"/>
+          <circle cx="200" cy="70" r="17" fill="#4C7A45"/>
+          <circle cx="232" cy="95" r="13" fill="#456F3F"/>
+          <circle cx="180" cy="105" r="11" fill="#4C7A45"/>
+          <circle cx="60" cy="180" r="14" fill="#456F3F"/>
+          <rect x="96" y="88" width="26" height="18" fill="#8C8F94" stroke="#3B463F" stroke-width="1.5"/>
+          <rect x="128" y="120" width="20" height="26" fill="#9A9DA1" stroke="#3B463F" stroke-width="1.5"/>
+          <rect x="10" y="20" width="270" height="270" fill="none" stroke="#1E2A26" stroke-width="2"/>
+          <text x="18" y="308" font-family="IBM Plex Mono,monospace" font-size="12" fill="#48544F">ЛЕТО · подложка Esri</text>
+        </g>
+        <!-- апрельский тайл -->
+        <g>
+          <rect x="360" y="20" width="270" height="270" fill="#C9B18B"/>
+          <polygon points="360,20 500,20 440,150 360,120" fill="#BCA378"/>
+          <polygon points="500,290 630,290 630,180 550,200" fill="#B79E77"/>
+          <path d="M360,230 C430,210 470,260 540,240 C580,228 610,250 630,244" stroke="#6FA3BC" stroke-width="10" fill="none"/>
+          <path d="M360,60 L630,250" stroke="#3B463F" stroke-width="9" fill="none"/>
+          <path d="M360,60 L630,250" stroke="#E8E4D8" stroke-width="5" fill="none"/>
+          <circle cx="550" cy="70" r="17" fill="none" stroke="#A8763E" stroke-width="2.5"/>
+          <circle cx="582" cy="95" r="13" fill="none" stroke="#A8763E" stroke-width="2.5"/>
+          <circle cx="530" cy="105" r="11" fill="none" stroke="#A8763E" stroke-width="2.5"/>
+          <circle cx="410" cy="180" r="14" fill="none" stroke="#A8763E" stroke-width="2.5"/>
+          <rect x="446" y="88" width="26" height="18" fill="#8C8F94" stroke="#3B463F" stroke-width="1.5"/>
+          <rect x="478" y="120" width="20" height="26" fill="#9A9DA1" stroke="#3B463F" stroke-width="1.5"/>
+          <rect x="360" y="20" width="270" height="270" fill="none" stroke="#1E2A26" stroke-width="2"/>
+          <text x="368" y="308" font-family="IBM Plex Mono,monospace" font-size="12" fill="#48544F">АПРЕЛЬ · кадр борта</text>
+        </g>
+        <!-- соответствия: устойчивые структуры -->
+        <g stroke="#4C7A45" stroke-width="1.8">
+          <line x1="109" y1="97" x2="459" y2="97"/>
+          <line x1="138" y1="133" x2="488" y2="133"/>
+          <line x1="145" y1="155" x2="495" y2="155"/>
+          <line x1="190" y1="240" x2="540" y2="240"/>
+        </g>
+        <!-- провалы: растительность -->
+        <g stroke="#C8452C" stroke-width="1.6" stroke-dasharray="5 5">
+          <line x1="200" y1="70" x2="550" y2="70"/>
+          <line x1="60" y1="180" x2="410" y2="180"/>
+        </g>
+        <g font-family="IBM Plex Mono,monospace" font-size="13" fill="#C8452C" font-weight="600">
+          <text x="368" y="62">×</text><text x="368" y="186">×</text>
+        </g>
+      </svg>
+      <figcaption>Одно место, два сезона. Дороги, здания, вода совпадают; листва и трава — нет. Разреженные точки живут именно на растительности и контрасте теней, поэтому соответствий физически не остаётся.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<div class="layout">
+<nav class="toc" aria-label="Содержание">
+  <h2>Содержание</h2>
+  <ol>
+    <li><a href="#s1">Проблематика: где и почему ломается</a></li>
+    <li><a href="#s2">Измеренное основание</a></li>
+    <li><a href="#s3">Что изменилось в области</a></li>
+    <li><a href="#s4">Сравнение кандидатов</a></li>
+    <li><a href="#s5">Кандидаты подробно</a></li>
+    <li><a href="#s6">Порядок проверки</a></li>
+    <li><a href="#s7">Интеграционные следствия</a></li>
+    <li><a href="#s8">Первоисточники</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ================= 1 ================= -->
+<section id="s1">
+  <h2 class="sec"><span class="num">01</span>Проблематика: где и почему ломается</h2>
+  <div class="season-rule"></div>
+  <p>Система локализации двухэтажная. <strong>Этаж 1</strong> (retrieval, MegaLoc<a class="footref" href="#s8">[12]</a>) отвечает «где примерно» — по глобальному эмбеддингу кадра отдаёт top-K клеток карты. <strong>Этаж 2</strong> (LightGlue<a class="footref" href="#s8">[2]</a> + RANSAC + ECC) отвечает «где точно» — строит соответствия кадр↔подложка и оценивает позу подобия. Связка качества (инлайеры ∧ NCC ∧ эллипс) решает, можно ли результату доверять.</p>
+  <p>На кадрах, снятых не в сезон подложки, <strong>Этаж 1 работает, Этаж 2 — нет</strong>. Проблема распадается на две независимые:</p>
+  <ul class="plain">
+    <li><strong>A. Матчинг.</strong> Разреженные ключевые точки (SuperPoint) не детектируются в одних и тех же местах, когда листва распустилась или опала, трава сменила цвет, а тени легли иначе. Соответствий физически нет — позы нет.</li>
+    <li><strong>B. Сигнал качества.</strong> Фотометрический NCC уезжает вместе с сезоном на порядок; один порог не обслуживает оба режима — строгий режет верные кросс-сезонные локализации, мягкий впускает ложные.</li>
+  </ul>
+  <p>Настоящий обзор закрывает направление A. Для направления B здесь собраны только заготовки (§7): карты уверенности плотных матчеров и попиксельная ковариация RoMa v2.</p>
+  <div class="callout april">
+    <div class="tag">Уточнение из оговорок трека</div>
+    <p>Различать стоит не «сезон», а <strong>степень изменения сцены</strong>: августовский кадр с убранным полем (<code>00049</code>) работает с 38–49 инлайерами против летней подложки, тогда как смена листвы у лиственных деревьев — крайний случай, роняющий матчинг в ноль.</p>
+  </div>
+</section>
+
+<!-- ================= 2 ================= -->
+<section id="s2">
+  <h2 class="sec"><span class="num">02</span>Измеренное основание (не перепроверять)</h2>
+  <div class="season-rule"></div>
+
+  <h3>2.1 Контролируемая пара: сезон, а не координаты и не код</h3>
+  <p>Два снимка <strong>одного и того же места</strong> при одинаковых координатах, подложке, коде и параметрах. Версия «неверные координаты» закрыта отдельно: EXIF и координаты владельца расходятся на 3 м (<code>Ufa2</code>) и 38 м (<code>Ufa3</code>) при отпечатке кадра 232 м.</p>
+  <div class="tbl-scroll">
+    <table>
+      <caption>Золотая пара · одно место, два сезона</caption>
+      <thead><tr><th>Кадр</th><th>Сезон</th><th class="num">GSD, м/px</th><th>Итог локализации</th></tr></thead>
+      <tbody>
+        <tr><td><code>Ufa2</code></td><td>апрель — голые деревья, бурая трава</td><td class="num">0.042</td><td><span class="bad">отказ</span></td></tr>
+        <tr><td><code>Ufa_sample4</code></td><td>лето</td><td class="num">0.20</td><td><span class="ok">4.7 м</span>, NCC 0.635</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>2.2 Тест потолка: дело не в приоре и не в поиске</h3>
+  <p>Матч на <strong>точных</strong> координатах истины с перебором всех поворотов (шаг 15°) — идеальные условия, которых в реальной локализации не бывает. Апрельские кадры не дают ни одного инлайера по физически правильной для надира модели подобия:</p>
+  <div class="chart">
+    <h4>Инлайеры по модели подобия · тест потолка</h4>
+    <div class="bar-row">
+      <div class="bar-label"><code>00049</code><small>контроль, август</small></div>
+      <div class="bar-track"><div class="bar-fill summer" style="width:100%"></div></div>
+      <div class="bar-val">43</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label"><code>Ufa2</code><small>апрель, 26 соотв.</small></div>
+      <div class="bar-track"><div class="bar-fill fail" style="width:2px"></div></div>
+      <div class="bar-val" style="color:var(--signal)">0</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label"><code>Ufa3</code><small>апрель, 5 соотв.</small></div>
+      <div class="bar-track"><div class="bar-fill fail" style="width:2px"></div></div>
+      <div class="bar-val" style="color:var(--signal)">0</div>
+    </div>
+    <div class="chart-note">Свип приора 0/1/2 км показал: ошибка не растёт с удалением, уфимские кадры отказывают при любом сдвиге, включая нулевой. Приор ни при чём.</div>
+  </div>
+
+  <h3>2.3 Этаж 1 на тех же кадрах работает</h3>
+  <p>Ранг верной клетки у <code>Ufa2</code> — <strong>1</strong>, у <code>Ufa3</code> — <strong>2</strong> из тысяч. MegaLoc узнаёт место через смену сезона, LightGlue — нет. Это важнейший ориентир обзора: <strong>плотные обученные представления сезон переживают, разреженные точки — нет</strong>, и решение направления A должно тянуть класс фич Этажа 1 на Этаж 2.</p>
+
+  <h3>2.4 Шкала NCC уезжает с сезоном</h3>
+  <div class="chart">
+    <h4>NCC верных локализаций · порог связки 0.12 отмечен красным</h4>
+    <div class="bar-row">
+      <div class="bar-label">Съёмка в сезон<small>диапазон верных</small></div>
+      <div class="bar-track"><div class="thresh" style="left:17.3%"></div><div class="bar-fill summer" style="margin-left:91.5%;width:8.5%"></div></div>
+      <div class="bar-val">0.635–0.694</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Кросс-сезон<small>диапазон верных</small></div>
+      <div class="bar-track"><div class="thresh" style="left:17.3%"></div><div class="bar-fill april" style="margin-left:5.8%;width:10.1%"></div></div>
+      <div class="bar-val">0.04–0.11</div>
+    </div>
+    <div class="chart-note">Разница на порядок. Действующий порог 0.12 калиброван на 11 верных / 26 ложных матчах (преимущественно немецкие кадры) и впритык режет эталонный <code>00049</code> (NCC 0.113 при верной локализации 8.5 м).</div>
+  </div>
+
+  <h3>2.5 Второй фактор — масштаб, слабее сезона</h3>
+  <p>Летний <code>Ufa_sample1</code> (0.60 м/px, кадр втрое грубее подложки) отказал; <code>sample3</code>/<code>sample4</code> при детальности 0.9× от подложки сработали. Расхождение детальности в любую сторону вредит, поэтому <strong>в экспериментах сезон и масштаб обязаны разделяться</strong> — при том что в наборе они перепутаны: апрельские кадры вчетверо детальнее подложки, летние почти вровень.</p>
+  <p class="note">Классика закрыта окончательно: SIFT и AKAZE на паре дрон↔Esri через сезон дают 0 инлайеров там, где LightGlue даёт 54. Репроекционный RMSE как сигнал качества бесполезен (индекс Юдена 0).</p>
+</section>
+
+<!-- ================= 3 ================= -->
+<section id="s3">
+  <h2 class="sec"><span class="num">03</span>Основные открытия: что изменилось в области</h2>
+  <div class="season-rule"></div>
+  <p>Исходный список кандидатов трека (LoFTR → ELoFTR → RoMa/DKM → MASt3R → GIM) отражал состояние области на середину 2024 года. Обзор выявил три сдвига, меняющих приоритеты.</p>
+
+  <div class="callout">
+    <div class="tag">Открытие 1 · класс моделей под нашу задачу уже существует</div>
+    <p>Появились матчеры, обученные <strong>специально под инвариантность к смене внешнего вида и модальности</strong>: MINIMA (CVPR 2025)<a class="footref" href="#s8">[8]</a> и MatchAnything (2025)<a class="footref" href="#s8">[9]</a>. Оба решают ровно нашу формулу «структура та же — фотометрия другая»: масштабной генерацией синтетических кросс-модальных пар (день↔ночь, RGB↔ИК, RGB↔depth) с точной геометрической разметкой и обучением стандартных архитектур (LightGlue / LoFTR / ELoFTR / RoMa) на них. Смена сезона — мягкий частный случай их обучающего распределения, а не край.</p>
+  </div>
+
+  <div class="callout">
+    <div class="tag">Открытие 2 · плотный SOTA пересел на фичи класса Этажа 1</div>
+    <p>RoMa v2 (ноябрь 2025)<a class="footref" href="#s8">[6]</a> — плотный матчер на замороженном <strong>DINOv3</strong><a class="footref" href="#s8">[11]</a>: том же классе foundation-представлений, которые у нас уже переживают сезон в MegaLoc. Быстрее v1 в ~1.7× при сравнимой памяти, −84% EPE на аэродомене AerialMegaDepth, отдельная оценка на SatAst — матчинге снимков к спутниковым изображениям при больших изменениях масштаба и поворота в плоскости. Плюс предсказывает попиксельную ковариацию ошибки — готовый материал для направления B.</p>
+  </div>
+
+  <div class="callout warn">
+    <div class="tag">Открытие 3 · наш отрицательный результат по LoFTR невалиден</div>
+    <p>Зафиксированный «LoFTR = 0 инлайеров» получен на входе в полном разрешении (кадр 1348×758 против окна 2000 px), тогда как LoFTR обучен на ~640 px и квадратичен по числу токенов. Плотные и полуплотные матчеры этим тестом <strong>не опровергнуты</strong>; первый шаг экспериментов — корректный прогон с ресайзом и переносом точек в исходные координаты.</p>
+  </div>
+
+  <p>Следствие для очереди: семейства MINIMA/MatchAnything и RoMa v2 встают <strong>выше</strong> «чистых» RoMa v1 / DKM / MASt3R из исходного списка; MASt3R опускается в конец (некоммерческая лицензия и негодная для планарного надира специализация — §5.9).</p>
+</section>
+
+<!-- ================= 4 ================= -->
+<section id="s4">
+  <h2 class="sec"><span class="num">04</span>Сравнение кандидатов</h2>
+  <div class="season-rule"></div>
+  <p>Оси сравнения заданы треком: тип, обучение и фичи, инвариантность к повороту, требования к входу, ожидание на сильной смене вида, лицензия, стоимость проверки. Номера в первой колонке — ссылки на профили в §5.</p>
+  <div class="tbl-scroll">
+    <table>
+      <caption>Сводная таблица · 9 кандидатов направления A</caption>
+      <thead>
+        <tr><th>#</th><th>Кандидат</th><th>Тип</th><th class="num">Год</th><th>Обучение / фичи</th><th>Поворот</th><th class="num">Вход, px</th><th>Кросс-сезонное ожидание</th><th>Лицензия</th><th>Стоимость проверки</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="num">5.1</td><td><strong>LoFTR</strong> (корректный прогон)</td><td>полуплотный</td><td class="num">2021</td><td>MegaDepth, RGB</td><td>prerotate</td><td class="num">~640–840</td><td><span class="mid">низкое–среднее</span></td><td>Apache-2.0</td><td><span class="ok">минимальная</span> — уже в репо</td></tr>
+        <tr><td class="num">5.2</td><td><strong>GIM</strong> (lightglue / dkm / roma)</td><td>разреж. / плотный</td><td class="num">2024</td><td>self-training, интернет-видео</td><td>prerotate</td><td class="num">базовой арх.</td><td><span class="mid">среднее</span></td><td>проверить</td><td><span class="ok">низкая</span> — замена весов</td></tr>
+        <tr><td class="num">5.3</td><td><strong>MINIMA</strong> ★ (LG / LoFTR / RoMa)</td><td>семейство</td><td class="num">2025</td><td>MD-syn: синтет. кросс-модальные пары</td><td>prerotate</td><td class="num">базовой арх.</td><td><span class="ok">высокое</span></td><td>проверить</td><td><span class="ok">низкая–средняя</span></td></tr>
+        <tr><td class="num">5.4</td><td><strong>MatchAnything</strong> ★ (ELoFTR / RoMa)</td><td>полуплотный / плотный</td><td class="num">2025</td><td>кросс-модальный претрейн, день↔ночь и др.</td><td>prerotate</td><td class="num">базовой арх.</td><td><span class="ok">высокое</span></td><td>проверить</td><td>средняя</td></tr>
+        <tr><td class="num">5.5</td><td><strong>RoMa v2</strong> ★</td><td>плотный</td><td class="num">2025</td><td>DINOv3 (frozen) + match→refine</td><td>частичная (SatAst)</td><td class="num">640 внутр.</td><td><span class="ok">высокое</span></td><td>код есть; DINOv3 — проверить</td><td>средняя</td></tr>
+        <tr><td class="num">5.6</td><td>RoMa v1</td><td>плотный</td><td class="num">2024</td><td>DINOv2 (frozen)</td><td>слабая</td><td class="num">560 внутр.</td><td><span class="mid">среднее–высокое</span></td><td>MIT / Apache-2.0</td><td>средняя; вытеснен v2</td></tr>
+        <tr><td class="num">5.6</td><td>DKM</td><td>плотный</td><td class="num">2023</td><td>обучаемый CNN</td><td>слабая</td><td class="num">~672–896</td><td><span class="mid">среднее</span></td><td>проверить</td><td>средняя; вытеснен RoMa</td></tr>
+        <tr><td class="num">5.7</td><td>Efficient LoFTR</td><td>полуплотный</td><td class="num">2024</td><td>MegaDepth, RGB</td><td>prerotate</td><td class="num">~640</td><td><span class="mid">как LoFTR, дешевле</span></td><td>Apache-2.0</td><td><span class="ok">низкая</span> — база весов [9]</td></tr>
+        <tr><td class="num">5.9</td><td>MASt3R</td><td>3D-grounded</td><td class="num">2024</td><td>CroCo / DUSt3R претрейн</td><td>средняя</td><td class="num">512</td><td><span class="mid">среднее; не наша геометрия</span></td><td><span class="bad">CC BY-NC-SA</span></td><td>понизить приоритет</td></tr>
+        <tr><td class="num">5.8</td><td>Плотные DINOv2/v3-фичи (свой код)</td><td>плотный семантич.</td><td class="num">—</td><td>замороженный ViT, патчи 14 px</td><td>prerotate</td><td class="num">любой</td><td><span class="ok">высокое по гипотезе</span></td><td>Apache-2.0 / DINOv3</td><td>средняя — простой свой код</td></tr>
+      </tbody>
+      <tfoot><tr><td colspan="10" class="tbl-note">★ — главные кандидаты. Все нейросетевые матчеры считаются не инвариантными к повороту в плоскости, пока не доказано обратное; механизм prerotate обязателен. Единственный кандидат на отключение prerotate — RoMa v2 (проверять отдельной сеткой поворотов).</td></tr></tfoot>
+    </table>
+  </div>
+</section>
+
+<!-- ================= 5 ================= -->
+<section id="s5">
+  <h2 class="sec"><span class="num">05</span>Кандидаты подробно</h2>
+  <div class="season-rule"></div>
+
+  <article class="cand">
+    <div class="cand-head"><h3>LoFTR — корректный прогон<small>Sun et al., CVPR 2021 [4]</small></h3><span class="chip p1">шаг 1 · обязательный</span></div>
+    <div class="cand-body">
+      <p>Не новый кандидат, а починка невалидного результата (§3, открытие 3): ресайз входа к ~640–840 по длинной стороне с переносом точек обратно — образец масштабирования координат уже есть в <code>_match_prerotated</code>.</p>
+      <p>Ожидание честное: LoFTR обучен на обычных RGB-фото, сезонная инвариантность в нём не заложена; скорее всего <code>Ufa2</code> он не решит. Но проверка дёшева, закрывает открытый вопрос и даёт эталон «стандартный полуплотный матчер после корректного ресайза» — базу для MINIMA_LoFTR и MatchAnything_ELoFTR, которые архитектурно те же. Разница их результатов станет чистым измерением вклада <strong>обучающих данных</strong>, а не архитектуры.</p>
+    </div>
+    <div class="cand-stats"><div><span class="k">инвариантность</span>prerotate</div><div><span class="k">интеграция</span>уже в matcher.py</div><div><span class="k">лицензия</span>Apache-2.0</div></div>
+  </article>
+
+  <article class="cand">
+    <div class="cand-head"><h3>GIM — замена весов у готовых обвязок<small>Shen et al., ICLR 2024 spotlight [7]</small></h3><span class="chip p1">шаг 2 · почти бесплатно</span></div>
+    <div class="cand-body">
+      <p>GIM — не архитектура, а self-training-фреймворк на интернет-видео; выпущены чекпоинты <code>gim_lightglue</code>, <code>gim_loftr</code>, <code>gim_dkm</code>, <code>gim_roma</code>. Ценность: <code>gim_lightglue</code> — тот же SuperPoint+LightGlue, то есть потенциально <strong>подмена весов в работающем <code>LightGlueMatcher</code></strong> почти без нового кода.</p>
+      <p>Обучение целило в генерализацию доменов, не в сезон — ожидание умеренное, но стоимость проверки минимальна. <code>gim_dkm</code> в независимых сравнениях часто сильнейший в семействе — второй в очереди GIM.</p>
+    </div>
+    <div class="cand-stats"><div><span class="k">инвариантность</span>prerotate</div><div><span class="k">интеграция</span>замена чекпоинта</div><div><span class="k">лицензия</span>проверить в репо</div></div>
+  </article>
+
+  <article class="cand">
+    <div class="cand-head"><h3>MINIMA — целевое обучение на инвариантность вида<small>Ren et al., CVPR 2025 [8]</small></h3><span class="chip p1">★ главный кандидат</span></div>
+    <div class="cand-body">
+      <p>Идея: данные, а не модули. Генеративный движок превращает MegaDepth в MD-syn — пары «то же место, другая модальность» (ИК, depth, ночь, стили) с унаследованной точной геометрической разметкой; на MD-syn дообучаются стандартные пайплайны. Выпущены MINIMA_LightGlue, MINIMA_LoFTR, MINIMA_RoMa; показан zero-shot на 19 кросс-модальных кейсах, включая remote sensing.</p>
+      <p>Почему главный кандидат: «апрельский кадр против летней Esri» — мягкая смена модальности (та же структура, другая фотометрия растительности и теней), то есть <strong>внутри</strong> обучающего распределения MINIMA. Две из трёх архитектур семейства у нас уже обвязаны (LightGlue, LoFTR) — интеграционная стоимость низкая.</p>
+    </div>
+    <div class="cand-stats"><div><span class="k">инвариантность</span>prerotate</div><div><span class="k">интеграция</span>веса в готовые обвязки</div><div><span class="k">лицензия</span>проверить (производные веса)</div></div>
+  </article>
+
+  <article class="cand">
+    <div class="cand-head"><h3>MatchAnything — кросс-модальный претрейн<small>He et al., ZJU3DV, 2025 [9]</small></h3><span class="chip p1">★ конкурент MINIMA</span></div>
+    <div class="cand-body">
+      <p>Масштабный претрейн детектор-фри архитектур (ELoFTR- и RoMa-варианты) на смеси реальных 3D-датасетов и синтетических кросс-модальных пар: visible↔depth, visible↔thermal, <strong>day↔night</strong>. Ключевой результат — один вес генерализуется на 8+ невиданных кросс-модальных задач регистрации (медицина, гистология, remote sensing), существенно обходя и универсальные, и специализированные методы.</p>
+      <p>Ближайший конкурент MINIMA по постановке; сравнивать лоб в лоб на золотой паре. Различие в акценте: MINIMA — данные для дообучения существующих пайплайнов, MatchAnything — претрейн-фреймворк; для нас оба сводятся к «те же архитектуры, другие веса».</p>
+    </div>
+    <div class="cand-stats"><div><span class="k">инвариантность</span>prerotate</div><div><span class="k">интеграция</span>ELoFTR-обвязка новая</div><div><span class="k">лицензия</span>проверить</div></div>
+  </article>
+
+  <article class="cand">
+    <div class="cand-head"><h3>RoMa v2 — плотный SOTA на DINOv3<small>Edstedt et al., arXiv 11.2025 [6]</small></h3><span class="chip p1">★ мост Этаж 1 → Этаж 2</span></div>
+    <div class="cand-body">
+      <p>Двухстадийный matching→refinement на замороженных DINOv3-фичах, кастомное CUDA-ядро локальной корреляции, ~1.7× быстрее RoMa v1 при сравнимой памяти; стабильно обходит v1 и UFM на шести датасетах, в том числе −84% EPE на AerialMegaDepth — аэросъёмка, наш домен. Отдельно оценён на SatAst — матчинге фото к спутниковым изображениям при больших изменениях масштаба и поворота в плоскости: ближайший к нашей геометрии публичный бенчмарк.</p>
+      <p>Причина ждать сезонной устойчивости та же, что делает MegaLoc живучим на Этаже 1: семантические foundation-фичи. Бонус — предсказание попиксельной ковариации ошибки: готовый кандидат-сигнал для направления B и вес для RANSAC. На 24 ГБ помещается с запасом (авторский бенчмарк — батч 8 на 640×640). Проверить условия лицензии DINOv3 (у Meta собственная, не Apache).</p>
+    </div>
+    <div class="cand-stats"><div><span class="k">инвариантность</span>частичная — проверить сеткой</div><div><span class="k">выход</span>warp + certainty + ковариация</div><div><span class="k">лицензия</span>код есть; DINOv3 — проверить</div></div>
+  </article>
+
+  <article class="cand">
+    <div class="cand-head"><h3>RoMa v1 · DKM — вытеснены<small>Edstedt et al., CVPR 2024 [5] · CVPR 2023 [3]</small></h3><span class="chip p3">запасные</span></div>
+    <div class="cand-body">
+      <p>Оба из исходного списка, оба рабочие, но при доступном RoMa v2 самостоятельной ценности почти нет: v2 точнее, быстрее и на более сезонно-устойчивом бэкбоне. Держать как запасной вариант при проблемах v2 (лицензия DINOv3, регрессия на нашей паре). RoMa v1 — база MINIMA_RoMa, так что косвенно всё равно будет измерен.</p>
+    </div>
+  </article>
+
+  <article class="cand">
+    <div class="cand-head"><h3>Efficient LoFTR — носитель весов<small>Wang et al., CVPR 2024 [10]</small></h3><span class="chip p2">по необходимости</span></div>
+    <div class="cand-body">
+      <p>Сам по себе — «LoFTR дешевле», сезонной инвариантности не добавляет. Реальная роль — базовая архитектура MatchAnything_ELoFTR: если тот победит, ELoFTR-обвязка станет постоянной частью пайплайна, и писать её стоит сразу аккуратно (ресайз, перенос точек, батчинг), а не как одноразовый эксперимент.</p>
+    </div>
+  </article>
+
+  <article class="cand">
+    <div class="cand-head"><h3>Плотные DINOv2/v3-фичи — свой семантический матчер<small>гипотеза A2 трека · подтверждение: [13]</small></h3><span class="chip p2">независимая линия</span></div>
+    <div class="cand-body">
+      <p>Гипотеза A2 родительского трека, теперь с внешним подтверждением: свежие работы по UAV absolute visual localization строят иерархию «грубый матч по плотным DINOv2-фичам (семантика, переживает кросс-сорс и время) → лёгкое точное доуточнение по текстуре» — наша двухуровневая логика, применённая внутри Этажа 2. Минимальная версия: патч-фичи кадра и окна (сетка 14 px) → взаимные NN по косинусу → фильтр ratio/цикличность → RANSAC-подобие.</p>
+      <p>Точность соответствий грубая (шаг патча ≈ 14·GSD метров), но от них нужна только правильная бассейновая поза — субпиксель добирает refinement (см. §7 про ECC). Ценность: полностью свой код, нет внешних весов матчинга, предсказуемая деградация; независимый второй голос для направления B и страховка от лицензионных тупиков.</p>
+    </div>
+    <div class="cand-stats"><div><span class="k">инвариантность</span>prerotate</div><div><span class="k">интеграция</span>свой DINODenseMatcher</div><div><span class="k">лицензия</span>DINOv2 Apache-2.0</div></div>
+  </article>
+
+  <article class="cand">
+    <div class="cand-head"><h3>MASt3R — понизить приоритет<small>Leroy et al., ECCV 2024 [14]</small></h3><span class="chip p3">остаточный принцип</span></div>
+    <div class="cand-body">
+      <p>Две причины. Первая — <strong>лицензия CC BY-NC-SA, некоммерческая</strong>: для прототипа допустимо, для продукта нет. Вторая — геометрическое несоответствие: MASt3R силён там, где матчинг спасает 3D-обоснование (большие смены ракурса, широкие базы), а задача надир↔надир почти планарна, 4 DoF — преимущество 3D-головы не работает, сезонная фотометрия не то, на что он обучался. Проверять только если все кандидаты выше провалятся.</p>
+    </div>
+  </article>
+</section>
+
+<!-- ================= 6 ================= -->
+<section id="s6">
+  <h2 class="sec"><span class="num">06</span>Рекомендуемый порядок проверки</h2>
+  <div class="season-rule"></div>
+  <p>Каждый шаг — по протоколу трека: сначала тест потолка на точных координатах (минуты), затем золотая пара <code>Ufa2</code>↔<code>sample4</code>, и только для выживших — сквозной <code>eval_dataset.py</code>. Критерий «дальше не смотрим» прежний: кандидат обязан сдвинуть <code>Ufa2</code> с нуля инлайеров по модели подобия. Порядок выстроен по произведению «стоимость проверки × априорный шанс».</p>
+  <div class="steps">
+    <div class="step"><div><h4>LoFTR с корректным ресайзом</h4><p>Закрыть невалидный результат, получить базу «стандартный полуплотный матчер».</p></div></div>
+    <div class="step"><div><h4>GIM-веса в существующие обвязки</h4><p><code>gim_lightglue</code>, затем <code>gim_dkm</code> — почти бесплатная проверка генерализации доменов.</p></div></div>
+    <div class="step"><div><h4>MINIMA_LightGlue и MINIMA_LoFTR</h4><p>Те же обвязки, целевые веса. Первое место, где разумно ждать сдвига <code>Ufa2</code> с нуля.</p></div></div>
+    <div class="step"><div><h4>MatchAnything (ELoFTR-вариант)</h4><p>Прямой конкурент MINIMA — сравнение на одном наборе, с теми же картами.</p></div></div>
+    <div class="step"><div><h4>RoMa v2</h4><p>Плотный тяжеловес; заодно снять карту уверенности как кандидат-сигнал для направления B.</p></div></div>
+    <div class="step"><div><h4>MINIMA_RoMa</h4><p>Если и v2, и лёгкие MINIMA показали сигнал — точка, объединяющая плотность × целевые данные.</p></div></div>
+    <div class="step"><div><h4>Плотные DINO-фичи (параллельно шагам 3–6)</h4><p>Независимая линия на своём коде, не блокируется внешними репозиториями.</p></div></div>
+    <div class="step"><div><h4>RoMa v1 / DKM / MASt3R</h4><p>Только по остаточному принципу, при провале или блокировке кандидатов выше.</p></div></div>
+  </div>
+  <div class="callout april">
+    <div class="tag">Дисциплина эксперимента</div>
+    <p>Сезон и масштаб разделять обязательно: вывод «помогло» должен держаться и на детальности 0.9× (<code>sample3</code>/<code>sample4</code>), и на втрое грубее подложки (<code>sample1</code>/<code>sample2</code>). Критерий приёмки трека: <code>Ufa2</code> и <code>Ufa3</code> в допуске при <strong>нуле ложных</strong> и без деградации Saratov / Volgograd / <code>00049</code>. Честный отказ дороже красивой точки.</p>
+  </div>
+</section>
+
+<!-- ================= 7 ================= -->
+<section id="s7">
+  <h2 class="sec"><span class="num">07</span>Интеграционные следствия для пайплайна</h2>
+  <div class="season-rule"></div>
+  <ul class="plain">
+    <li><strong>Ресайз против тайлов.</strong> Рабочий вход всех кандидатов 512–896 px, наши окна — 666…2783 px. Стратегия по умолчанию: ресайз целиком для оценки позы (правильному бассейну субпиксель не нужен), субпиксель добирает refinement. Тайловый матчинг — только если ресайз измеримо роняет точность позы; фиксировать измерением на обоих масштабных режимах набора.</li>
+    <li><strong>ECC сломается там же, где NCC.</strong> Текущий refinement (<code>findTransformECC</code>) фотометрический — на кросс-сезоне он потянет верную позу в мусор по той же причине, по которой уезжает шкала NCC. Варианты по возрастанию стоимости: ECC по градиентным картам; LS-подгонка подобия по плотному warp'у победителя (RoMa v2 / MatchAnything отдают плотное поле); отключение ECC в кросс-сезонном режиме с честно бо́льшим эллипсом. Это смычка направлений A и B — отдельный эксперимент.</li>
+    <li><strong>Плотный выход ≠ наш <code>Correspondences</code> напрямую.</strong> RoMa-семейство отдаёт warp + certainty; в интерфейс <code>match()</code> ложится сэмплированием K точек, взвешенным по certainty (штатный режим авторов). Статистики certainty в области инлайеров — бесплатный кандидат-сигнал для направления B, потенциально сезонно-сопоставимый.</li>
+    <li><strong>RGB, а не gray.</strong> DINO-бэкбоны и часть матчеров ждут трёхканальный вход. Честное решение — расширить сигнатуру интерфейса (RGB с деградацией в gray для классики); инвариант «матчер сменный» не нарушается, меняется тип входа.</li>
+    <li><strong>Prerotate обязателен для всех</strong>, пока не доказано обратное. Для RoMa v2 — отдельный дешёвый эксперимент: сетка поворотов кадра без предповорота; если держит, флаг <code>prerotate=False</code> экономит веер.</li>
+    <li><strong><code>MAX_FINE_WINDOW_PX</code> и <code>required_cell_overlap</code></strong> пересчитывать под фактический предел кандидата: у плотных матчеров предел — VRAM и внутренняя сетка, не бюджет точек SuperPoint. Перекрытие сетки клеток жёстко связано с запасом окна — менять синхронно.</li>
+    <li><strong>Лицензии — проходной пункт приёмки.</strong> До интеграции победителя фиксировать лицензию кода, весов и обучающих данных (веса MINIMA/MatchAnything производны от MegaDepth-семейства). Известные красные флаги: MASt3R (NC), DINOv3 (собственная лицензия Meta).</li>
+  </ul>
+</section>
+
+<!-- ================= 8 ================= -->
+<section id="s8">
+  <h2 class="sec"><span class="num">08</span>Первоисточники</h2>
+  <div class="season-rule"></div>
+  <p class="note">Ссылки на статьи и официальные репозитории. Идентификаторы arXiv, отмеченные «≈», приведены по памяти обзора и требуют сверки при цитировании.</p>
+  <ol class="src-list">
+    <li><div><div class="t">SuperPoint: Self-Supervised Interest Point Detection and Description — DeTone, Malisiewicz, Rabinovich. CVPRW 2018.</div><div class="m"><a href="https://arxiv.org/abs/1712.07629">arXiv:1712.07629</a></div></div></li>
+    <li><div><div class="t">LightGlue: Local Feature Matching at Light Speed — Lindenberger, Sarlin, Pollefeys. ICCV 2023.</div><div class="m"><a href="https://arxiv.org/abs/2306.13643">arXiv:2306.13643</a><a href="https://github.com/cvg/LightGlue">github.com/cvg/LightGlue</a></div></div></li>
+    <li><div><div class="t">DKM: Dense Kernelized Feature Matching for Geometry Estimation — Edstedt et al. CVPR 2023.</div><div class="m"><a href="https://arxiv.org/abs/2202.00667">arXiv:2202.00667 ≈</a><a href="https://github.com/Parskatt/DKM">github.com/Parskatt/DKM</a></div></div></li>
+    <li><div><div class="t">LoFTR: Detector-Free Local Feature Matching with Transformers — Sun et al. CVPR 2021.</div><div class="m"><a href="https://arxiv.org/abs/2104.00680">arXiv:2104.00680</a><a href="https://github.com/zju3dv/LoFTR">github.com/zju3dv/LoFTR</a></div></div></li>
+    <li><div><div class="t">RoMa: Robust Dense Feature Matching — Edstedt et al. CVPR 2024.</div><div class="m"><a href="https://arxiv.org/abs/2305.15404">arXiv:2305.15404</a><a href="https://github.com/Parskatt/RoMa">github.com/Parskatt/RoMa</a></div></div></li>
+    <li><div><div class="t">RoMa v2: Harder Better Faster Denser Feature Matching — Edstedt et al. arXiv, ноябрь 2025.</div><div class="m"><a href="https://arxiv.org/abs/2511.15706">arXiv:2511.15706</a><a href="https://github.com/Parskatt/romav2">github.com/Parskatt/romav2</a></div></div></li>
+    <li><div><div class="t">GIM: Learning Generalizable Image Matcher From Internet Videos — Shen et al. ICLR 2024 spotlight.</div><div class="m"><a href="https://arxiv.org/abs/2402.11095">arXiv:2402.11095</a><a href="https://github.com/xuelunshen/gim">github.com/xuelunshen/gim</a><a href="https://xuelunshen.com/gim/">xuelunshen.com/gim</a></div></div></li>
+    <li><div><div class="t">MINIMA: Modality Invariant Image Matching — Ren et al. CVPR 2025.</div><div class="m"><a href="https://arxiv.org/abs/2412.19412">arXiv:2412.19412</a><a href="https://github.com/LSXI7/MINIMA">github.com/LSXI7/MINIMA</a></div></div></li>
+    <li><div><div class="t">MatchAnything: Universal Cross-Modality Image Matching with Large-Scale Pre-Training — He et al. 2025.</div><div class="m"><a href="https://arxiv.org/abs/2501.07556">arXiv:2501.07556</a><a href="https://github.com/zju3dv/MatchAnything">github.com/zju3dv/MatchAnything</a><a href="https://zju3dv.github.io/MatchAnything/">проектная страница</a></div></div></li>
+    <li><div><div class="t">Efficient LoFTR: Semi-Dense Local Feature Matching with Sparse-Like Speed — Wang et al. CVPR 2024.</div><div class="m"><a href="https://arxiv.org/abs/2403.04765">arXiv:2403.04765 ≈</a><a href="https://github.com/zju3dv/EfficientLoFTR">github.com/zju3dv/EfficientLoFTR</a></div></div></li>
+    <li><div><div class="t">DINOv2: Learning Robust Visual Features without Supervision — Oquab et al., Meta AI, 2023 · DINOv3 — Meta AI, 2025.</div><div class="m"><a href="https://arxiv.org/abs/2304.07193">arXiv:2304.07193 (v2)</a><a href="https://github.com/facebookresearch/dinov2">github.com/facebookresearch/dinov2</a><a href="https://github.com/facebookresearch/dinov3">github.com/facebookresearch/dinov3</a></div></div></li>
+    <li><div><div class="t">MegaLoc: One Retrieval to Place Them All — Berton, Masone. 2025. (энкодер Этажа 1)</div><div class="m"><a href="https://arxiv.org/abs/2502.17237">arXiv:2502.17237 ≈</a><a href="https://github.com/gmberton/MegaLoc">github.com/gmberton/MegaLoc</a></div></div></li>
+    <li><div><div class="t">Hierarchical Image Matching for UAV Absolute Visual Localization via Semantic and Structural Constraints — Zhang et al. 2025. (внешнее подтверждение гипотезы A2)</div><div class="m"><a href="https://arxiv.org/abs/2506.09748">arXiv:2506.09748</a></div></div></li>
+    <li><div><div class="t">Grounding Image Matching in 3D with MASt3R — Leroy, Cabon, Revaud. ECCV 2024.</div><div class="m"><a href="https://arxiv.org/abs/2406.09756">arXiv:2406.09756</a><a href="https://github.com/naver/mast3r">github.com/naver/mast3r</a></div></div></li>
+  </ol>
+</section>
+
+</main>
+</div><!-- /layout -->
+
+<footer class="wrap">
+  <span>AERO-GEOLOC · RESEARCH A · обзор кандидатов кросс-сезонного матчинга</span>
+  <span>родительский трек: RESEARCH_CROSS_SEASON.md · 2026-07-28</span>
+</footer>
+</div><!-- /wrap -->
+
+<script>
+(function(){
+  var links=document.querySelectorAll('.toc a');
+  var map={};
+  links.forEach(function(a){map[a.getAttribute('href').slice(1)]=a;});
+  if(!('IntersectionObserver' in window))return;
+  var obs=new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){
+        links.forEach(function(a){a.classList.remove('active');});
+        var a=map[e.target.id];
+        if(a)a.classList.add('active');
+      }
+    });
+  },{rootMargin:'-15% 0px -70% 0px'});
+  document.querySelectorAll('main section').forEach(function(s){obs.observe(s);});
+})();
+</script>
+</body>
+</html>

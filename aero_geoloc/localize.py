@@ -24,11 +24,105 @@ from .geo import Georef, ground_mpp, haversine_m, zoom_for_mpp
 from .matcher import Correspondences, Matcher, SIFTMatcher
 from .pose import PoseEstimate, estimate_similarity, refine_ecc
 from .quality import MIN_NCC as quality_min_ncc
-from .quality import aligned_ncc, assess
+from .quality import MIN_INLIERS_DENSE, MIN_INLIERS_HARD
+from .quality import PHOTOMETRIC_THRESHOLDS, aligned_ncc, aligned_structural, assess
 from .retrieval import TerrainIndex, should_localize
 from .types import LocalizationResult, Prior, Status
 
-__all__ = ["normalize_gray", "localize_against_reference", "localize"]
+__all__ = [
+    "MAX_FINE_WINDOW_PX",
+    "hard_inlier_threshold",
+    "fine_margin_m",
+    "normalize_gray",
+    "localize_against_reference",
+    "localize",
+    "required_cell_overlap",
+]
+
+#: Потолок стороны окна точного уровня в пикселях. Бюджет ключевых точек у
+#: обученного матчера фиксирован (SuperPoint ~2048), и на слишком большом окне их
+#: плотность падает так, что матч разваливается. Измерено на кадре 2783 px:
+#: окно 3339 px → 21 инлайер, 3895 px → 31, 5008 px → 5. 4000 — безопасный край.
+MAX_FINE_WINDOW_PX = 4000
+
+
+def fine_margin_m(footprint_m: float, coarse_mpp: float, mpp_fine: float,
+                  *, max_window_px: int = MAX_FINE_WINDOW_PX) -> float:
+    """Запас окна точного уровня вокруг кандидата, метры.
+
+    **Единственное место**, где этот запас считается, — и это главное свойство
+    функции. Раньше формула жила в двух: в ``_fine_pass`` и, в виде грубой
+    прикидки, в :func:`required_cell_overlap`. Они не совпадали. Вторая
+    подставляла ``coarse = footprint/12`` — для Уфы 19 м/px вместо реальных
+    0.68 — и потому «ожидала» запас 115 м там, где окно строилось с запасом 34 м.
+    Сетка объявлялась достаточной при перекрытии 0.5, хотя центр клетки мог
+    отстоять от истинного центра кадра на 81 м — вдвое дальше, чем накрывает окно.
+
+    Измерено на ``Ufa3`` с MINIMA-LightGlue при неизменном окне: смещение центра
+    0 м → 35 инлайеров, 20 м → 18, 40 м → позы нет. То есть расхождение двух
+    формул и было тем, что не пускало кросс-сезонный кадр в пайплайн.
+
+    Нижняя граница запаса — доля отпечатка, чтобы окно не выродилось; верхняя —
+    ``max_window_px``: у матчера бюджет ключевых точек фиксирован, и на слишком
+    большом В ПИКСЕЛЯХ окне их плотность падает так, что матч разваливается.
+    Измерено на Саратове (кадр 2783 px): окно 3339 px → 21 инлайер, 3895 px → 31,
+    5008 px → 5. Ограничение именно абсолютное, а не доля отпечатка: у ``00049``
+    окно всего ~1000 px, размазывания там нет, и урезать запас ему незачем.
+    """
+    if footprint_m <= 0.0 or mpp_fine <= 0.0:
+        raise ValueError("footprint_m и mpp_fine должны быть > 0")
+    requested = max(6.0 * coarse_mpp, 0.15 * footprint_m)
+    allowed = max(0.0, (max_window_px * mpp_fine - footprint_m) / 2.0)
+    return min(requested, allowed)
+
+
+def required_cell_overlap(footprint_m: float, mpp_fine: float, *, coarse_mpp: float | None = None,
+                          max_window_px: int = MAX_FINE_WINDOW_PX) -> float:
+    """Перекрытие клеток индекса — **измеренная политика**, а не вывод из формулы.
+
+    Связь, из которой всё начиналось, реальна: окно точного уровня строится вокруг
+    **центра клетки**, а истинный центр кадра от него отстоит. При перекрытии ``o``
+    худшее отклонение равно ``0.707·(1−o)·footprint`` (диагональ полушага сетки), и
+    «по теории» его должен накрывать запас окна :func:`fine_margin_m`, откуда
+    ``o ≥ 1 − margin/(0.707·footprint)``. Для Уфы это даёт 0.84, для Саратова — 0.84.
+
+    **Эта теория проверена целиком и отвергнута замером (2026-07-29).** Прогон всего
+    набора с расчётными перекрытиями (сетка плотнее в 3–10 раз, пересборка карт
+    1173 с) дал **10/16 вместо 11/16: потерян `Volgograd3`** — тот самый кейс, ради
+    которого связка когда-то и выводилась. Причина в том, чего формула не знает:
+    перекрытие связано не только с окном, но и с ``top_k``. При ``o = 0.84``
+    окрестность точки покрывают ~38 почти одинаковых клеток, и первые 15 кандидатов
+    оказываются **одним и тем же местом в 15 копиях**. Плотная сетка повышает
+    покрытие одной клетки ценой разнообразия кандидатов, и на этом наборе размен
+    отрицательный.
+
+    Поэтому возвращаются измеренные значения: **0.75** там, где потолок окна
+    связывает (крупные кадры: Саратов, Волгоград), и расчёт с осторожной прикидкой
+    запаса — там, где окно и так щедрое (мелкие кадры: 00049, Уфа, где выходит 0.5).
+    Попытка отдать крупным кадрам расчётные 0.68 стоила потери `Volgograd3`
+    (0.8 м → отказ) — то есть ошибка в обе стороны стоит одного и того же кейса.
+
+    Формула считает отпечаток квадратом со стороной ``footprint``, а кадр
+    прямоугольный и повёрнут на неизвестный угол: у кадра 517×345 м диагональ
+    621 м. Это одна из причин, по которой её значениям нельзя доверять буквально.
+
+    **Что здесь на самом деле не закрыто.** Настоящая связка — тройная:
+    запас окна ↔ плотность сетки ↔ ``top_k``. Пока меняются только первые две,
+    результат ухудшается. Это открытый пункт, а не решённый (``docs/ROADMAP.md``).
+    """
+    if footprint_m <= 0.0 or mpp_fine <= 0.0:
+        raise ValueError("footprint_m и mpp_fine должны быть > 0")
+    # Прикидка запаса намеренно грубее реальной (footprint/12 против настоящего
+    # разрешения индекса): она завышает ожидаемый запас и потому даёт сетку РЕЖЕ.
+    # Точный расчёт проверен и оказался хуже — см. выше.
+    coarse = coarse_mpp if coarse_mpp is not None else footprint_m / 12.0
+    requested = max(6.0 * coarse, 0.15 * footprint_m)
+    allowed = max(0.0, (max_window_px * mpp_fine - footprint_m) / 2.0)
+    if requested > allowed:  # потолок окна связывает — доверяем замеру, а не формуле
+        return 0.75
+    needed = 1.0 - requested / (0.707 * footprint_m)
+    return float(min(0.85, max(0.5, needed + 0.05)))
+
 
 #: Во сколько σ приора укладывается допустимое отклонение центра (инвариант 3).
 PRIOR_GATE_SIGMA = 3.0
@@ -37,6 +131,48 @@ PRIOR_GATE_SIGMA = 3.0
 #: :mod:`aero_geoloc.quality`, чтобы дефолт оркестрации не мог разойтись с тем,
 #: по которому реально решает ``assess``. Обоснование значения — там же.
 MIN_NCC = quality_min_ncc
+
+#: Мера согласия по умолчанию. ``"ncc"`` — фотометрическая корреляция: дёшево,
+#: без torch, и именно на ней откалибрована текущая связка. ``"dino"`` — косинус
+#: плотных патч-токенов DINOv2: измеренно ровнее по шкале между кадрами (E1 в
+#: ``docs/JOURNAL.md``), но требует torch и весов.
+DEFAULT_PHOTOMETRIC = "ncc"
+
+
+def hard_inlier_threshold(matcher) -> int:
+    """Порог инлайеров в связке качества — **свойство ядра, а не сцены**.
+
+    У разреженного ядра инлайеры считаются от найденных ключевых точек, у
+    плотного — от фиксированного числа сэмплов из сплошного поля. Это разные
+    величины с разной шкалой, и один порог для обеих не имеет смысла:
+    измеренно, MINIMA-RoMa выдаёт сотни «инлайеров» на заведомо чужом месте
+    (см. :data:`quality.MIN_INLIERS_DENSE`).
+
+    Признак плотного ядра — наличие бюджета сэмплов (``max_samples``), а не имя
+    класса: так новое плотное ядро попадёт в правильную ветку само.
+    """
+    inner = getattr(matcher, "inner", None)
+    if inner is not None:
+        return hard_inlier_threshold(inner)
+    return MIN_INLIERS_DENSE if hasattr(matcher, "max_samples") else MIN_INLIERS_HARD
+
+
+def photometric_measure(kind: str):
+    """Функция ``(кадр, подложка, поза) -> число``, где больше = лучше.
+
+    Оркестрация выбирает МЕРУ, а связка качества (:func:`quality.assess`) знает
+    только её значение, имя и порог. Так замена дискриминатора остаётся одной
+    строкой конфигурации — тем же приёмом, что и сменное ядро матчинга.
+    """
+    if kind == "ncc":
+        return aligned_ncc
+    if kind == "dino":
+        from .similarity import dense_dino
+
+        model = dense_dino()
+        return lambda q, r, t: aligned_structural(q, r, t, model)
+    raise ValueError(f"неизвестная мера согласия {kind!r}, доступны: "
+                     f"{sorted(PHOTOMETRIC_THRESHOLDS)}")
 
 
 def normalize_gray(image: np.ndarray, *, clahe: bool = False) -> np.ndarray:
@@ -91,7 +227,10 @@ def _match_prerotated(matcher: Matcher, query_gray, ref_gray, prerotate_deg: flo
     corr = matcher.match(rotated, ref_gray)
     inv = cv2.invertAffineTransform(rot)
     pts_q = (corr.pts_q @ inv[:, :2].T + inv[:, 2]).astype(np.float32)
-    return Correspondences(pts_q, corr.pts_r, corr.conf)
+    # Свидетельства уровня пары переносятся: предповорот меняет КООРДИНАТЫ точек,
+    # а не то, что матчер знает о паре целиком. Без этой строки диагностика
+    # плотного ядра молча пропадала ровно у тех кейсов, где известен курс.
+    return Correspondences(pts_q, corr.pts_r, corr.conf, evidence=dict(corr.evidence))
 
 
 def _read_result(
@@ -145,7 +284,8 @@ def localize_against_reference(
     clahe: bool = False,
     refine: bool = False,
     prerotate_deg: float = 0.0,
-    min_ncc: float = MIN_NCC,
+    min_photometric: float | None = None,
+    photometric_kind: str = DEFAULT_PHOTOMETRIC,
 ) -> LocalizationResult:
     """Локализовать кадр по заранее данному георефренцированному растру подложки.
 
@@ -248,8 +388,10 @@ def localize_against_reference(
         return LocalizationResult.failed("решение вне диска приора", **diagnostics)
 
     # Стадия 7: качество — ковариация центра, эллипс, статус LOCALIZED/LOW_CONFIDENCE.
-    ncc = aligned_ncc(query_gray, ref_gray, pose.transform)
-    quality = assess(pose, corr, camera.principal_point(), mpp, photometric_ncc=ncc, min_ncc=min_ncc)
+    photometric = photometric_measure(photometric_kind)(query_gray, ref_gray, pose.transform)
+    quality = assess(pose, corr, camera.principal_point(), mpp, photometric=photometric,
+                     photometric_kind=photometric_kind, min_photometric=min_photometric,
+                     min_inliers_hard=hard_inlier_threshold(matcher))
     diagnostics.update(quality.signals)
     diagnostics["confidence_calibrated"] = True  # эллипс выведен строго (см. quality.py)
 
@@ -347,7 +489,9 @@ def _fine_pass(
     min_inliers: int,
     clahe: bool,
     prerotate_deg: float = 0.0,
-    min_ncc: float,
+    min_photometric: float | None,
+    photometric_kind: str,
+    max_fine_window_px: int = MAX_FINE_WINDOW_PX,
 ) -> LocalizationResult:
     """Точный уровень (стадии 3–6): окно нативного разрешения вокруг кандидата.
 
@@ -361,16 +505,16 @@ def _fine_pass(
     для кадра и подложки. Иначе при ``clahe=True`` кадр выравнивался бы дважды.
     """
     footprint_max = max(camera.footprint_m(altitude_m))
-    # Запас вокруг кандидата покрывает неопределённость грубого уровня (единицы
-    # его пикселей); нижняя граница — доля footprint, чтобы окно не выродилось.
-    fine_margin_m = max(6.0 * coarse_mpp, 0.15 * footprint_max)
-    fine_size = _even(2.0 * (0.5 * footprint_max + fine_margin_m) / ground_mpp(cand_lat, z_fine))
+    mpp_fine_here = ground_mpp(cand_lat, z_fine)
+    margin_m = fine_margin_m(footprint_max, coarse_mpp, mpp_fine_here,
+                             max_window_px=max_fine_window_px)
+    fine_size = _even(2.0 * (0.5 * footprint_max + margin_m) / mpp_fine_here)
     fine_ref, fine_georef = basemap(cand_lon, cand_lat, z_fine, fine_size, fine_size)
 
     prior_fine = Prior(
         lat=cand_lat,
         lon=cand_lon,
-        sigma_m=fine_margin_m,
+        sigma_m=margin_m,
         altitude_m=altitude_m,
         altitude_sigma_m=prior.altitude_sigma_m,
         yaw_deg=prior.yaw_deg,
@@ -391,7 +535,8 @@ def _fine_pass(
         clahe=clahe,
         refine=refine,
         prerotate_deg=prerotate_deg,
-        min_ncc=min_ncc,
+        min_photometric=min_photometric,
+        photometric_kind=photometric_kind,
     )
 
 
@@ -415,7 +560,9 @@ def _fine_with_scale_loop(
     clahe: bool,
     max_zoom: int = 22,
     prerotate_deg: float = 0.0,
-    min_ncc: float,
+    min_photometric: float | None,
+    photometric_kind: str,
+    max_fine_window_px: int = MAX_FINE_WINDOW_PX,
 ) -> LocalizationResult:
     """Точный уровень вокруг одного кандидата + цикл переуточнения масштаба (стадия 5).
 
@@ -433,7 +580,8 @@ def _fine_with_scale_loop(
             matcher=matcher, refine=refine, trust_yaw=trust_yaw,
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
-            prerotate_deg=prerotate_deg, min_ncc=min_ncc,
+            prerotate_deg=prerotate_deg, min_photometric=min_photometric,
+            photometric_kind=photometric_kind, max_fine_window_px=max_fine_window_px,
         )
 
     def n_inliers(result: LocalizationResult) -> int:
@@ -469,12 +617,20 @@ def _retrieval_candidates(
     trust_yaw: bool,
     min_uniqueness: float,
     gate_sigma: float,
-) -> tuple[list[tuple[float, float, float]], dict]:
+) -> tuple[list[tuple[float, float, float, float]], dict]:
     """Кандидаты грубого уровня из retrieval-индекса (Этаж 1).
 
-    Возвращает список ``(lon, lat, coarse_mpp)`` внутри диска приора и диагностику.
-    Пустой список — либо низкая уникальность (самоподобие), либо все клетки вне
-    диска; причина в диагностике под ключом ``retrieval_reason``.
+    Возвращает список ``(lon, lat, coarse_mpp, cell_rotation_deg)`` внутри диска
+    приора и диагностику. Пустой список — либо низкая уникальность (самоподобие),
+    либо все клетки вне диска; причина в диагностике под ключом ``retrieval_reason``.
+
+    **Курс из ротации клетки.** Когда yaw неизвестен (``trust_yaw=False``), индекс
+    строят с ротационной аугментацией, и совпавшая клетка несёт угол, под которым
+    она совпала: ``rotate(клетка, R) ≈ кадр`` ⟹ курс кадра ≈ ``R``, а выровнять
+    кадр к северной подложке можно предповоротом на ``−R``. Угол отдаётся наружу
+    (решение о предповороте принимает :func:`localize`): без него аугментация
+    чинила бы только Этаж 1, а Этаж 2 всё равно получал бы кадр под произвольным
+    углом — и не-инвариантный к повороту матчер (LightGlue/LoFTR) на нём падает.
     """
     prerotate = -prior.yaw_deg if trust_yaw else 0.0
     result = index.query(image_gray, k=top_k, prerotate_deg=prerotate)
@@ -493,7 +649,9 @@ def _retrieval_candidates(
             # coarse_mpp кандидата задаёт запас точного окна: 6·coarse_mpp = полклетки
             # (истинный центр может лежать где угодно в клетке retrieval).
             cell_footprint_m = cell.size_px * ground_mpp(cell.center_lat, cell.zoom)
-            candidates.append((cell.center_lon, cell.center_lat, cell_footprint_m / 12.0))
+            candidates.append(
+                (cell.center_lon, cell.center_lat, cell_footprint_m / 12.0, cell.rotation_deg)
+            )
     if not candidates:
         diag["retrieval_reason"] = "все клетки вне диска приора"
     return candidates, diag
@@ -520,7 +678,9 @@ def localize(
     min_uniqueness: float = 0.0,
     max_zoom: int = 22,
     prerotate: bool = False,
-    min_ncc: float = MIN_NCC,
+    min_photometric: float | None = None,
+    photometric_kind: str = DEFAULT_PHOTOMETRIC,
+    max_fine_window_px: int = MAX_FINE_WINDOW_PX,
     gate_sigma: float = PRIOR_GATE_SIGMA,
 ) -> LocalizationResult:
     """Полная одиночная локализация: подложка из источника + coarse-to-fine.
@@ -559,15 +719,26 @@ def localize(
         min_uniqueness: порог сигнала уникальности retrieval; ниже него —
             честный отказ по самоподобию ещё до матчинга (см.
             :func:`~aero_geoloc.retrieval.calibrate_uniqueness_threshold`).
-        min_ncc: порог фотометрического NCC в связке качества (``quality.py``).
-            Дефолт :data:`MIN_NCC` (0.12) откалиброван на реальных дрон↔Esri
-            матчах и совпадает с дефолтом ``assess``. NCC — **равноправное
-            условие связки** ``инлайеры ≥ 8 И NCC ≥ 0.12``, а не необязательная
-            добавка: калибровка показала, что по отдельности ни инлайеры, ни NCC
-            не делят верный слабый матч и ложный (JOURNAL, веха калибровки).
-            Поднимать имеет смысл на same-domain, где NCC верных матчей близок к
-            единице; для кросс-домена он низок даже у верных (0.04–0.45), и
-            прежний порог 0.3 ложно уводил верные локализации в ``LOW_CONFIDENCE``.
+        min_photometric: порог меры согласия в связке качества (``quality.py``).
+            ``None`` — калиброванный дефолт для выбранной меры.
+        photometric_kind: чем мерить согласие кадра и подложки: ``"ncc"``
+            (дёшево, без torch) или ``"dino"`` (косинус плотных патч-токенов
+            DINOv2 — ровнее по шкале между кадрами, см. E1/E3 в JOURNAL).
+
+            Мера — **равноправное условие связки** ``инлайеры ≥ 8 И мера ≥
+            порога``, а не необязательная добавка: калибровка показала, что по
+            отдельности ни инлайеры, ни фотометрия не делят верный слабый матч и
+            ложный (JOURNAL, веха калибровки). Дефолты порогов калиброваны на
+            наборе и живут в ``quality.PHOTOMETRIC_THRESHOLDS``; поднимать
+            имеет смысл на same-domain, где согласие верных матчей близко к
+            единице.
+        max_fine_window_px: потолок окна точного уровня, пиксели. Свойство ЯДРА
+            матчинга, а не сцены: у каждого свой предел, за которым плотность
+            соответствий падает и матч разваливается. Дефолт
+            :data:`MAX_FINE_WINDOW_PX` замерен на SuperPoint+LightGlue. Менять
+            его в одиночку нельзя — перекрытие сетки индекса выводится из того же
+            числа (:func:`required_cell_overlap`), и рассогласование этих двух
+            мест уже стоило кросс-сезонных кадров.
         gate_sigma: во сколько σ приора укладывается допустимое отклонение центра.
 
     Returns:
@@ -648,28 +819,62 @@ def localize(
         base_diagnostics["coarse_offset_m"] = coarse_offset_m
         if coarse_offset_m > gate_sigma * prior.sigma_m:  # инвариант 3
             return LocalizationResult.failed("кандидат вне диска приора", **base_diagnostics)
-        candidates = [(cand_lon, cand_lat, coarse_mpp)]
+        candidates = [(cand_lon, cand_lat, coarse_mpp, 0.0)]
 
     # Точный уровень + цикл масштаба по каждому кандидату; берём лучший по инлайерам
     # (мультигипотезность ловит неоднозначность на самоподобной местности).
     best: LocalizationResult | None = None
-    for cand_lon, cand_lat, cand_coarse_mpp in candidates:
+    best_candidate: tuple[float, float, float, float] | None = None
+    for cand_lon, cand_lat, cand_coarse_mpp, cell_rotation_deg in candidates:
+        # Чем выравнивать кадр под не-инвариантный матчер:
+        #   курс известен  → общим −yaw приора (``prerotate_deg``);
+        #   курс неизвестен → углом совпавшей клетки индекса (−R), иначе Этаж 2
+        #     получит кадр под произвольным поворотом и провалится.
+        # Флаг ``prerotate`` остаётся хозяином решения: для SIFT (инвариантен)
+        # предповорот не нужен и не делается.
+        cand_prerotate = (
+            prerotate_deg if trust_yaw else (-cell_rotation_deg if prerotate else 0.0)
+        )
+        # Перебор идёт БЕЗ субпиксельного ECC: он не влияет на выбор победителя
+        # (инлайеры отбирает RANSAC до него, ``PoseEstimate.with_transform`` их
+        # сохраняет), а стоит он 90% времени точного уровня — замерено 10.9 с на
+        # кадр 2783×1856 против 81 мс на матч. Считать его для кандидатов, которые
+        # всё равно проиграют, — чистая трата.
         r = _fine_with_scale_loop(
             image, camera, prior, cand_lon, cand_lat, cand_coarse_mpp, z_fine, basemap,
-            scale_iters=scale_iters, matcher=matcher, refine=refine, trust_yaw=trust_yaw,
+            scale_iters=scale_iters, matcher=matcher, refine=False, trust_yaw=trust_yaw,
             rotation_tolerance_deg=rotation_tolerance_deg,
             ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
-            max_zoom=max_zoom, prerotate_deg=prerotate_deg, min_ncc=min_ncc,
+            max_zoom=max_zoom, prerotate_deg=cand_prerotate,
+            min_photometric=min_photometric, photometric_kind=photometric_kind,
+            max_fine_window_px=max_fine_window_px,
         )
         if r.is_localized and (
             best is None
             or int(r.diagnostics.get("n_inliers", 0)) > int(best.diagnostics.get("n_inliers", 0))
         ):
-            best = r
+            best, best_candidate = r, (cand_lon, cand_lat, cand_coarse_mpp, cand_prerotate)
     if best is None:
         return LocalizationResult.failed(
             "точный уровень не сошёлся ни на одном кандидате", **base_diagnostics
         )
+
+    # Победитель определён — теперь один-единственный ECC, на нём.
+    if refine:
+        cand_lon, cand_lat, cand_coarse_mpp, cand_prerotate = best_candidate
+        refined = _fine_with_scale_loop(
+            image, camera, prior, cand_lon, cand_lat, cand_coarse_mpp, z_fine, basemap,
+            scale_iters=scale_iters, matcher=matcher, refine=True, trust_yaw=trust_yaw,
+            rotation_tolerance_deg=rotation_tolerance_deg,
+            ransac_threshold_px=ransac_threshold_px, min_inliers=min_inliers, clahe=clahe,
+            max_zoom=max_zoom, prerotate_deg=cand_prerotate,
+            min_photometric=min_photometric, photometric_kind=photometric_kind,
+            max_fine_window_px=max_fine_window_px,
+        )
+        # Если уточнённый проход почему-то не сошёлся, остаётся неуточнённый:
+        # отказываться от найденного места из-за refinement нельзя.
+        if refined.is_localized:
+            best = refined
 
     # z_fine поставил цикл масштаба; сохраняем его поверх base_diagnostics.
     z_best = best.diagnostics.get("z_fine", z_fine)

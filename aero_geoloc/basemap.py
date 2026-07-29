@@ -33,15 +33,27 @@
 Esri World Imagery отдаёт тайлы в порядке ``.../tile/{z}/{y}/{x}`` (сначала
 строка, потом столбец), в отличие от «осмоподобного» ``{z}/{x}/{y}``. Порядок
 инкапсулирован в шаблоне URL провайдера, поэтому наружу не протекает.
+
+«Тайл есть, съёмки нет»
+-----------------------
+``max_zoom`` провайдера — это предел **пирамиды**, а не гарантия покрытия. Вне
+городов Esri на глубоких уровнях отдаёт HTTP 200 и серую заглушку «нет данных»
+вместо снимка. Для пайплайна это худший вид отказа: подложка формально получена,
+матчер честно работает по чистому листу и выдаёт позу, у которой нет смысла
+(поймано на ``DSC00045``, см. ``docs/JOURNAL.md``). Поэтому здесь же живёт
+:func:`probe_imagery` — проверка «есть ли на этом уровне съёмка», а
+:func:`deepest_imagery_zoom` спускается до уровня, где она есть.
 """
 
 from __future__ import annotations
 
+import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Iterable, Protocol
 
 import cv2
 import numpy as np
@@ -49,6 +61,7 @@ import numpy as np
 from .geo import (
     TILE_SIZE_PX,
     Georef,
+    ground_mpp,
     lonlat_to_world_px,
     world_px_to_lonlat,
     world_size_px,
@@ -62,9 +75,14 @@ __all__ = [
     "TileCache",
     "MissingTileError",
     "load_tile",
+    "prefetch_tiles",
     "fetch_basemap",
     "BasemapSource",
     "TileBasemap",
+    "MIN_TILE_STD",
+    "ImageryProbe",
+    "probe_imagery",
+    "deepest_imagery_zoom",
 ]
 
 #: User-Agent для запросов к тайл-серверам — вежливость и опознаваемость клиента.
@@ -162,11 +180,76 @@ class TileCache:
 # --- загрузка одного тайла ---------------------------------------------------
 
 
+#: Сколько тайлов тянуть параллельно. Загрузка — главная стоимость сборки карты
+#: нового района (измерено: у одной карты 850 с из 897 ушло в сеть при ~46 с
+#: вычислений, см. docs/OPTIMIZATION_PLAN.md). Потолок скромный: провайдер тайлов
+#: — общий ресурс, и заваливать его сотней соединений невежливо и чревато баном.
+TILE_WORKERS = 8
+
+#: Повторы на тайл при сетевом сбое. Разовые обрывы у провайдера тайлов —
+#: обычное дело (ловили ``SSL: handshake timeout``, который ронял весь прогон),
+#: и ретрай на уровне тайла дешевле перезапуска сборки карты.
+TILE_RETRIES = 2
+
+
 def _http_get(url: str, *, timeout: float) -> bytes:
     """GET тайла через stdlib ``urllib`` — сетевой путь у тайлов тривиален."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (только http/https)
         return resp.read()
+
+
+def _http_get_retrying(url: str, *, timeout: float, retries: int = TILE_RETRIES) -> bytes:
+    """GET с повторами и нарастающей паузой — против разовых сетевых сбоев."""
+    last: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return _http_get(url, timeout=timeout)
+        except (urllib.error.URLError, OSError) as exc:
+            last = exc
+            if attempt < retries:
+                time.sleep(0.5 * (attempt + 1))
+    raise last  # type: ignore[misc]
+
+
+def prefetch_tiles(
+    provider: TileProvider,
+    zoom: int,
+    tiles: Iterable[tuple[int, int]],
+    *,
+    cache: TileCache,
+    timeout: float = 15.0,
+    workers: int = TILE_WORKERS,
+) -> int:
+    """Скачать в кэш недостающие тайлы **параллельно**. Возвращает число скачанных.
+
+    Зачем: сшивка окна тянет тайлы по одному, и на новом районе сборка карты почти
+    целиком состоит из ожидания сети. Здесь недостающие тайлы качаются пачкой в
+    пуле потоков (urllib отпускает GIL на время ввода-вывода), после чего сшивка
+    находит всё в кэше и только декодирует.
+
+    **Best-effort**: сбой отдельного тайла не поднимается наружу. Тайл, который не
+    удалось скачать, останется отсутствующим, и его повторно и уже строго запросит
+    :func:`load_tile` в сшивке — там же и родится понятная ошибка. Так поведение
+    при недоступной сети остаётся ровно прежним, а префетч влияет только на скорость.
+    """
+    missing = [(tx, ty) for tx, ty in tiles if cache.get(provider, zoom, tx, ty) is None]
+    if not missing:
+        return 0
+
+    def fetch(xy: tuple[int, int]) -> bool:
+        tx, ty = xy
+        try:
+            data = _http_get_retrying(provider.tile_url(zoom, tx, ty), timeout=timeout)
+        except Exception:  # noqa: BLE001 — см. best-effort в docstring
+            return False
+        cache.put(provider, zoom, tx, ty, data)
+        return True
+
+    if len(missing) == 1:  # ради одного тайла пул не заводим
+        return int(fetch(missing[0]))
+    with ThreadPoolExecutor(max_workers=min(workers, len(missing))) as pool:
+        return sum(pool.map(fetch, missing))
 
 
 def _decode_tile(data: bytes, provider: TileProvider) -> np.ndarray:
@@ -180,6 +263,41 @@ def _decode_tile(data: bytes, provider: TileProvider) -> np.ndarray:
             f"размер тайла {arr.shape[1]}×{arr.shape[0]} не равен ожидаемому {ts}×{ts}"
         )
     return arr
+
+
+def _tile_bytes(
+    provider: TileProvider,
+    z: int,
+    x: int,
+    y: int,
+    *,
+    cache: TileCache | None,
+    allow_network: bool,
+    timeout: float,
+) -> bytes:
+    """Сырые байты тайла: сначала кэш, потом (опц.) сеть.
+
+    Отдельно от :func:`load_tile`, потому что :func:`probe_imagery` сравнивает
+    тайлы **побайтно**: заглушка провайдера — это один и тот же файл, и байтовое
+    равенство отличает её от настоящей съёмки надёжнее любого порога по картинке.
+    """
+    data = cache.get(provider, z, x, y) if cache is not None else None
+    if data is not None:
+        return data
+    if not allow_network:
+        raise MissingTileError(
+            f"тайл {provider.name} z{z}/{x}/{y} отсутствует в кэше, а сеть запрещена"
+        )
+    try:
+        # С повторами: разовый обрыв не должен ронять сборку целой карты.
+        data = _http_get_retrying(provider.tile_url(z, x, y), timeout=timeout)
+    except (urllib.error.URLError, OSError) as exc:  # сеть недоступна/сервер ответил ошибкой
+        raise RuntimeError(
+            f"не удалось скачать тайл {provider.name} z{z}/{x}/{y}: {exc}"
+        ) from exc
+    if cache is not None:
+        cache.put(provider, z, x, y, data)
+    return data
 
 
 def load_tile(
@@ -201,21 +319,172 @@ def load_tile(
             молчаливо идёт в интернет (режим офлайн-тестов).
         timeout: таймаут HTTP-запроса, секунды.
     """
-    data = cache.get(provider, z, x, y) if cache is not None else None
-    if data is None:
-        if not allow_network:
-            raise MissingTileError(
-                f"тайл {provider.name} z{z}/{x}/{y} отсутствует в кэше, а сеть запрещена"
-            )
+    return _decode_tile(
+        _tile_bytes(provider, z, x, y, cache=cache,
+                    allow_network=allow_network, timeout=timeout),
+        provider,
+    )
+
+
+# --- есть ли на этом уровне съёмка -------------------------------------------
+
+
+#: Дисперсия яркости, ниже которой тайл считается лишённым структуры.
+#:
+#: Измерено по кэшу проекта (3000 случайных тайлов): медиана настоящей съёмки
+#: 29, серая заглушка Esri — 5.4, чёрное «нет данных» — 0…4. Порог стоит выше
+#: заглушки, но **задевает и настоящую съёмку**: у z18 минимум 3.0, первый
+#: процентиль 4.8 — это вода и тёмный лес. Поэтому один тайл ниже порога не
+#: доказывает ничего, и вывод делается только по набору проб (см.
+#: :func:`probe_imagery`).
+MIN_TILE_STD = 8.0
+
+#: Сколько тайлов пробовать: центр плюс восемь по кольцу радиуса района.
+PROBE_SAMPLES = 9
+
+
+@dataclass(frozen=True)
+class ImageryProbe:
+    """Итог проверки «есть ли на зуме ``zoom`` съёмка в этом районе».
+
+    Attributes:
+        zoom: проверенный уровень.
+        tiles: сколько проб реально удалось получить.
+        structured: сколько из них несут структуру (std ≥ :data:`MIN_TILE_STD`).
+        identical: все ли пробы совпали побайтно — подпись заглушки провайдера.
+    """
+
+    zoom: int
+    tiles: int
+    structured: int
+    identical: bool
+
+    @property
+    def has_imagery(self) -> bool:
+        """Есть ли на этом уровне съёмка, по которой вообще можно локализовать.
+
+        Два независимых признака пустоты, и любого достаточно:
+
+        * **все пробы побайтно одинаковы** — провайдер отдаёт одну и ту же
+          заглушку; две настоящие съёмочные плитки совпасть байт в байт не могут;
+        * **ни одна проба не несёт структуры** — сопоставлять не с чем, какова бы
+          ни была причина (заглушка, «нет данных», сплошная вода).
+
+        Не удалось получить ни одной пробы — ``True``: это проверка, а не гейт по
+        доступности сети. Если сети нет, пусть об этом скажет обычный путь
+        загрузки, у него сообщение точнее.
+        """
+        if self.tiles == 0:
+            return True
+        return self.structured > 0 and not self.identical
+
+    def describe(self) -> str:
+        """Человекочитаемо — эта строка идёт в консоль инструмента."""
+        if self.has_imagery:
+            return f"zoom {self.zoom}: съёмка есть ({self.structured} из {self.tiles} проб)"
+        if self.identical:
+            return f"zoom {self.zoom}: все {self.tiles} проб — одна и та же заглушка"
+        return f"zoom {self.zoom}: ни одна из {self.tiles} проб не несёт структуры"
+
+
+def _probe_tiles(center_lon: float, center_lat: float, zoom: int, radius_m: float,
+                 provider: TileProvider) -> list[tuple[int, int]]:
+    """Координаты проб: центр района плюс кольцо из восьми по его краю.
+
+    Кольцо обязательно: над водой или сплошным лесом центральная проба будет
+    пустой и на настоящей съёмке, а вот весь район пустым по этой причине не
+    бывает.
+    """
+    ts = provider.tile_size
+    limit = int(world_size_px(zoom)) // ts - 1
+    cx, cy = lonlat_to_world_px(center_lon, center_lat, zoom)
+    tx, ty = int(cx) // ts, int(cy) // ts
+    step = max(1, int(round(radius_m / (ground_mpp(center_lat, zoom) * ts))))
+
+    ring = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+    out: list[tuple[int, int]] = []
+    for dx, dy in ring[:PROBE_SAMPLES]:
+        x, y = min(max(tx + dx * step, 0), limit), min(max(ty + dy * step, 0), limit)
+        if (x, y) not in out:
+            out.append((x, y))
+    return out
+
+
+def probe_imagery(
+    center_lon: float,
+    center_lat: float,
+    zoom: int,
+    *,
+    radius_m: float,
+    provider: str | TileProvider = ESRI_WORLD_IMAGERY,
+    cache: TileCache | None = None,
+    allow_network: bool = True,
+    timeout: float = 15.0,
+) -> ImageryProbe:
+    """Есть ли на уровне ``zoom`` настоящая съёмка в районе ``radius_m``.
+
+    Стоит девять тайлов (~1 с) — против сотен тайлов и минут сборки карты
+    района, которую иначе построят по пустоте.
+
+    Сбой отдельной пробы не поднимается наружу: проверка не должна подменять
+    собой диагностику сети. Не удалось получить ни одной — см. ``has_imagery``.
+    """
+    provider = get_provider(provider)
+    zoom = int(zoom)
+    if not 0 <= zoom <= provider.max_zoom:
+        raise ValueError(f"zoom={zoom} вне диапазона провайдера [0, {provider.max_zoom}]")
+
+    blobs: list[bytes] = []
+    for tx, ty in _probe_tiles(center_lon, center_lat, zoom, radius_m, provider):
         try:
-            data = _http_get(provider.tile_url(z, x, y), timeout=timeout)
-        except urllib.error.URLError as exc:  # сеть недоступна/сервер ответил ошибкой
-            raise RuntimeError(
-                f"не удалось скачать тайл {provider.name} z{z}/{x}/{y}: {exc}"
-            ) from exc
-        if cache is not None:
-            cache.put(provider, z, x, y, data)
-    return _decode_tile(data, provider)
+            blobs.append(_tile_bytes(provider, zoom, tx, ty, cache=cache,
+                                     allow_network=allow_network, timeout=timeout))
+        except (MissingTileError, RuntimeError, ValueError):
+            continue
+
+    structured = 0
+    for data in blobs:
+        try:
+            gray = cv2.cvtColor(_decode_tile(data, provider), cv2.COLOR_BGR2GRAY)
+        except ValueError:
+            continue
+        structured += int(gray.std() >= MIN_TILE_STD)
+    return ImageryProbe(
+        zoom=zoom,
+        tiles=len(blobs),
+        structured=structured,
+        identical=len(blobs) >= 2 and all(b == blobs[0] for b in blobs[1:]),
+    )
+
+
+def deepest_imagery_zoom(
+    center_lon: float,
+    center_lat: float,
+    *,
+    radius_m: float,
+    max_zoom: int,
+    min_zoom: int = 14,
+    provider: str | TileProvider = ESRI_WORLD_IMAGERY,
+    cache: TileCache | None = None,
+    allow_network: bool = True,
+    timeout: float = 15.0,
+) -> tuple[int | None, list[ImageryProbe]]:
+    """Самый детальный уровень ``≤ max_zoom``, на котором съёмка есть.
+
+    Возвращает ``(zoom, пробы)``; ``zoom`` равен ``None``, если съёмки нет и на
+    ``min_zoom`` — тогда локализовать в этом районе нечем, и честный отказ
+    наступает **до** сборки карты, а не после матчинга по чистому листу.
+    Список проб возвращается целиком: он идёт в диагностику отчёта.
+    """
+    probes: list[ImageryProbe] = []
+    for zoom in range(int(max_zoom), int(min_zoom) - 1, -1):
+        probe = probe_imagery(center_lon, center_lat, zoom, radius_m=radius_m,
+                              provider=provider, cache=cache,
+                              allow_network=allow_network, timeout=timeout)
+        probes.append(probe)
+        if probe.has_imagery:
+            return zoom, probes
+    return None, probes
 
 
 # --- сшивка окна подложки ----------------------------------------------------
@@ -232,6 +501,7 @@ def fetch_basemap(
     cache: TileCache | None = None,
     allow_network: bool = True,
     timeout: float = 15.0,
+    workers: int = TILE_WORKERS,
 ) -> tuple[np.ndarray, Georef]:
     """Растр ``width × height`` вокруг ``(center_lon, center_lat)`` на зуме ``zoom``.
 
@@ -245,6 +515,8 @@ def fetch_basemap(
         width, height: размер растра в пикселях.
         provider: имя провайдера или объект :class:`TileProvider`.
         cache, allow_network, timeout: см. :func:`load_tile`.
+        workers: сколько недостающих тайлов качать параллельно (см.
+            :func:`prefetch_tiles`). Действует только при заданном ``cache``.
 
     Returns:
         Кортеж ``(image_bgr, georef)``: BGR-растр ``height × width × 3`` uint8 и
@@ -276,6 +548,19 @@ def fetch_basemap(
     # Диапазон тайлов, покрывающих окно [x0, x0+width) × [y0, y0+height).
     tx_min, tx_max = x0 // ts, (x0 + width - 1) // ts
     ty_min, ty_max = y0 // ts, (y0 + height - 1) // ts
+
+    # Недостающие тайлы окна качаем пачкой ДО сшивки: последовательная загрузка —
+    # главная стоимость нового района. Если кэша нет, складывать скачанное некуда,
+    # и префетч смысла не имеет — тогда работает прежний путь по одному тайлу.
+    if allow_network and cache is not None:
+        prefetch_tiles(
+            provider,
+            zoom,
+            ((tx, ty) for ty in range(ty_min, ty_max + 1) for tx in range(tx_min, tx_max + 1)),
+            cache=cache,
+            timeout=timeout,
+            workers=workers,
+        )
 
     # Мозаика из целых тайлов; её левый верхний угол — в мировых px (tx_min·ts, ty_min·ts).
     mosaic = np.empty(((ty_max - ty_min + 1) * ts, (tx_max - tx_min + 1) * ts, 3), dtype=np.uint8)

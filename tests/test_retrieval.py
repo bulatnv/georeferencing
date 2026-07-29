@@ -244,6 +244,85 @@ def test_index_load_rejects_encoder_mismatch(rich_index, tmp_path):
         TerrainIndex.load(path, AveragePoolEncoder(16))  # другая размерность
 
 
+# --- батчинг кодирования (O2) ------------------------------------------------
+
+
+class _BatchingStubEncoder:
+    """Детерминированный энкодер с ``encode_batch`` — для проверки обвязки без GPU.
+
+    Считает, сколько раз звали пачку и сколько поштучно: так видно, что сборка
+    действительно идёт батчами, а не по одной клетке.
+    """
+
+    def __init__(self, grid: int = 8) -> None:
+        self.inner = AveragePoolEncoder(grid)
+        self.batch_calls = 0
+        self.single_calls = 0
+
+    @property
+    def dim(self) -> int:
+        return self.inner.dim
+
+    def encode(self, gray):
+        self.single_calls += 1
+        return self.inner.encode(gray)
+
+    def encode_batch(self, grays):
+        grays = list(grays)
+        self.batch_calls += 1
+        return np.stack([self.inner.encode(g) for g in grays]) if grays else np.empty(
+            (0, self.dim), np.float32
+        )
+
+
+def test_build_batches_when_encoder_supports_it(rich_scene):
+    """Сборка идёт пачками, а не по одной клетке, если ядро умеет encode_batch."""
+    enc = _BatchingStubEncoder()
+    idx = TerrainIndex(enc).build(
+        SceneBasemap(rich_scene), rich_scene.georef, cell_size_px=CELL, overlap=0.5, batch_size=8
+    )
+    assert len(idx) == 11 * 11
+    assert enc.batch_calls > 0 and enc.single_calls == 0  # поштучный путь не звался
+    assert enc.batch_calls <= (len(idx) + 7) // 8 + 1  # именно пачками, а не по одному
+
+
+def test_batched_build_matches_single_build_exactly(rich_scene):
+    """Батч не меняет ни векторы, ни порядок клеток — только скорость.
+
+    Энкодер детерминированный (без GPU), поэтому сравнение точное: расхождение
+    означало бы ошибку обвязки, а не шум вычислений.
+    """
+    bm = SceneBasemap(rich_scene)
+    single = TerrainIndex(_BatchingStubEncoder()).build(
+        bm, rich_scene.georef, cell_size_px=CELL, overlap=0.5,
+        rotations_deg=(0.0, 90.0), batch_size=1,
+    )
+    batched = TerrainIndex(_BatchingStubEncoder()).build(
+        bm, rich_scene.georef, cell_size_px=CELL, overlap=0.5,
+        rotations_deg=(0.0, 90.0), batch_size=8,
+    )
+    assert len(single) == len(batched)
+    assert [(c.center_lat, c.rotation_deg) for c in single._cells] == [
+        (c.center_lat, c.rotation_deg) for c in batched._cells
+    ]
+    np.testing.assert_allclose(single._stacked(), batched._stacked(), atol=1e-6)
+
+
+def test_build_falls_back_for_encoder_without_batch(rich_scene):
+    """Ядро без encode_batch обязано работать по-прежнему: батч — не новый контракт."""
+    idx = TerrainIndex(AveragePoolEncoder(24)).build(
+        SceneBasemap(rich_scene), rich_scene.georef, cell_size_px=CELL, overlap=0.5, batch_size=8
+    )
+    assert len(idx) == 11 * 11  # тот же результат, просто поштучным путём
+
+
+def test_build_rejects_bad_batch_size(rich_scene):
+    with pytest.raises(ValueError, match="batch_size"):
+        TerrainIndex(AveragePoolEncoder()).build(
+            SceneBasemap(rich_scene), rich_scene.georef, cell_size_px=CELL, batch_size=0
+        )
+
+
 # --- PCA-редукция (память/скорость Этажа 1, масштаб на большие территории) ---
 
 
@@ -401,3 +480,42 @@ def test_megaloc_encode_produces_normalized_vector():
     v = enc.encode(make_synthetic_scene(256, seed=0).image)
     assert v.shape == (enc.dim,)
     assert np.linalg.norm(v) == pytest.approx(1.0, abs=1e-4)
+
+
+@pytest.mark.skipif(
+    not _HAS_MEGALOC_DEPS, reason="нужны torch + huggingface_hub + safetensors"
+)
+def test_megaloc_batch_matches_single():
+    """У боевого ядра пачка даёт те же векторы, что и поштучный путь.
+
+    Допуск свободный: батчевые ядра cuDNN считают в другом порядке, и расхождение
+    порядка 1e-4 нормально. Существенно, что косинус ≈ 1 — на ранжирование клеток
+    такое отличие не влияет.
+    """
+    enc = MegaLocEncoder()
+    rng = np.random.default_rng(0)
+    images = [rng.integers(0, 255, (256, 256), dtype=np.uint8) for _ in range(4)]
+    single = np.stack([enc.encode(i) for i in images])
+    batch = enc.encode_batch(images)
+    assert batch.shape == (4, enc.dim)
+    np.testing.assert_allclose(np.linalg.norm(batch, axis=1), 1.0, atol=1e-4)
+    assert float((single * batch).sum(axis=1).min()) > 0.9999
+
+
+@pytest.mark.skipif(
+    not _HAS_MEGALOC_DEPS, reason="нужны torch + huggingface_hub + safetensors"
+)
+def test_fp16_matches_fp32_vectors():
+    """FP16 ускоряет, не меняя векторы: косинус с FP32 ≈ 1.
+
+    Смешанная точность здесь — оптимизация, а не размен качества: расхождение
+    (~1e-4) на порядок меньше зазора между близкими клетками, поэтому ранжирование
+    не меняется. Тест держит это свойство, чтобы FP16 нельзя было включить ценой
+    точности незаметно.
+    """
+    rng = np.random.default_rng(0)
+    images = [rng.integers(0, 255, (256, 256), dtype=np.uint8) for _ in range(4)]
+    exact = MegaLocEncoder(fp16=False).encode_batch(images)
+    fast = MegaLocEncoder(fp16=True).encode_batch(images)
+    np.testing.assert_allclose(np.linalg.norm(fast, axis=1), 1.0, atol=1e-4)
+    assert float((exact * fast).sum(axis=1).min()) > 0.999

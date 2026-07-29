@@ -266,7 +266,7 @@ def test_wide_prior_localization_from_augmented_prior():
     )
 
     result = localize(frame, camera, prior, basemap, index=index, matcher=LightGlueMatcher(),
-                      prerotate=True, max_zoom=mz, min_ncc=0.05, min_inliers=10, ransac_threshold_px=6.0)
+                      prerotate=True, max_zoom=mz, min_photometric=0.05, min_inliers=10, ransac_threshold_px=6.0)
     assert result.is_localized
     err = haversine_m(shot.true_lat, shot.true_lon, result.center_lat, result.center_lon)
     assert err < 30.0  # позиция восстановлена, хотя приор был в 600 м

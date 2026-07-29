@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+<name>DSC00045</name>
+<Placemark><name>отпечаток кадра</name><Style><LineStyle><color>ff00ffff</color><width>3</width></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style><Polygon><outerBoundaryIs><LinearRing><coordinates>52.78012662836332,56.755269556502945,0 52.78003801383397,56.75866007285869,0 52.78415609516196,56.75869241575582,0 52.78424470969131,56.755301902320184,0 52.78012662836332,56.755269556502945,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+<Placemark><name>центр кадра</name><Point><coordinates>52.782141361762626,56.75698102512563,0</coordinates></Point></Placemark>
+</Document></kml>

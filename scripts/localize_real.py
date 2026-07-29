@@ -58,7 +58,7 @@ def main() -> int:
         result = localize(
             frame, camera, shot.prior(sigma_m=args.sigma_m), basemap,
             matcher=matcher, max_zoom=max_zoom, prerotate=prerotate,
-            min_ncc=0.12,  # калибр. дрон↔Esri: связка инлайеры≥8 И NCC≥0.12 (JOURNAL)
+            min_photometric=0.12,  # калибр. дрон↔Esri: связка инлайеры≥8 И NCC≥0.12 (JOURNAL)
             min_inliers=10, coarse_min_inliers=8, ransac_threshold_px=6.0,
         )
         if result.is_localized:
