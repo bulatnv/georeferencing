@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+<name>DRZ_00755</name>
+<Placemark><name>отпечаток кадра</name><Style><LineStyle><color>ff00ffff</color><width>3</width></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style><Polygon><outerBoundaryIs><LinearRing><coordinates>6.168305377877516,51.216294225361715,0 6.169636122562679,51.216778533835345,0 6.170215108726524,51.21615434542869,0 6.168884364041361,51.215670030389,0 6.168305377877516,51.216294225361715,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+<Placemark><name>центр кадра</name><Point><coordinates>6.169260243302034,51.21622428544832,0</coordinates></Point></Placemark>
+</Document></kml>
