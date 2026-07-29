@@ -69,6 +69,7 @@ def test_refusal_produces_a_full_report(tmp_path, request_obj):
     ("решение вне диска приора", "--sigma-km"),
     ("точный уровень не сошёлся ни на одном кандидате", "GSD"),
     ("retrieval не дал кандидатов", "--radius-km"),
+    ("у подложки нет съёмки в этом районе (проверено с zoom 19 до 14)", "заглушку"),
 ])
 def test_advice_follows_the_reason(request_obj, reason, expected):
     """Совет выводится из причины. Список «на все случаи» бесполезен."""

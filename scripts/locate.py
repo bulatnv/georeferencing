@@ -32,7 +32,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
-from aero_geoloc.basemap import ESRI_WORLD_IMAGERY, TileBasemap, TileCache  # noqa: E402
+from aero_geoloc.basemap import (  # noqa: E402
+    ESRI_WORLD_IMAGERY,
+    TileBasemap,
+    TileCache,
+    deepest_imagery_zoom,
+    probe_imagery,
+)
 from aero_geoloc.geo import ground_mpp  # noqa: E402
 from aero_geoloc.localize import localize  # noqa: E402
 from aero_geoloc.matcher import create_matcher  # noqa: E402
@@ -45,7 +51,7 @@ from aero_geoloc.region import (  # noqa: E402
 from aero_geoloc.report import save_report, save_summary  # noqa: E402
 from aero_geoloc.request import InputError, build_request  # noqa: E402
 from aero_geoloc.retrieval import MegaLocEncoder  # noqa: E402
-from aero_geoloc.types import Status  # noqa: E402
+from aero_geoloc.types import LocalizationResult, Status  # noqa: E402
 from aero_geoloc.viz import render_localization  # noqa: E402
 
 #: Ядро по умолчанию — измеренно лучшее на наборе (`docs/RESEARCH_A_RESULTS.md`):
@@ -60,9 +66,55 @@ FAST_MATCHER = "lightglue"
 #: получит не ту конфигурацию, на которой заморожено золото.
 DEFAULT_PHOTOMETRIC = "dino"
 
+#: Ниже этого уровня спускаться незачем: на z14 подложка грубее 2.5 м/пиксель, и
+#: сопоставлять кадр уже не с чем. Дойти сюда — значит, что съёмки в районе нет
+#: вовсе, и отказать честнее, чем продолжать.
+MIN_IMAGERY_ZOOM = 14
+
 
 def _say(step: str, text: str) -> None:
     print(f"[{step}] {text}", flush=True)
+
+
+def imagery_zoom(basemap, request, args, z_wanted: int) -> tuple[int | None, dict]:
+    """Уровень, на котором в районе есть настоящая съёмка, и что про это известно.
+
+    Зачем это вообще ([JOURNAL.md](../docs/JOURNAL.md), веха про пустую подложку).
+    ``max_zoom`` провайдера — предел пирамиды, а не гарантия покрытия: вне городов
+    Esri на глубоких уровнях отдаёт заглушку вместо снимка. Раньше пайплайн этого
+    не замечал и честно сопоставлял кадр с чистым листом, выдавая позу без смысла.
+
+    Проба стоит девять тайлов. Если на желаемом уровне съёмка есть — а так на всех
+    районах набора, — не меняется ровно ничего: ни зум, ни потолок. Спуск включается
+    только там, где иначе работа шла бы по пустоте.
+
+    Returns:
+        ``(zoom, диагностика)``; ``zoom`` равен ``None``, когда съёмки нет и на
+        :data:`MIN_IMAGERY_ZOOM` — локализовать в этом районе нечем.
+    """
+    radius_m = args.radius_km * 1000.0
+    probe = probe_imagery(request.prior.lon, request.prior.lat, z_wanted,
+                          radius_m=radius_m, provider=basemap.provider,
+                          cache=basemap.cache, allow_network=basemap.allow_network)
+    if probe.has_imagery:
+        return z_wanted, {"imagery_zoom": z_wanted, "imagery_probe": probe.describe()}
+
+    _say("  !", probe.describe() + " — на этом уровне подложки нет съёмки")
+    deeper, probes = deepest_imagery_zoom(
+        request.prior.lon, request.prior.lat, radius_m=radius_m,
+        max_zoom=z_wanted - 1, min_zoom=MIN_IMAGERY_ZOOM, provider=basemap.provider,
+        cache=basemap.cache, allow_network=basemap.allow_network)
+    diagnostics = {
+        "imagery_zoom": deeper,
+        "imagery_zoom_wanted": z_wanted,
+        "imagery_probe": probe.describe(),
+        "imagery_probes": [p.describe() for p in [probe, *probes]],
+    }
+    if deeper is None:
+        return None, diagnostics
+    _say("  ✓", f"спускаюсь на zoom {deeper}: {probes[-1].describe()}. "
+                f"Подложка будет грубее кадра — точность от этого пострадает")
+    return deeper, diagnostics
 
 
 def _overlay_window(basemap, result, request, plan, z_fine, camera):
@@ -136,7 +188,27 @@ def locate_one(path: Path, args, basemap, encoder, matcher, max_zoom) -> dict:
     for note in request.notes:
         _say("  !", note)
 
-    z_fine = request.basemap_zoom(max_zoom=max_zoom)
+    started = time.perf_counter()
+    z_wanted = request.basemap_zoom(max_zoom=max_zoom)
+    z_fine, imagery = imagery_zoom(basemap, request, args, z_wanted)
+    timings["проверка подложки"] = time.perf_counter() - started
+    if z_fine is None:
+        # Съёмки нет во всём диапазоне — отказ ДО сборки карты района. Строить её
+        # по заглушкам значило бы потратить минуты и выдать позу без смысла.
+        result = LocalizationResult.failed(
+            f"у подложки нет съёмки в этом районе (проверено с zoom {z_wanted} "
+            f"до {MIN_IMAGERY_ZOOM})", **imagery)
+        out_dir = Path(args.out) / path.stem
+        report = save_report(out_dir, request, result, matcher=args.matcher, timings=timings)
+        row = summary_row(path.stem, result, timings)
+        _say("4/4", f"Отчёт → {report}")
+        print(f"      {row['line']}\n", flush=True)
+        return row
+    if z_fine < z_wanted:
+        # Потолок опускаем вместе с уровнем: иначе цикл масштаба внутри localize
+        # снова заберётся туда, где заглушки.
+        max_zoom = z_fine
+
     started = time.perf_counter()
     frame, camera = request.frame_at_mpp(ground_mpp(request.prior.lat, z_fine))
     timings["подготовка кадра"] = time.perf_counter() - started
@@ -177,6 +249,9 @@ def locate_one(path: Path, args, basemap, encoder, matcher, max_zoom) -> dict:
         ransac_threshold_px=6.0, photometric_kind=args.photometric,
     )
     timings["локализация"] = time.perf_counter() - started
+    if result.diagnostics is None:
+        result.diagnostics = {}
+    result.diagnostics.update(imagery)   # на каком уровне подложки работали
 
     overlay = None
     if not args.no_overlay:
@@ -220,6 +295,10 @@ def main() -> int:
                              "кадр там, куда ей же указали, и успех ничего не доказывает")
     parser.add_argument("--radius-km", type=float, default=0.0,
                         help="радиус карты района; 0 = по погрешности приора")
+    parser.add_argument("--max-zoom", type=int, default=0,
+                        help="потолок детальности подложки; 0 = предел провайдера. "
+                             "Инструмент и сам спускается там, где съёмки нет, — "
+                             "флаг нужен, чтобы задать уровень вручную")
     parser.add_argument("--matcher", default=DEFAULT_MATCHER)
     parser.add_argument("--fast", action="store_true",
                         help=f"быстрое ядро {FAST_MATCHER}: втрое быстрее, чуть меньше находит")
@@ -256,7 +335,7 @@ def main() -> int:
         return 1
 
     basemap = TileBasemap(cache=TileCache(args.cache))
-    max_zoom = ESRI_WORLD_IMAGERY.max_zoom
+    max_zoom = args.max_zoom or ESRI_WORLD_IMAGERY.max_zoom
     encoder = MegaLocEncoder()
     matcher = create_matcher(args.matcher)
 

@@ -79,6 +79,13 @@ def advice_for(result: LocalizationResult, request: LocateRequest) -> list[str]:
         )
     if "retrieval не дал кандидатов" in reason:
         tips.append("Ни одна клетка карты не попала в диск приора — расширьте --radius-km.")
+    if "нет съёмки в этом районе" in reason:
+        tips.append(
+            "Дело не в снимке и не в приоре: у картографической подложки в этой "
+            "точке нет съёмки ни на одном пригодном уровне — сервер отдаёт "
+            "заглушку вместо снимка. Проверьте координаты приора; если они верны, "
+            "локализовать здесь нечем, пока не появится другая подложка."
+        )
 
     if result.status is Status.LOW_CONFIDENCE:
         tips.append(

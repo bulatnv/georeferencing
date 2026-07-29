@@ -203,3 +203,49 @@ def test_unprobeable_level_does_not_block_the_run(cache):
 def test_probe_rejects_zoom_outside_the_provider(cache):
     with pytest.raises(ValueError, match="вне диапазона"):
         probe(cache, PROVIDER.max_zoom + 1)
+
+
+# --- как этим пользуется инструмент ------------------------------------------
+
+def _tool(cache, tmp_path):
+    """Минимальная обвязка ``locate.imagery_zoom``: источник, запрос, аргументы."""
+    import argparse
+    import sys
+
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "scripts"))
+    from locate import imagery_zoom                                    # noqa: PLC0415
+
+    from aero_geoloc.basemap import TileBasemap
+    from aero_geoloc.request import build_request
+
+    frame = tmp_path / "frame.png"
+    cv2.imwrite(str(frame), np.full((400, 600, 3), 128, np.uint8))
+    request = build_request(frame, lat=LAT, lon=LON, sigma_m=2000.0, gsd_m=0.065)
+    basemap = TileBasemap(provider=PROVIDER, cache=cache, allow_network=False)
+    args = argparse.Namespace(radius_km=RADIUS_M / 1000.0)
+    return lambda z: imagery_zoom(basemap, request, args, z)
+
+
+def test_tool_keeps_the_level_when_imagery_is_there(cache, tmp_path):
+    """Главное свойство: там, где съёмка есть, не меняется ничего."""
+    fill(cache, 19, imagery)
+    zoom, diag = _tool(cache, tmp_path)(19)
+    assert zoom == 19 and diag["imagery_zoom"] == 19
+
+
+def test_tool_descends_over_a_placeholder(cache, tmp_path):
+    fill(cache, 19, lambda _: placeholder())
+    fill(cache, 18, imagery)
+    zoom, diag = _tool(cache, tmp_path)(19)
+    assert zoom == 18
+    assert diag["imagery_zoom_wanted"] == 19
+    assert any("заглушка" in s for s in diag["imagery_probes"])
+
+
+def test_tool_reports_no_imagery_at_all(cache, tmp_path):
+    """Отказ наступает ДО сборки карты района — иначе это минуты работы по пустоте."""
+    for z in range(14, 20):
+        fill(cache, z, lambda _: placeholder())
+    zoom, diag = _tool(cache, tmp_path)(19)
+    assert zoom is None and diag["imagery_zoom"] is None
+    assert len(diag["imagery_probes"]) == 6      # проба на 19 плюс спуск 18…14
