@@ -88,6 +88,41 @@ def _overlay_window(basemap, result, request, plan, z_fine, camera):
     return ref, georef, matrix
 
 
+def _ellipse_words(result) -> str:
+    """«эллипс 0.0 м» читается как «ошибки нет», хотя это округление до нуля."""
+    if not result.error_ellipse_m:
+        return "—"
+    major = result.error_ellipse_m[0]
+    return "<0.1 м" if major < 0.05 else f"{major:.2f} м"
+
+
+def summary_row(name: str, result, timings: dict[str, float]) -> dict:
+    """Строка снимка для сводки и для консоли.
+
+    Вынесена отдельно намеренно: это **контракт** между :func:`locate_one` и
+    :func:`aero_geoloc.report.save_summary`, и он должен проверяться тестом без
+    torch. Однажды он уже разъехался — ``locate_one`` возвращал кортеж вместо
+    словаря, сводка по пачке падала на каждом снимке, а тесты этого не видели,
+    потому что проверяли ``save_summary`` в отрыве от её единственного источника.
+    """
+    diag = result.diagnostics or {}
+    ellipse = _ellipse_words(result)
+    if result.center_lat is not None:
+        line = (f"{result.status.value}  {result.center_lat:.6f} {result.center_lon:.6f}"
+                f"  курс {result.heading_deg:.0f}°"
+                + (f", эллипс {ellipse}" if ellipse != "—" else ""))
+    else:
+        line = f"{result.status.value}  {diag.get('reason', '')}"
+    return {
+        "name": name, "status": result.status.value,
+        "lat": result.center_lat, "lon": result.center_lon,
+        "ellipse": ellipse, "inliers": diag.get("n_inliers", "—"),
+        "reason": diag.get("reason", ""),
+        "seconds": round(sum(timings.values()), 1),
+        "line": line,
+    }
+
+
 def locate_one(path: Path, args, basemap, encoder, matcher, max_zoom) -> dict:
     """Локализовать один снимок и записать отчёт. Возвращает строку для сводки."""
     timings: dict[str, float] = {}
@@ -157,19 +192,10 @@ def locate_one(path: Path, args, basemap, encoder, matcher, max_zoom) -> dict:
     report = save_report(out_dir, request, result, overlay=overlay,
                          matcher=args.matcher, timings=timings,
                          region=None if args.no_index else plan.path.name)
-    if result.center_lat is not None:
-        # «эллипс 0.0 м» читается как «ошибки нет», хотя это просто округление
-        # субсантиметровой величины: показываем порог, а не ноль.
-        major = result.error_ellipse_m[0] if result.error_ellipse_m else None
-        ellipse = ("" if major is None else
-                   ", эллипс <0.1 м" if major < 0.05 else f", эллипс {major:.2f} м")
-        summary = (f"{result.status.value}  {result.center_lat:.6f} {result.center_lon:.6f}"
-                   f"  курс {result.heading_deg:.0f}°{ellipse}")
-    else:
-        summary = f"{result.status.value}  {(result.diagnostics or {}).get('reason', '')}"
+    row = summary_row(path.stem, result, timings)
     _say("4/4", f"Отчёт → {report}")
-    print(f"      {summary}\n", flush=True)
-    return report, summary
+    print(f"      {row['line']}\n", flush=True)
+    return row
 
 
 def main() -> int:
