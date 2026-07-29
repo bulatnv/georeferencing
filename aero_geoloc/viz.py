@@ -195,7 +195,10 @@ def render_localization(
     if diag.get("photometric") is not None:
         bits.append(f"{diag.get('photometric_kind', 'NCC')}: "
                     f"{float(diag['photometric']):.3f}")
-    if result.error_ellipse_m:
+    # Эллипс — только у принятой позы. У отвергнутой это разброс подгонки, которая
+    # проверку не прошла, и «ellipse: 0.45 m» рядом со словом low_confidence
+    # читается как «зато очень точно» (поймано на DSC00045).
+    if result.error_ellipse_m and result.status is Status.LOCALIZED:
         bits.append(f"ellipse: {result.error_ellipse_m[0]:.2f} m")
     if not result.is_localized and diag.get("reason"):
         bits.append(f"reason: {diag['reason']}")

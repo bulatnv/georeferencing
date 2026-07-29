@@ -1,0 +1,53 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "DSC00045: отпечаток",
+        "status": "low_confidence"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              52.78012662836332,
+              56.755269556502945
+            ],
+            [
+              52.78003801383397,
+              56.75866007285869
+            ],
+            [
+              52.78415609516196,
+              56.75869241575582
+            ],
+            [
+              52.78424470969131,
+              56.755301902320184
+            ],
+            [
+              52.78012662836332,
+              56.755269556502945
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "DSC00045: центр",
+        "status": "low_confidence"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          52.782141361762626,
+          56.75698102512563
+        ]
+      }
+    }
+  ]
+}

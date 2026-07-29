@@ -68,6 +68,17 @@ def test_subcentimetre_ellipse_is_not_shown_as_zero():
     assert summary_row("a", localized(ellipse=(0.9, 0.6, 5.0)), TIMINGS)["ellipse"] == "0.90 м"
 
 
+def test_rejected_pose_shows_no_ellipse_in_the_summary():
+    """У непринятой позы эллипс — разброс подгонки, а не точность места."""
+    rejected = LocalizationResult(
+        status=Status.LOW_CONFIDENCE, center_lat=56.7747, center_lon=52.7791,
+        heading_deg=229.6, altitude_est_m=382.0, error_ellipse_m=(0.454, 0.454, -45.0),
+        footprint_lonlat=[(52.77, 56.77)] * 4, diagnostics={"n_inliers": 22},
+    )
+    row = summary_row("a", rejected, TIMINGS)
+    assert row["ellipse"] == "—" and "эллипс" not in row["line"]
+
+
 def test_seconds_are_summed_across_stages():
     assert summary_row("a", localized(), TIMINGS)["seconds"] == pytest.approx(44.5)
 

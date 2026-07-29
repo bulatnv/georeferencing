@@ -141,8 +141,13 @@ def _overlay_window(basemap, result, request, plan, z_fine, camera):
 
 
 def _ellipse_words(result) -> str:
-    """«эллипс 0.0 м» читается как «ошибки нет», хотя это округление до нуля."""
-    if not result.error_ellipse_m:
+    """«эллипс 0.0 м» читается как «ошибки нет», хотя это округление до нуля.
+
+    У непринятой позы эллипс не показывается вовсе: там он описывает разброс
+    подгонки, которая проверку не прошла, и субметровое число рядом с отказом
+    читается как «зато очень точно» (см. :func:`aero_geoloc.report._ellipse_words`).
+    """
+    if result.status is not Status.LOCALIZED or not result.error_ellipse_m:
         return "—"
     major = result.error_ellipse_m[0]
     return "<0.1 м" if major < 0.05 else f"{major:.2f} м"

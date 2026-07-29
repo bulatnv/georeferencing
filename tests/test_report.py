@@ -112,6 +112,22 @@ def test_ellipse_is_explained_not_just_printed(tmp_path, request_obj):
     assert "случайная" in html and "подложки" in html
 
 
+def test_rejected_pose_shows_no_ellipse(tmp_path, request_obj):
+    """Субметровый эллипс рядом с отказом читается как «зато очень точно».
+
+    Случай DSC00045: связка отвергла позу, построенную по пустой подложке, а в
+    шапке стояло «эллипс 0.45 м» — то есть отчёт приглашал поверить отказу.
+    """
+    rejected = LocalizationResult(
+        status=Status.LOW_CONFIDENCE, center_lat=56.7747, center_lon=52.7791,
+        heading_deg=229.6, altitude_est_m=382.0, error_ellipse_m=(0.454, 0.454, -45.0),
+        footprint_lonlat=FOOTPRINT, diagnostics={"n_inliers": 22},
+    )
+    html = save_report(tmp_path, request_obj, rejected,
+                       matcher="minima_roma").read_text(encoding="utf-8")
+    assert "0.45" not in html and "поза не принята" in html
+
+
 def test_prior_provenance_reaches_the_report(tmp_path, request_obj):
     html = save_report(tmp_path, request_obj, ok_result(),
                        matcher="minima_roma").read_text(encoding="utf-8")
