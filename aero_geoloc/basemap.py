@@ -47,6 +47,8 @@ Esri World Imagery отдаёт тайлы в порядке ``.../tile/{z}/{y}/
 
 from __future__ import annotations
 
+import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -166,15 +168,56 @@ class TileCache:
         return self.root / provider.name / str(z) / str(x) / f"{y}.{provider.tile_ext}"
 
     def get(self, provider: TileProvider, z: int, x: int, y: int) -> bytes | None:
-        """Байты тайла из кэша либо ``None``, если его там нет."""
+        """Байты тайла из кэша либо ``None``, если его там нет.
+
+        **Пустой файл — это промах, а не данные.** Иначе одна пустышка в кэше
+        травит район навсегда: она читается как валидный ответ, доходит до
+        декодера и роняет сборку карты на каждом следующем прогоне.
+        """
         p = self.path(provider, z, x, y)
-        return p.read_bytes() if p.is_file() else None
+        for attempt in range(3):
+            try:
+                if not p.is_file():
+                    return None
+                return p.read_bytes() or None
+            except OSError:
+                # Windows отказывает в чтении файла, который в этот момент
+                # подменяют. Это промах, а не сбой: тайл дозагрузится.
+                time.sleep(0.01 * (attempt + 1))
+        return None
 
     def put(self, provider: TileProvider, z: int, x: int, y: int, data: bytes) -> None:
-        """Положить байты тайла в кэш, создав промежуточные каталоги."""
+        """Положить байты тайла в кэш **атомарно**, создав промежуточные каталоги.
+
+        Через временный файл и ``os.replace``, как и веса в
+        :mod:`aero_geoloc.weights`. Прямой ``write_bytes`` сначала обрезает файл,
+        и всякий, кто прочитает его в этот момент — параллельный поток загрузки
+        или следующий прогон после Ctrl+C, — получит пустоту. Двенадцатиминутная
+        сборка карты, упавшая на одном таком тайле, того не стоит.
+
+        Пустые данные не кэшируются вовсе: сервер, ответивший 200 с пустым телом,
+        не должен оставлять после себя запись, неотличимую от настоящей.
+
+        **Готовый тайл не переписывается.** ``(z, x, y)`` всегда означает одну и
+        ту же картинку, так что перезапись бессмысленна — и на Windows вдобавок
+        враждебна: измерено, при одновременном чтении 228 из 300 ``os.replace``
+        падают с ``PermissionError``, и столько же чтений тоже. Не трогая готовый
+        файл, мы этот класс гонок убираем целиком, а не смягчаем.
+        """
+        if not data:
+            return
         p = self.path(provider, z, x, y)
+        if p.is_file() and p.stat().st_size > 0:
+            return
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(data)
+        tmp = p.with_suffix(f"{p.suffix}.{os.getpid()}-{threading.get_ident()}.part")
+        try:
+            tmp.write_bytes(data)
+            os.replace(tmp, p)
+        except OSError:
+            pass          # гонку выиграл кто-то другой — тайл уже на месте
+        finally:
+            tmp.unlink(missing_ok=True)
 
 
 # --- загрузка одного тайла ---------------------------------------------------
@@ -254,6 +297,10 @@ def prefetch_tiles(
 
 def _decode_tile(data: bytes, provider: TileProvider) -> np.ndarray:
     """Декодировать байты тайла в BGR-массив ``tile_size × tile_size × 3``."""
+    # Пустой буфер OpenCV встречает ассертом `!buf.empty()`, а не возвратом None,
+    # и наружу вылезает стек из imgcodecs вместо внятной причины.
+    if not data:
+        raise ValueError("пустой тайл (сервер вернул пустое тело или файл кэша обрезан)")
     arr = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
     if arr is None:
         raise ValueError("не удалось декодировать тайл (повреждённые данные?)")
@@ -319,11 +366,23 @@ def load_tile(
             молчаливо идёт в интернет (режим офлайн-тестов).
         timeout: таймаут HTTP-запроса, секунды.
     """
-    return _decode_tile(
-        _tile_bytes(provider, z, x, y, cache=cache,
-                    allow_network=allow_network, timeout=timeout),
-        provider,
-    )
+    data = _tile_bytes(provider, z, x, y, cache=cache,
+                       allow_network=allow_network, timeout=timeout)
+    try:
+        return _decode_tile(data, provider)
+    except ValueError:
+        # Битый тайл в кэше не должен хоронить всю сборку карты района: это
+        # двенадцать минут работы, отменённые одним испорченным файлом. Выбрасываем
+        # запись и качаем заново — ровно один раз, чтобы сломанный тайл на сервере
+        # не увёл нас в бесконечный цикл.
+        if cache is None or not allow_network:
+            raise
+        cache.path(provider, z, x, y).unlink(missing_ok=True)
+        return _decode_tile(
+            _tile_bytes(provider, z, x, y, cache=cache,
+                        allow_network=True, timeout=timeout),
+            provider,
+        )
 
 
 # --- есть ли на этом уровне съёмка -------------------------------------------

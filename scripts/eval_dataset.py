@@ -189,6 +189,25 @@ def run_config(args) -> dict:
     return config
 
 
+def region_radius_m(case: EvalCase, args) -> float:
+    """Радиус района под **этот** кейс: из его приора, как это делает инструмент.
+
+    Раньше радиус был один на весь набор (2 км по умолчанию) и от приора кейса не
+    зависел. Пока все кадры снимались с полукилометра, разницы не было; с
+    появлением кадров с 90 м она стала решающей: клетка ≈ отпечатку, то есть
+    ~120 м, и район в 2 км режется на десять тысяч почти одинаковых клеток —
+    режим, в котором Этаж 1 измеренно перестаёт находить верную (веха 2026-07-29).
+
+    Формула та же, что в ``scripts/locate.py``: район обязан накрывать диск ±3σ,
+    но раздувать его сверх нужды вредно. ``--radius-km`` остаётся ручным
+    переопределением на весь набор — им пользуются свипы и замороженная
+    конфигурация золота.
+    """
+    if args.radius_km > 0:
+        return args.radius_km * 1000.0
+    return max(500.0, min(5000.0, case.prior.sigma_m * 1.5))
+
+
 def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
     row = {f: "" for f in FIELDS}
     row.update(case=case.name, matcher=args.matcher,
@@ -201,7 +220,7 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
     # логики разъезжаются, если каждый держит свою копию.
     plan = plan_region(
         case.camera, case.prior,
-        radius_m=args.radius_km * 1000.0, max_zoom=max_zoom, fine_zoom=z_fine,
+        radius_m=region_radius_m(case, args), max_zoom=max_zoom, fine_zoom=z_fine,
         trust_yaw=case.trust_yaw, rotation_step_deg=args.rotation_step,
         cell_px_target=args.cell_px,
         overlap=args.overlap if args.overlap > 0 else None,
@@ -376,7 +395,11 @@ def main() -> int:
                              "GPS кадра остаётся только эталоном — так проверяется "
                              "работа из грубой области, а не из точной точки")
     parser.add_argument("--bearing", type=float, default=45.0, help="азимут сдвига приора, °")
-    parser.add_argument("--radius-km", type=float, default=2.0, help="радиус региона индексации")
+    parser.add_argument("--radius-km", type=float, default=0.0,
+                        help="радиус региона индексации на ВЕСЬ набор; 0 = вывести "
+                             "из приора каждого кейса, как это делает инструмент. "
+                             "Один радиус на набор с разными высотами съёмки даёт "
+                             "низким кадрам заведомо переширокий район")
     parser.add_argument("--cell-px", type=int, default=350, help="целевой размер клетки индекса, px")
     parser.add_argument("--overlap", type=float, default=0.0,
                         help="перекрытие клеток индекса; 0 = АВТО по отпечатку кадра "
@@ -458,7 +481,9 @@ def main() -> int:
     max_zoom = ESRI_WORLD_IMAGERY.max_zoom
     basemap = TileBasemap(cache=TileCache(args.cache))
     encoder = MegaLocEncoder()
-    print(f"набор {dataset.name}: {len(cases)} кейсов, радиус {args.radius_km} км, "
+    radius_note = (f"радиус {args.radius_km} км на весь набор" if args.radius_km > 0
+                   else "радиус из приора каждого кейса")
+    print(f"набор {dataset.name}: {len(cases)} кейсов, {radius_note}, "
           f"top-K {args.top_k}, порог инлайеров {args.min_inliers}")
 
     rows: list[dict] = []

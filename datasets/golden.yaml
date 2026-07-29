@@ -8,10 +8,8 @@
 # outcome — класс исхода (aero_geoloc/regression.py), именно он даёт вердикт.
 # error_m / true_cell_rank / n_inliers / ncc — справочные: по ним видно, ЧТО
 # изменилось, но сами по себе они шумят и сборку не рушат.
-note: 'База minima_roma (2026-07-29). 16/16 поз, 0 ложных. ВНИМАНИЕ: Volgograd4 стоит вплотную к порогу
-  плотного ядра (MIN_INLIERS_DENSE=185) и колеблется между прогонами — 191 инлайер в одном, ниже порога
-  в другом. Заморожен по ПЕССИМИСТИЧНОМУ исходу: если пройдёт гейт, сторож покажет улучшение, а не ложную
-  регрессию.'
+note: '30 кейсов: +14 DRZ (Германия, 90-100 м AGL). Радиус района теперь из приора кейса, а не один на
+  набор'
 config:
   cell_px: 350
   correct_m: 50.0
@@ -26,120 +24,218 @@ config:
   overlap: 0.0
   pca_dim: 1024
   photometric: dino
-  radius_km: 1.5
+  radius_km: 0.0
   rotation_step: 45
   sigma_m: 0.0
   top_k: 15
 cases:
   00049:
     outcome: accepted_correct
-    error_m: 7.5
-    true_cell_rank: 2
-    n_inliers: 412
-    ncc: 0.492
+    error_m: 7.4
+    true_cell_rank: 1
+    n_inliers: 458
+    ncc: 0.4922
     note: ok
+  DRZ_00755:
+    outcome: accepted_correct
+    error_m: 1.4
+    true_cell_rank: 55
+    n_inliers: 876
+    ncc: 0.5264
+    note: ok
+  DRZ_01018:
+    outcome: accepted_correct
+    error_m: 5.1
+    true_cell_rank: 1
+    n_inliers: 571
+    ncc: 0.4809
+    note: ok
+  DRZ_01162:
+    outcome: accepted_correct
+    error_m: 2.3
+    true_cell_rank: 18
+    n_inliers: 381
+    ncc: 0.5588
+    note: ok
+  DRZ_03149:
+    outcome: pose_correct_gated
+    error_m: 23.3
+    true_cell_rank: 1
+    n_inliers: 155
+    ncc: 0.457
+    note: ГЕЙТ отверг ВЕРНУЮ (связка качества)
+  DRZ_03229:
+    outcome: accepted_correct
+    error_m: 2.8
+    true_cell_rank: 1
+    n_inliers: 475
+    ncc: 0.5885
+    note: ok
+  DRZ_03313:
+    outcome: accepted_correct
+    error_m: 3.4
+    true_cell_rank: 1
+    n_inliers: 504
+    ncc: 0.6105
+    note: ok
+  DRZ_03642:
+    outcome: accepted_correct
+    error_m: 3.8
+    true_cell_rank: 2
+    n_inliers: 874
+    ncc: 0.4441
+    note: ok
+  DRZ_06262:
+    outcome: accepted_correct
+    error_m: 1.2
+    true_cell_rank: 18
+    n_inliers: 636
+    ncc: 0.5232
+    note: ok
+  DRZ_06401:
+    outcome: accepted_correct
+    error_m: 9.2
+    true_cell_rank: 1
+    n_inliers: 332
+    ncc: 0.5022
+    note: ok
+  DRZ_06498:
+    outcome: accepted_correct
+    error_m: 6.5
+    true_cell_rank: 2
+    n_inliers: 290
+    ncc: 0.446
+    note: ok
+  DRZ_07256:
+    outcome: pose_wrong_gated
+    error_m: 252.4
+    true_cell_rank: 18
+    n_inliers: 96
+    ncc: 0.4646
+    note: гейт отверг неверную — верно (связка качества)
+  DRZ_18912:
+    outcome: accepted_correct
+    error_m: 1.6
+    true_cell_rank: 6
+    n_inliers: 524
+    ncc: 0.5926
+    note: ok
+  DRZ_19206:
+    outcome: accepted_correct
+    error_m: 3.5
+    true_cell_rank: 32
+    n_inliers: 771
+    ncc: 0.5968
+    note: ok
+  DRZ_19344:
+    outcome: pose_correct_gated
+    error_m: 3.7
+    true_cell_rank: 6
+    n_inliers: 163
+    ncc: 0.5593
+    note: ГЕЙТ отверг ВЕРНУЮ (связка качества)
   Saratov:
     outcome: accepted_correct
-    error_m: 2.9
-    true_cell_rank: 2
-    n_inliers: 308
-    ncc: 0.6535
+    error_m: 1.9
+    true_cell_rank: 7
+    n_inliers: 359
+    ncc: 0.654
     note: ok
   Saratov2:
     outcome: accepted_correct
-    error_m: 52.9
-    true_cell_rank: 1
-    n_inliers: 410
-    ncc: 0.5626
+    error_m: 52.6
+    true_cell_rank: 17
+    n_inliers: 343
+    ncc: 0.62
     note: ok
   Saratov3:
     outcome: accepted_correct
-    error_m: 60.7
-    true_cell_rank: 11
-    n_inliers: 388
-    ncc: 0.7116
+    error_m: 58.6
+    true_cell_rank: 9
+    n_inliers: 309
+    ncc: 0.7102
     note: ok
   Saratov4:
     outcome: accepted_correct
-    error_m: 35.5
-    true_cell_rank: 1
-    n_inliers: 680
-    ncc: 0.7229
+    error_m: 34.6
+    true_cell_rank: 3
+    n_inliers: 637
+    ncc: 0.7304
     note: ok
   Ufa2:
     outcome: pose_wrong_gated
-    error_m: 1632.4
-    true_cell_rank: 1
-    n_inliers: 55
-    ncc: 0.3965
+    error_m: 2117.3
+    true_cell_rank: 10
+    n_inliers: 85
+    ncc: 0.4209
     note: гейт отверг неверную — верно (связка качества)
   Ufa3:
     outcome: accepted_correct
-    error_m: 5.0
-    true_cell_rank: 2
-    n_inliers: 614
-    ncc: 0.5749
+    error_m: 5.2
+    true_cell_rank: 4
+    n_inliers: 630
+    ncc: 0.5824
     note: ok
   Ufa_sample1:
     outcome: pose_wrong_gated
-    error_m: 570.3
-    true_cell_rank: 10
-    n_inliers: 98
-    ncc: 0.4917
+    error_m: 1306.7
+    true_cell_rank: 83
+    n_inliers: 52
+    ncc: 0.4766
     note: гейт отверг неверную — верно (связка качества)
   Ufa_sample2:
     outcome: accepted_correct
     error_m: 118.9
-    true_cell_rank: 25
-    n_inliers: 1933
-    ncc: 0.8138
+    true_cell_rank: 2
+    n_inliers: 1929
+    ncc: 0.8137
     note: ok
   Ufa_sample3:
     outcome: accepted_correct
-    error_m: 10.2
-    true_cell_rank: 3
-    n_inliers: 662
-    ncc: 0.7062
+    error_m: 8.5
+    true_cell_rank: 8
+    n_inliers: 620
+    ncc: 0.7085
     note: ok
   Ufa_sample4:
     outcome: accepted_correct
     error_m: 3.5
-    true_cell_rank: 27
-    n_inliers: 546
-    ncc: 0.7179
+    true_cell_rank: 7
+    n_inliers: 618
+    ncc: 0.7223
     note: ok
   Volgograd:
     outcome: accepted_correct
-    error_m: 123.9
-    true_cell_rank: 7
-    n_inliers: 300
-    ncc: 0.6911
+    error_m: 124.1
+    true_cell_rank: 3
+    n_inliers: 257
+    ncc: 0.6886
     note: ok
   Volgograd2:
     outcome: accepted_correct
-    error_m: 3.8
-    true_cell_rank: 12
-    n_inliers: 366
-    ncc: 0.6247
+    error_m: 3.5
+    true_cell_rank: 28
+    n_inliers: 325
+    ncc: 0.6598
     note: ok
   Volgograd3:
     outcome: accepted_correct
-    error_m: 1.2
-    true_cell_rank: 15
-    n_inliers: 430
-    ncc: 0.6467
+    error_m: 1.9
+    true_cell_rank: 51
+    n_inliers: 408
+    ncc: 0.6475
     note: ok
   Volgograd4:
-    outcome: pose_correct_gated
-    error_m: 47.6
-    true_cell_rank: 2
-    n_inliers: 180
-    ncc: 0.625
-    note: ГЕЙТ отверг ВЕРНУЮ (связка качества)
+    outcome: accepted_correct
+    error_m: 47.1
+    true_cell_rank: 3
+    n_inliers: 193
+    ncc: 0.6295
+    note: ok
   train_SB_0023:
     outcome: pose_wrong_gated
-    error_m: 930.3
-    true_cell_rank: 385
-    n_inliers: 93
-    ncc: 0.1475
-    note: гейт отверг неверную — верно (dino 0.147<0.35)
+    error_m: 2832.9
+    true_cell_rank: 509
+    n_inliers: 76
+    ncc: 0.1632
+    note: гейт отверг неверную — верно (dino 0.163<0.35)
