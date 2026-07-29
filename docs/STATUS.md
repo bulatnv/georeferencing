@@ -14,7 +14,8 @@
 | **Кросс-сезон** | взят впервые за проект: `Ufa3` за 4.9 м. `Ufa2` не берёт ни одно из семи проверенных ядер |
 | Регрессия | `scripts/regress.py` против `datasets/golden.yaml`, 16 кейсов; требует `romatch` и ~1.5 ГБ весов |
 | Скорость | офлайн-сборка карты **~×3**, онлайн **~×3.2** (замерено на `lightglue`) |
-| Тесты | **550 зелёных**, 12 gated (torch/сеть/снимки) |
+| Тесты | **574 зелёных**, 12 gated (torch/сеть/снимки) |
+| Подложка | `max_zoom` провайдера ≠ покрытие: вне городов Esri отдаёт заглушку вместо снимка. Проба из девяти тайлов ловит это до сборки карты, инструмент спускается на уровень со съёмкой либо честно отказывает |
 | Трек A | **исчерпан**: LoFTR, GIM×2, MINIMA×3, RoMa v2. Побеждает дообучение под вид, а не сила ядра — [RESEARCH_A_RESULTS.md](RESEARCH_A_RESULTS.md) |
 | Узкое место | порог плотного ядра (185 инлайеров) стоит в 13 инлайерах от ложных: `Volgograd4` колеблется между прогонами |
 | Известный дефект | запас окна точного уровня берётся как «полклетки» и **не зависит от перекрытия сетки** — окно вдвое шире нужного. Лечение измерено и не принято (10/16 против 11/16, нестабильно) |
@@ -63,7 +64,7 @@ print(result.status, result.center_lat, result.center_lon, result.error_ellipse_
 | `types.py` | `Prior`, `LocalizationRequest`, `LocalizationResult`, `Status` | 0 |
 | `matcher.py` | `Matcher`, SIFT/AKAZE, **LightGlue/LoFTR** (gated) | 1, 4 |
 | `pose.py` | `SimilarityTransform`, `estimate_similarity`, `refine_ecc` | 1–2 |
-| `basemap.py` | тайлы Esri, кэш, `fetch_basemap`, `BasemapSource`/`TileBasemap` | 2 |
+| `basemap.py` | тайлы Esri, кэш, `fetch_basemap`, `BasemapSource`/`TileBasemap`, `probe_imagery` (есть ли съёмка) | 2 |
 | `quality.py` | `center_covariance`, `error_ellipse`, `aligned_ncc`, `assess` (**связка**) | 2 |
 | `localize.py` | `localize_against_reference`, `localize` (coarse-to-fine, retrieval, цикл) | 1–3 |
 | `retrieval.py` | `TerrainIndex`, `MegaLocEncoder`, `PCAReducer`, `NumpyAnn`/`FaissAnn`, Recall@K | 3 |
