@@ -49,7 +49,11 @@ from aero_geoloc.region import (  # noqa: E402
     plan_region,
 )
 from aero_geoloc.report import save_report, save_summary  # noqa: E402
-from aero_geoloc.request import InputError, build_request  # noqa: E402
+from aero_geoloc.request import (  # noqa: E402
+    InputError,
+    build_request,
+    recommended_sigma_m,
+)
 from aero_geoloc.retrieval import MegaLocEncoder  # noqa: E402
 from aero_geoloc.types import LocalizationResult, Status  # noqa: E402
 from aero_geoloc.viz import render_localization  # noqa: E402
@@ -70,6 +74,11 @@ DEFAULT_PHOTOMETRIC = "dino"
 #: сопоставлять кадр уже не с чем. Дойти сюда — значит, что съёмки в районе нет
 #: вовсе, и отказать честнее, чем продолжать.
 MIN_IMAGERY_ZOOM = 14
+
+#: Сколько клеток в районе — уже много. Регламент «высота → σ» держит их в
+#: 200–500; замерено, что 625 работает, а 10 000 — нет (веха 2026-07-29). Порог
+#: стоит между, ближе к рабочему краю: это предупреждение, а не запрет.
+CROWDED_REGION_CELLS = 1500
 
 
 def _say(step: str, text: str) -> None:
@@ -237,6 +246,15 @@ def locate_one(path: Path, args, basemap, encoder, matcher, max_zoom) -> dict:
                         f"{plan.footprint_m:.0f} м — без карты района шансы малы")
     else:
         _say("2/4", "Карта района: " + plan.describe())
+        if plan.cells > CROWDED_REGION_CELLS:
+            # Замерено на DRZ_00755 (90 м AGL): 10 000 клеток — отказ, истина в
+            # 2275 м; 625 клеток при том же кадре и ядре — 1.7 м. Клетки ≈ размеру
+            # отпечатка, поэтому на низкой съёмке широкий приор не «надёжнее», а
+            # прямо хуже: верное место тонет среди похожих.
+            _say("  !", f"клеток в районе ~{plan.cells} — это много. Верное место может "
+                        f"утонуть среди похожих; при отказе СУЗЬТЕ --sigma-km "
+                        f"(ориентир: {recommended_sigma_m(request.prior.altitude_m) / 1000:g} км "
+                        f"для высоты {request.prior.altitude_m:.0f} м)")
         if not plan.cached:
             _say("  …", f"сборка займёт примерно {human_time(estimated_build_seconds(plan))} "
                         f"плюс загрузка тайлов, если район новый; дальше он берётся из кэша")
