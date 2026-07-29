@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import time
 from pathlib import Path
@@ -49,11 +50,7 @@ from aero_geoloc.region import (  # noqa: E402
     plan_region,
 )
 from aero_geoloc.report import save_report, save_summary  # noqa: E402
-from aero_geoloc.request import (  # noqa: E402
-    InputError,
-    build_request,
-    recommended_sigma_m,
-)
+from aero_geoloc.request import InputError, build_request  # noqa: E402
 from aero_geoloc.retrieval import MegaLocEncoder  # noqa: E402
 from aero_geoloc.types import LocalizationResult, Status  # noqa: E402
 from aero_geoloc.viz import render_localization  # noqa: E402
@@ -79,6 +76,35 @@ MIN_IMAGERY_ZOOM = 14
 #: 200–500; замерено, что 625 работает, а 10 000 — нет (веха 2026-07-29). Порог
 #: стоит между, ближе к рабочему краю: это предупреждение, а не запрет.
 CROWDED_REGION_CELLS = 1500
+
+#: К скольким клеткам стремиться, когда советуем сузить приор — верхний край
+#: надёжной зоны из того же регламента.
+TARGET_REGION_CELLS = 500
+
+
+def sigma_for_cells(sigma_m: float, cells: int, target: int = TARGET_REGION_CELLS) -> float:
+    """Какая σ дала бы примерно ``target`` клеток вместо нынешних ``cells``.
+
+    Считается из **числа клеток**, а не из высоты, и это принципиально. Регламент
+    :func:`~aero_geoloc.request.recommended_sigma_m` привязан к высоте съёмки, но
+    когда владелец задаёт ``--gsd``, высота остаётся подставной (500 м), и
+    ориентир по ней получается не просто бесполезным, а **обратным**: советовал
+    расширить приор до 4 км там, где надо сузить до полукилометра. Поймано на
+    живом запуске `DRZ_06262`.
+
+    Клеток ∝ σ² (район ∝ σ, клеток ∝ площади), отсюда σ ∝ √клеток. Число клеток
+    известно точно и никаких допущений не содержит.
+
+    **Это ориентир по цене поиска, а не рекомендация.** Сужать приор допустимо
+    ровно настолько, насколько владелец уверен в его центре: район строится
+    радиусом 1.5σ, и если центр промахивается сильнее, верное место в карту
+    просто не попадает. Тогда вместо отказа возможна уверенно-неверная точка —
+    измерено на `DRZ_06262`, где центр отстоял от истины на 777 м, а сужение до
+    σ = 450 м (радиус 675 м) превратило верный отказ в ложное срабатывание в 960 м.
+    """
+    if cells <= 0:
+        return sigma_m
+    return sigma_m * math.sqrt(target / cells)
 
 
 def _say(step: str, text: str) -> None:
@@ -251,10 +277,16 @@ def locate_one(path: Path, args, basemap, encoder, matcher, max_zoom) -> dict:
             # 2275 м; 625 клеток при том же кадре и ядре — 1.7 м. Клетки ≈ размеру
             # отпечатка, поэтому на низкой съёмке широкий приор не «надёжнее», а
             # прямо хуже: верное место тонет среди похожих.
-            _say("  !", f"клеток в районе ~{plan.cells} — это много. Верное место может "
-                        f"утонуть среди похожих; при отказе СУЗЬТЕ --sigma-km "
-                        f"(ориентир: {recommended_sigma_m(request.prior.altitude_m) / 1000:g} км "
-                        f"для высоты {request.prior.altitude_m:.0f} м)")
+            hint = sigma_for_cells(request.prior.sigma_m, plan.cells)
+            _say("  !", f"клеток в районе ~{plan.cells} — это много, верное место может "
+                        f"утонуть среди похожих: отпечаток кадра всего "
+                        f"{plan.footprint_m:.0f} м")
+            _say("  !", f"сузить приор до --sigma-km {hint / 1000:.2g} — значит оставить "
+                        f"~{TARGET_REGION_CELLS} клеток, НО делайте это, только если "
+                        f"уверены в центре с такой точностью. σ — это обещание системе, "
+                        f"а не ручка настройки: под неверным центром узкий приор выносит "
+                        f"верное место за пределы карты, и тогда возможна уверенно-неверная "
+                        f"точка вместо отказа")
         if not plan.cached:
             _say("  …", f"сборка займёт примерно {human_time(estimated_build_seconds(plan))} "
                         f"плюс загрузка тайлов, если район новый; дальше он берётся из кэша")

@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from locate import summary_row  # noqa: E402
+from locate import TARGET_REGION_CELLS, sigma_for_cells, summary_row  # noqa: E402
 
 from aero_geoloc.report import save_summary  # noqa: E402
 from aero_geoloc.types import LocalizationResult, Status  # noqa: E402
@@ -81,6 +81,31 @@ def test_rejected_pose_shows_no_ellipse_in_the_summary():
 
 def test_seconds_are_summed_across_stages():
     assert summary_row("a", localized(), TIMINGS)["seconds"] == pytest.approx(44.5)
+
+
+def test_narrowing_hint_is_computed_from_cells_not_altitude():
+    """Совет «сузьте приор» обязан быть выведен из клеток, а не из высоты.
+
+    Когда владелец задаёт --gsd, высота остаётся подставной (500 м), и ориентир
+    по регламенту «высота → σ» получался **обратным**: предлагал расширить приор
+    до 4 км там, где надо сузить до полукилометра. Поймано на живом запуске
+    DRZ_06262 (σ 1.5 км, 5625 клеток).
+    """
+    hint = sigma_for_cells(1500.0, 5625)
+    assert hint < 1500.0, "совет обязан сужать, а не расширять"
+    assert hint == pytest.approx(447.0, abs=5.0)      # совпадает с регламентом (500 м)
+
+
+def test_narrowing_hint_hits_the_target_cell_count():
+    """Клеток ∝ σ², поэтому подстановка совета обязана давать целевое число."""
+    sigma, cells = 1500.0, 5625
+    hint = sigma_for_cells(sigma, cells)
+    assert cells * (hint / sigma) ** 2 == pytest.approx(TARGET_REGION_CELLS, rel=1e-6)
+
+
+def test_hint_leaves_an_already_small_region_alone():
+    """Район уже в надёжной зоне — сужать нечего, ориентир не должен быть меньше."""
+    assert sigma_for_cells(500.0, 500) == pytest.approx(500.0)
 
 
 def test_refusal_carries_no_coordinates():
