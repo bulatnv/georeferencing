@@ -90,6 +90,19 @@ def test_offset_prior_still_holds_the_truth_well_inside_the_gate():
     assert haversine_m(known.lat, known.lon, lat, lon) < 3.0 * known.sigma_m
 
 
+def test_command_path_works_when_pointed_at_a_subfolder():
+    """Путь в команде обязан открываться из корня репозитория.
+
+    Раньше он «укорачивался» относительно родителя корня, и при
+    ``--images test_images/DRZ`` команда получала ``--image DRZ/DRZ_00755.JPG`` —
+    файла по такому пути нет.
+    """
+    known = Known(meta())
+    for root in (Path("test_images"), Path("test_images/DRZ")):
+        cmd = command_for(known, 0, root=root)
+        assert "--image test_images/DRZ/DRZ_00755.JPG " in cmd
+
+
 def test_offset_direction_varies_between_shots():
     """Одинаковый сдвиг на весь набор дал бы ему систематический перекос."""
     directions = {command_for(Known(meta()), i, root=ROOT).split("--gsd")[0]

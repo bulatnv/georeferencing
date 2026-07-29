@@ -73,6 +73,33 @@ def _offset_prior(lat: float, lon: float, sigma_m: float, index: int) -> tuple[f
     return round(lat + sign_lat * dlat, 5), round(lon + sign_lon * dlon, 5)
 
 
+#: Исход из золота — человеческим языком. Ключи — `regression.OUTCOME_RANK`.
+_OUTCOME_RU = {
+    "accepted_correct": "ЛОКАЛИЗОВАНО, место верное",
+    "pose_correct_gated": "поза верная, но гейт её НЕ ПРОПУСТИТ",
+    "pose_wrong_gated": "поза неверная, гейт её отвергнет — так и надо",
+    "refused": "честный отказ",
+    "error": "падало с ошибкой",
+}
+
+
+def _expected(golden: dict | None) -> str:
+    """Что показал стенд на этом кадре — ориентир для сверки, а не обещание.
+
+    Приор на стенде стоит **на истине**, а в команде ниже он сдвинут на полсигмы,
+    поэтому числа могут разойтись. Ценность строки в другом: она заранее говорит,
+    чего ждать, — иначе тестировать не с чем сравнивать.
+    """
+    if not golden:
+        return ""
+    outcome = _OUTCOME_RU.get(str(golden.get("outcome", "")), str(golden.get("outcome", "")))
+    error = golden.get("error_m")
+    tail = f", ошибка {error:g} м" if isinstance(error, (int, float)) else ""
+    inliers = golden.get("n_inliers")
+    tail += f", {inliers} инлайеров" if inliers else ""
+    return f"{outcome}{tail}   (замер на стенде, приор стоял на истине)"
+
+
 class Known:
     """Что известно о снимке после слияния EXIF и манифеста.
 
@@ -82,8 +109,9 @@ class Known:
     снимков DJI, то есть ровно наполовину.
     """
 
-    def __init__(self, meta: ShotMeta, case=None) -> None:
+    def __init__(self, meta: ShotMeta, case=None, golden: dict | None = None) -> None:
         self.meta, self.case = meta, case
+        self.expected = _expected(golden)
         # ExcludedCase несёт только причину исключения — полей истины у него нет,
         # поэтому обращаемся через getattr, а не по типу.
         self.excluded_reason = getattr(case, "reason", None)
@@ -113,14 +141,19 @@ class Known:
 
 
 def command_for(known: Known, index: int, *, root: Path) -> str | None:
-    """Готовая строка запуска либо ``None``, если запускать нечем."""
+    """Готовая строка запуска либо ``None``, если запускать нечем.
+
+    Путь берётся ровно таким, каким его дал обход папки, — то есть в тех же
+    координатах, что и аргумент ``--images``. Попытка «укоротить» его
+    относительно родителя корня ломала команду при указании подпапки:
+    ``--images test_images/DRZ`` давало ``--image DRZ/DRZ_00755.JPG``, чего из
+    корня репозитория не открыть.
+    """
     if known.lat is None or known.gsd is None:
         return None
     lat, lon = _offset_prior(known.lat, known.lon, known.sigma_m, index)
     sigma_km = known.sigma_m / 1000.0
-    path = known.meta.path
-    path = path.relative_to(root.parent) if root.parent in path.parents else path
-    cmd = (f"python scripts/locate.py --image {path.as_posix()} "
+    cmd = (f"python scripts/locate.py --image {known.meta.path.as_posix()} "
            f"--lat {lat} --lon {lon} --sigma-km {sigma_km:g} --gsd {known.gsd:.3f}")
     if known.meta.yaw_deg is not None:
         cmd += f" --yaw {known.meta.yaw_deg:.0f}"
@@ -163,6 +196,8 @@ def block_for(known: Known, index: int, *, root: Path, duplicate_of: str | None 
     else:
         lines.append(f"    приор       ±{known.sigma_m / 1000:g} км ({known.sigma_source}), "
                      f"центр сдвинут от истины на {known.sigma_m * PRIOR_OFFSET_FRACTION:.0f} м")
+        if known.expected:
+            lines.append(f"    ожидается   {known.expected}")
         lines.append(f"    ЗАПУСК\n        {cmd}")
     return "\n".join(lines)
 
@@ -178,6 +213,8 @@ HEADER = """\
            ОТВЕТ, а не задают вопрос.
   ЗАПУСК   готовая команда. Приор в ней намеренно сдвинут от истины на половину
            σ: если искать кадр по его же координатам, успех ничего не доказывает.
+  ожидается  что показал стенд на этом кадре. ОРИЕНТИР, а не обещание: на стенде
+           приор стоял на истине, а в команде он сдвинут, поэтому числа разойдутся.
 
 ПРО КООРДИНАТЫ В EXIF
   Они лежат тройками «градусы, минуты, секунды»: (51, 12, 58.3725) — это
@@ -196,6 +233,8 @@ def main() -> int:
     parser.add_argument("--out", default="", help="куда писать; по умолчанию <папка>_exif.txt")
     parser.add_argument("--manifest", default="datasets/test_images.yaml",
                         help="манифест с ручной разметкой истины; '' — не использовать")
+    parser.add_argument("--golden", default="datasets/golden.yaml",
+                        help="замороженное поведение — строка «ожидается»; '' — не использовать")
     args = parser.parse_args()
 
     root = Path(args.images)
@@ -210,10 +249,19 @@ def main() -> int:
     # Истина по снимкам без EXIF живёт в манифесте — без него файл был бы полезен
     # только для кадров DJI, то есть ровно наполовину.
     by_path: dict[Path, object] = {}
+    golden_by_path: dict[Path, dict] = {}
     if args.manifest and Path(args.manifest).is_file():
         ds = load_dataset(args.manifest)
+        golden_cases = {}
+        if args.golden and Path(args.golden).is_file():
+            import yaml
+            golden_cases = yaml.safe_load(
+                Path(args.golden).read_text(encoding="utf-8")).get("cases") or {}
         for case in [*ds.cases, *ds.excluded]:
-            by_path[Path(case.path).resolve()] = case
+            resolved = Path(case.path).resolve()
+            by_path[resolved] = case
+            if case.name in golden_cases:
+                golden_by_path[resolved] = golden_cases[case.name]
 
     blocks, runnable, seen = [], 0, {}
     for i, path in enumerate(files):
@@ -222,7 +270,7 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 — один битый файл не рушит обзор
             blocks.append(f"### {path.name}\n    ! не прочитать: {type(exc).__name__}: {exc}")
             continue
-        known = Known(meta, by_path.get(path.resolve()))
+        known = Known(meta, by_path.get(path.resolve()), golden_by_path.get(path.resolve()))
         # Один и тот же кадр лежит в наборе дважды (00049 в корне и в DRZ/).
         # Молча выкидывать нельзя — обзор должен отражать папку как есть.
         key = (known.lat, known.lon, meta.datetime, meta.width, meta.height)
