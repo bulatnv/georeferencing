@@ -8,11 +8,13 @@
 :root{
   --bg:#ffffff; --fg:#1c1e21; --muted:#5b6472; --line:#e3e6ea;
   --accent:#0b6bcb; --code-bg:#f4f6f8; --th-bg:#f0f3f6; --warn:#8a5a00;
+  --bad:#b3261e; --ok:#1a7f37;
 }
 @media (prefers-color-scheme: dark){
   :root{
     --bg:#14161a; --fg:#e6e8eb; --muted:#9aa4b2; --line:#2c313a;
     --accent:#6ab0f3; --code-bg:#1e232b; --th-bg:#20252d; --warn:#e0b452;
+    --bad:#ff8a8a; --ok:#6fd08c;
   }
 }
 *{box-sizing:border-box}
@@ -44,6 +46,19 @@ blockquote{margin:1em 0; padding:.6em 1em; border-left:3px solid var(--accent); 
 li{margin:.25em 0}
 strong{font-weight:650}
 .warnbox{border-left-color:var(--warn)}
+/* --- схема пайплайна --- */
+.pipe{margin:1.4em 0; max-width:760px}
+.pstage{border:1px solid var(--line); border-left:4px solid var(--accent);
+  border-radius:8px; background:var(--code-bg); padding:10px 14px}
+.pstage .ph{font-weight:650; letter-spacing:.02em}
+.pstage .ph .sref{float:right; font-weight:400; font-size:.85em}
+.pstage .pd{font-size:.92em; color:var(--muted); margin-top:3px; line-height:1.5}
+.pstage .pd code{font-size:.92em}
+.pref{font-size:.9em; margin-top:6px; color:var(--bad)}
+.pref::before{content:"✗ "; font-weight:700}
+.parr{margin:3px 0 3px 26px; color:var(--muted); font-size:.88em; line-height:1.45}
+.parr::before{content:"▼  "; color:var(--accent); font-weight:700}
+.pfinal{border-left-color:var(--ok)}
 </style>
 </head>
 <body>
@@ -103,6 +118,74 @@ strong{font-weight:650}
 <li>Пиксельные координаты — «центр пикселя», как в OpenCV.</li>
 <li>Доверие не подделывается: статусы калиброваны измерениями, а не желаемым.</li>
 </ol>
+
+<h3>1.1. Полная схема: от снимка до отчёта</h3>
+<p>Каждый блок отсылает к разделу статьи; красные строки <span style="color:var(--bad)">✗</span> — точки,
+где пайплайн честно останавливается вместо того, чтобы выдать сомнительную точку.</p>
+
+<div class="pipe">
+
+<div class="pstage">
+  <div class="ph">ВХОД <span class="sref"><a href="#s2">§2</a></span></div>
+  <div class="pd">снимок · приор lat/lon ± σ · масштаб: GSD | высота + камера | EXIF</div>
+</div>
+<div class="parr"><code>request.py</code>: footprint = GSD·W; GPS из EXIF ≠ приор; контроль надира</div>
+
+<div class="pstage">
+  <div class="ph">ПОДЛОЖКА <span class="sref"><a href="#s3">§3</a></span></div>
+  <div class="pd">проба покрытия (9 тайлов) → выбор <code>z_fine</code>: mpp(z) ≈ GSD, спуск с заглушки</div>
+  <div class="pref">съёмки нет до z14 → <b>NOT_LOCALIZED</b></div>
+</div>
+<div class="parr"><code>resample_to_mpp</code> (INTER_AREA): 4000×3000 @ 3 см → ~330×250 @ 0.37 м</div>
+
+<div class="pstage">
+  <div class="ph">ЭТАЖ 1 · RETRIEVAL <span class="sref"><a href="#s5">§5</a></span></div>
+  <div class="pd"><b>офлайн</b> (кэш <code>.npz</code>): район 1.5σ → клетки ≈ footprint (перекрытие 50%,
+  ×8 поворотов без курса) → MegaLoc 8448-D → PCA 1024-D → FAISS/HNSW<br>
+  <b>онлайн</b>: кадр (−yaw) → тот же энкодер → PCA → k-NN → top-15 + уникальность</div>
+  <div class="pref">уникальность &lt; порога (самоподобие) → <b>NOT_LOCALIZED</b></div>
+</div>
+<div class="parr">15 кандидатов с готовыми георефами</div>
+
+<div class="pstage">
+  <div class="ph">ЭТАЖ 2 · ПОЗА — цикл по всем 15 кандидатам <span class="sref"><a href="#s6">§6</a>–<a href="#s7">§7</a></span></div>
+  <div class="pd">окно из тайлов ~430…3600 px (потолок 4000) → матчер MINIMA-RoMa: плотное поле warp +
+  certainty → 2048 пар → RANSAC-подобие 4 DoF (порог 6 px) → инлайеры → гейты кандидата:
+  ≥ 6 инлайеров · масштаб в допуске · центр в ±3σ</div>
+  <div class="pref">ни один кандидат не прошёл → <b>NOT_LOCALIZED</b></div>
+</div>
+<div class="parr">победитель = максимум инлайеров</div>
+
+<div class="pstage">
+  <div class="ph">REFINEMENT — только победителю <span class="sref"><a href="#s8">§8</a></span></div>
+  <div class="pd">ECC-субпиксель (0.505 → 0.011 px) + цикл масштаба → H<sub>est</sub> = s·H<sub>prior</sub></div>
+  <div class="pref">финальный гейт: центр вне ±3σ исходного приора → <b>NOT_LOCALIZED</b></div>
+</div>
+<div class="parr"></div>
+
+<div class="pstage">
+  <div class="ph">СВЯЗКА КАЧЕСТВА <span class="sref"><a href="#s10">§10</a></span></div>
+  <div class="pd">эллипс ≤ 3 м &nbsp;∧&nbsp; инлайеры ≥ 185 (плотное ядро) / 8 &nbsp;∧&nbsp; dino-косинус ≥ 0.35</div>
+  <div class="pref">хотя бы один сигнал не прошёл → <b>LOW_CONFIDENCE</b></div>
+</div>
+<div class="parr"><b>LOCALIZED</b></div>
+
+<div class="pstage pfinal">
+  <div class="ph">СЧИТЫВАНИЕ · GEOREF <span class="sref"><a href="#s9">§9</a></span></div>
+  <div class="pd">центр lat/lon · курс θ · высота H<sub>est</sub> · полигон отпечатка · эллипс 1σ</div>
+</div>
+<div class="parr"></div>
+
+<div class="pstage pfinal">
+  <div class="ph">ОТЧЁТ <span class="sref"><a href="#s13">§13</a></span></div>
+  <div class="pd"><code>report.html</code> (вердикт + 4 панели проверки глазами) · <code>result.json</code> ·
+  <code>footprint.kml</code> (Google Earth) · <code>footprint.geojson</code> (QGIS)</div>
+</div>
+
+</div>
+
+<p class="sub">Замечание к веткам: отказ на любом уровне — это не «пустой» выход, а такой же полноценный
+отчёт с причиной и советом, что поменять во входных данных (<a href="#s13">§13</a>).</p>
 
 <h2 id="s2">2. Вход: снимок и что о нём известно</h2>
 <p>Модуль <code>aero_geoloc/request.py</code> собирает вход из трёх источников по убыванию надёжности
