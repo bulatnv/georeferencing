@@ -49,14 +49,13 @@ import numpy as np  # noqa: E402
 
 from aero_geoloc.basemap import ESRI_WORLD_IMAGERY, TileBasemap, TileCache  # noqa: E402
 from aero_geoloc.dataset import EvalCase, load_dataset  # noqa: E402
-from aero_geoloc.geo import Georef, ground_mpp, haversine_m, zoom_for_mpp  # noqa: E402
-from aero_geoloc.localize import (  # noqa: E402
-    MAX_FINE_WINDOW_PX, localize, normalize_gray, required_cell_overlap,
-)
+from aero_geoloc.geo import ground_mpp, haversine_m  # noqa: E402
+from aero_geoloc.localize import MAX_FINE_WINDOW_PX, localize, normalize_gray  # noqa: E402
 from aero_geoloc.matcher import create_matcher  # noqa: E402
 from aero_geoloc.quality import MIN_INLIERS_HARD, MIN_NCC  # noqa: E402
+from aero_geoloc.region import build_or_load, plan_region  # noqa: E402
 from aero_geoloc.regression import CONFIG_KEYS  # noqa: E402
-from aero_geoloc.retrieval import MegaLocEncoder, TerrainIndex  # noqa: E402
+from aero_geoloc.retrieval import MegaLocEncoder  # noqa: E402
 from aero_geoloc.types import Status  # noqa: E402
 from aero_geoloc.viz import save_localization_overlay  # noqa: E402
 
@@ -68,74 +67,6 @@ FIELDS = [
     "ellipse_m",
     "found_lat", "found_lon", "heading_deg", "offline_s", "online_s", "reason",
 ]
-
-
-def _index_geometry(case: EvalCase, radius_m: float, cell_px_target: int, max_zoom: int):
-    """Зум и нарезка индекса под КОНКРЕТНЫЙ кейс.
-
-    Клетка обязана быть ≈ отпечатку кадра, иначе эмбеддинги несопоставимы по
-    масштабу. Отпечатки в наборе гуляют от ~90 м (52 м AGL) до ~520 м (400-600 м
-    AGL), поэтому зум индекса выбирается **на кейс**: такой, чтобы клетка вышла
-    примерно ``cell_px_target`` пикселей. Фиксированный зум либо раздул бы число
-    клеток на больших отпечатках, либо потребовал бы качать тайлы гигабайтами.
-    """
-    footprint_m = max(case.camera.footprint_m(case.prior.altitude_m))
-    mpp_target = footprint_m / cell_px_target
-    z_index = zoom_for_mpp(mpp_target, case.prior.lat, mode="coarser", max_zoom=max_zoom)
-    mpp_index = ground_mpp(case.prior.lat, z_index)
-    cell_px = max(32, round(footprint_m / mpp_index))
-    region_px = int(2 * radius_m / mpp_index)
-    region = Georef(case.prior.lon, case.prior.lat, z_index, region_px, region_px)
-    return region, cell_px, mpp_index, footprint_m
-
-
-def _overlap_for(case: EvalCase, footprint_m: float, max_zoom: int, args,
-                 mpp_index: float | None = None) -> float:
-    """Перекрытие сетки: заданное явно либо выведенное из геометрии кадра.
-
-    Перекрытие связано с запасом окна точного уровня (см.
-    :func:`aero_geoloc.localize.required_cell_overlap`), но связь **не сводится к
-    формуле**: она тянет за собой и ``top_k``. Точное разрешение индекса сюда
-    намеренно НЕ передаётся — с ним расчёт даёт 0.84 вместо 0.5/0.75, сетка
-    уплотняется втрое-вдесятеро, и измеренный результат ухудшается (потерян
-    `Volgograd3`, 10/16 вместо 11/16). Обоснование — в docstring самой функции.
-    """
-    if args.overlap > 0:
-        return args.overlap
-    mpp_fine = ground_mpp(case.prior.lat, case.basemap_zoom(max_zoom=max_zoom))
-    return required_cell_overlap(footprint_m, mpp_fine,
-                                 max_window_px=args.max_fine_window_px)
-
-
-def _build_or_load_index(case, region, cell_px, rotations, encoder, basemap, args, overlap):
-    """Офлайн-карта: с диска, если есть, иначе построить и сохранить.
-
-    Ключ — **геометрия**, а не имя кейса: снимки одной серии (Саратов ×4,
-    Волгоград ×4) делят приор и нарезку, и по имени карта пересобиралась бы на
-    каждый кадр заново.
-    """
-    # В ключ входит ВСЁ, что меняет содержимое карты. Перекрытие сперва забыли —
-    # и прогон с другой плотностью сетки молча брал старую карту, показывая, что
-    # изменение «не помогло». Тихое переиспользование хуже лишней пересборки.
-    tag = (f"{region.center_lat:.4f}_{region.center_lon:.4f}_z{region.zoom}"
-           f"_r{int(args.radius_km * 1000)}_c{cell_px}_o{int(overlap * 100)}"
-           f"_rot{len(rotations)}_pca{args.pca_dim}")
-    path = Path(args.maps_dir) / f"eval_{tag}.npz"
-    if path.exists() and not args.rebuild:
-        index = TerrainIndex.load(path, encoder)
-        index.use_faiss(kind="hnsw", ef_search=args.ef_search)
-        return index, 0.0, path
-
-    t0 = time.perf_counter()
-    index = TerrainIndex(encoder).build(
-        basemap, region, cell_size_px=cell_px, overlap=overlap, rotations_deg=rotations
-    )
-    index.compress(args.pca_dim, whiten=False)
-    offline_s = time.perf_counter() - t0
-    Path(args.maps_dir).mkdir(parents=True, exist_ok=True)
-    index.save(path)
-    index.use_faiss(kind="hnsw", ef_search=args.ef_search)
-    return index, offline_s, path
 
 
 def _transform_into(result, camera, georef) -> np.ndarray | None:
@@ -265,23 +196,23 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
 
     z_fine = case.basemap_zoom(max_zoom=max_zoom)
     frame, camera = case.frame_at_mpp(ground_mpp(case.prior.lat, z_fine))
-    radius_m = args.radius_km * 1000.0
-    region, cell_px, mpp_index, footprint_m = _index_geometry(
-        case, radius_m, args.cell_px, max_zoom
+    # Геометрия района и кэш карты — общие с инструментом владельца
+    # (aero_geoloc/region.py). Здесь их быть не должно: два потребителя одной
+    # логики разъезжаются, если каждый держит свою копию.
+    plan = plan_region(
+        case.camera, case.prior,
+        radius_m=args.radius_km * 1000.0, max_zoom=max_zoom, fine_zoom=z_fine,
+        trust_yaw=case.trust_yaw, rotation_step_deg=args.rotation_step,
+        cell_px_target=args.cell_px,
+        overlap=args.overlap if args.overlap > 0 else None,
+        pca_dim=args.pca_dim, max_fine_window_px=args.max_fine_window_px,
+        cache_dir=args.maps_dir, prefix="eval",
     )
-    overlap = _overlap_for(case, footprint_m, max_zoom, args, mpp_index)
-    # Курс неизвестен → предповорот невозможен, и индекс приходится аугментировать
-    # повёрнутыми копиями клеток (EVAL_PLAN, Б3). Это плата за незнание курса.
-    rotations = (
-        tuple(float(d) for d in range(0, 360, args.rotation_step))
-        if not case.trust_yaw else (0.0,)
-    )
-    row.update(gsd_m=round(case.gsd_m, 4), footprint_m=round(footprint_m),
-               rotations=len(rotations), overlap=round(overlap, 2))
+    row.update(gsd_m=round(case.gsd_m, 4), footprint_m=round(plan.footprint_m),
+               rotations=len(plan.rotations_deg), overlap=round(plan.overlap, 2))
 
-    index, offline_s, _ = _build_or_load_index(
-        case, region, cell_px, rotations, encoder, basemap, args, overlap
-    )
+    index, offline_s = build_or_load(
+        plan, basemap, encoder, rebuild=args.rebuild, ef_search=args.ef_search)
     row.update(cells=len(index), offline_s=round(offline_s, 1))
 
     prerotate_deg = -case.prior.yaw_deg if case.trust_yaw else 0.0
@@ -337,7 +268,7 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
     accepted = result.status is Status.LOCALIZED
     row["accepted"] = int(accepted)
     error_m = None
-    tolerance_m = _tolerance_m(case, footprint_m, args)
+    tolerance_m = _tolerance_m(case, plan.footprint_m, args)
     row["tolerance_m"] = round(tolerance_m)
     if pose_found and case.has_truth:
         error_m = haversine_m(case.truth_lat, case.truth_lon, result.center_lat, result.center_lon)
@@ -351,7 +282,7 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
             case.prior.lat, case.prior.lon
         )
         mpp_fine = ground_mpp(centre[0], z_fine)
-        window = int(2.2 * footprint_m / mpp_fine)
+        window = int(2.2 * plan.footprint_m / mpp_fine)
         ref, gref = basemap(centre[1], centre[0], z_fine, window, window)
         matrix = _transform_into(result, camera, gref)
         shown = dataclasses.replace(result, transform=matrix) if matrix is not None else result
