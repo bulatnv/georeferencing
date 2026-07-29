@@ -33,7 +33,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .camera import Camera
+from .camera import Camera, resample_to_mpp
 from .geo import zoom_for_mpp
 from .types import Prior
 
@@ -97,11 +97,7 @@ class EvalCase:
         image = cv2.imread(str(self.path), cv2.IMREAD_COLOR)
         if image is None:
             raise ValueError(f"{self.path}: не читается как изображение")
-        scale = self.gsd_m / target_mpp
-        new_w = max(16, round(self.camera.image_width * scale))
-        new_h = max(16, round(self.camera.image_height * scale))
-        frame = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
-        return frame, Camera(new_w, new_h, fov_deg=self.camera.fov_deg)
+        return resample_to_mpp(image, self.camera, self.gsd_m, target_mpp)
 
 
 @dataclass(frozen=True)

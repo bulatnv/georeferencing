@@ -31,7 +31,7 @@ from pathlib import Path
 
 import cv2
 
-from .camera import Camera
+from .camera import Camera, resample_to_mpp
 from .types import Prior
 
 __all__ = ["LocateRequest", "build_request", "InputError"]
@@ -67,6 +67,24 @@ class LocateRequest:
     prior_source: str
     trust_yaw: bool
     notes: tuple[str, ...] = field(default_factory=tuple)
+
+    def frame_at_mpp(self, target_mpp: float):
+        """Кадр, приведённый к разрешению подложки, и согласованная камера.
+
+        Полный кадр читается здесь, а не в конструкторе: снимки бывают по 40 Мп,
+        и держать их в памяти до того, как стало ясно, что вход вообще корректен,
+        незачем.
+        """
+        image = cv2.imread(str(self.image_path), cv2.IMREAD_COLOR)
+        if image is None:
+            raise InputError(f"{self.image_path}: не читается как изображение")
+        return resample_to_mpp(image, self.camera, self.gsd_m, target_mpp)
+
+    def basemap_zoom(self, *, max_zoom: int) -> int:
+        """Зум подложки под GSD кадра, клампованный к максимуму провайдера."""
+        from .geo import zoom_for_mpp
+
+        return zoom_for_mpp(self.gsd_m, self.prior.lat, max_zoom=max_zoom)
 
     @property
     def footprint_m(self) -> tuple[float, float]:

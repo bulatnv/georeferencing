@@ -1,0 +1,53 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Volgograd3: отпечаток",
+        "status": "localized"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              44.48773066928999,
+              48.67819323181016
+            ],
+            [
+              44.48283879157657,
+              48.68113523865901
+            ],
+            [
+              44.4858104415967,
+              48.683289252337445
+            ],
+            [
+              44.49070231931012,
+              48.68034737130178
+            ],
+            [
+              44.48773066928999,
+              48.67819323181016
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Volgograd3: центр",
+        "status": "localized"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          44.48677055544337,
+          48.68074130652083
+        ]
+      }
+    }
+  ]
+}

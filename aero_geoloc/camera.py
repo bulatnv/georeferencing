@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["Camera"]
+__all__ = ["Camera", "resample_to_mpp"]
 
 
 @dataclass(frozen=True)
@@ -197,3 +197,27 @@ class Camera:
 
         h = self.K() @ (rx @ ry) @ self.K_inv()
         return h / h[2, 2]
+
+
+def resample_to_mpp(image_bgr, camera: "Camera", gsd_m: float, target_mpp: float):
+    """Кадр, приведённый к разрешению подложки, и согласованная с ним камера.
+
+    Стадия 1 из ``docs/PIPELINE.md``: кадр бывает в разы детальнее подложки, и
+    матчинг на нативном разрешении дорог и неустойчив. Ресемпл до ``mpp ≈ GSD``
+    делает масштаб ≈ 1. **FOV сохраняется**, поэтому камера просто пересобирается
+    под новый размер — именно это и делает результат независимым от того, кто
+    вызвал: EXIF-снимок, кейс оценки или запрос инструмента.
+
+    Функция общая намеренно: реализация была написана трижды (drone, dataset,
+    request), а контракт у неё один, и расхождение трёх копий здесь означало бы
+    три разных масштаба на одном и том же кадре.
+    """
+    import cv2
+
+    if target_mpp <= 0.0:
+        raise ValueError("target_mpp должен быть > 0")
+    scale = gsd_m / target_mpp
+    new_w = max(16, round(camera.image_width * scale))
+    new_h = max(16, round(camera.image_height * scale))
+    frame = cv2.resize(image_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return frame, Camera(new_w, new_h, fov_deg=camera.fov_deg)
