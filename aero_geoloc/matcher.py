@@ -606,16 +606,32 @@ class RoMaMatcher(_LearnedMatcher):
 
 
 
+#: Авторский порог ``overlap`` RoMa v2 (arXiv:2511.15706, §4.1, ур. 6:
+#: ``p̂ = max(1[p > 0.05], p)``). **НЕ 0.5**: у v1 ``conf`` после ``sample`` —
+#: константа 1.0, и порог 0.5 там no-op; у v2 ``overlap`` на нашем домене живёт
+#: в сотых, и унаследованный 0.5 обрезал всё — модель не была измерена
+#: (разбор: ``docs/RESEARCH_A_ROMAV2_RECHECK.md``). Порог, перенесённый между
+#: одноимёнными, но иначе откалиброванными величинами, — известный класс ошибки
+#: этого проекта: то же было с ``MIN_INLIERS_HARD = 8`` на плотном ядре.
+ROMAV2_MIN_OVERLAP = 0.05
+
+
 class RoMaV2Matcher(_LearnedMatcher):
     """RoMa v2 (``romav2``) на замороженном DINOv3 — фаза 3 из ``docs/ROADMAP.md``.
 
-    Отличие от :class:`RoMaMatcher` (v1) не только в качестве. У v1 уверенность
-    возвращённых пар оказалась **константой 1.0** — режим сэмплирования обрезает
-    всё выше порога, — и сигнал приходилось доставать из плотного поля отдельно.
-    У v2 порог по умолчанию не задан, и ``overlaps`` выходят живыми (медиана
-    0.97 при минимуме 0.20 на контрольной паре). Вдобавок v2 отдаёт **матрицу
-    точности 2×2 на каждую пару** — ту самую ковариацию ошибки, ради которой
-    направление и выбиралось.
+    Отличие от :class:`RoMaMatcher` (v1) не только в качестве. У v2 ``overlap`` —
+    откалиброванная заново величина (вероятность ко-видимости пикселя), его
+    рабочая шкала на трудных доменах — сотые. Вдобавок v2 отдаёт **матрицу
+    точности 2×2 на каждую пару** — обратную ковариацию ошибки координаты, ради
+    которой направление и выбиралось.
+
+    **Пороги и режимы пакета** (из исходников установленного ``romav2``):
+    ``setting="precise"`` (дефолт) — вход 800×800, уточнение 1280×1280,
+    bidirectional, ``threshold=None``; бенчмарк-настройки авторов
+    (``mega1500``/``satast``/…) — 800×800/1024×1024 и ``threshold=0.05``,
+    реализующий ур. 6: ``overlap[overlap > t] = 1.0`` (плоские веса выше порога).
+    ``sample()`` сам порога НЕ применяет — сэмплирует ``multinomial``
+    пропорционально overlap, затем KDE-балансировка.
 
     **Про веса и лицензии.** ``romav2`` тянет один чекпоинт (~1.02 ГБ) из релиза
     MIT-лицензированного репозитория, и замороженный **DINOv3 лежит внутри
@@ -626,7 +642,14 @@ class RoMaV2Matcher(_LearnedMatcher):
 
     Args:
         max_samples: сколько пар сэмплировать из плотного поля.
-        min_conf: порог ``overlap`` для пары.
+        min_conf: порог ``overlap`` для пары ПОСЛЕ сэмплирования. Авторское
+            значение :data:`ROMAV2_MIN_OVERLAP`; не наследовать 0.5 от v1.
+        model_threshold: порог, устанавливаемый В МОДЕЛЬ (``model.threshold``) —
+            включает авторское уплощение ур. 6 и меняет веса сэмплирования.
+            ``None`` — не уплощать (сырое поле).
+        setting: режим разрешений пакета (``precise``/``base``/``fast``/``turbo``
+            или бенчмарк-имена). Дефолт пакета ``precise`` не трогаем — он не
+            грубее авторского режима позы.
         compile: ``torch.compile`` модели. По умолчанию выключено: на Windows
             компиляция либо падает, либо стоит минуты при первом вызове, а выигрыш
             для наших размеров не измерен.
@@ -634,18 +657,28 @@ class RoMaV2Matcher(_LearnedMatcher):
 
     _requires = "torch и romav2"
 
-    def __init__(self, *, max_samples: int = 2048, min_conf: float = 0.5,
+    def __init__(self, *, max_samples: int = 2048,
+                 min_conf: float = ROMAV2_MIN_OVERLAP,
+                 model_threshold: float | None = ROMAV2_MIN_OVERLAP,
+                 setting: str = "precise",
                  compile: bool = False, device: str | None = None) -> None:
         super().__init__(device=device)
         self.max_samples = max_samples
         self.min_conf = min_conf
+        self.model_threshold = model_threshold
+        self.setting = setting
         self.compile = compile
         self._model = None
 
     def _import(self) -> None:  # pragma: no cover - требует torch+romav2
         from romav2 import RoMaV2
 
-        self._model = RoMaV2(RoMaV2.Cfg(compile=self.compile)).to(self._device).eval()
+        model = RoMaV2(RoMaV2.Cfg(compile=self.compile, setting=self.setting))
+        # Порог ур. 6 живёт в модели (apply_setting), а не в sample(): у
+        # ``precise`` он выключен, у бенчмарк-настроек равен 0.05. Задаём явно,
+        # чтобы поведение не зависело от того, какой режим случился в Cfg.
+        model.threshold = self.model_threshold
+        self._model = model.to(self._device).eval()
 
     def match(self, query_gray: np.ndarray, ref_gray: np.ndarray) -> Correspondences:
         _check_gray(query_gray, "query_gray")
@@ -653,13 +686,38 @@ class RoMaV2Matcher(_LearnedMatcher):
         self._ensure()
         from PIL import Image  # pragma: no cover
 
-        with self._torch.inference_mode():  # pragma: no cover - требует torch
+        torch = self._torch
+        with torch.inference_mode():  # pragma: no cover - требует torch
             im_q = Image.fromarray(cv2.cvtColor(query_gray, cv2.COLOR_GRAY2RGB))
             im_r = Image.fromarray(cv2.cvtColor(ref_gray, cv2.COLOR_GRAY2RGB))
             preds = self._model.match(im_q, im_r)
-            matches, overlaps, precision_ab, _ = self._model.sample(preds, self.max_samples)
+            # Сводка СЫРОГО поля до сэмплирования и до уплощения ур. 6: только
+            # она отвечает на вопрос «модель не видит пару или фильтр съел хвост».
+            # Среднее по определению этого не показывает (та же причина, по
+            # которой у v1 сводка снимается до sample).
+            field = preds["confidence_AB"][..., :1].float().sigmoid().reshape(-1)
+            fq = torch.quantile(
+                field, torch.tensor([0.1, 0.5, 0.9, 0.99], device=field.device))
+            evidence = {
+                "overlap_field_p10": float(fq[0]), "overlap_field_p50": float(fq[1]),
+                "overlap_field_p90": float(fq[2]), "overlap_field_p99": float(fq[3]),
+                "overlap_field_frac_gt005": float((field > 0.05).float().mean()),
+                "overlap_field_frac_gt050": float((field > 0.50).float().mean()),
+            }
+            matches, overlaps, precision_ab, precision_ba = self._model.sample(
+                preds, self.max_samples)
             if matches.shape[0] == 0:
                 return Correspondences.empty()
+            ov = overlaps.detach().float().reshape(-1)
+            q = torch.quantile(ov, torch.tensor([0.1, 0.5, 0.9, 0.99], device=ov.device))
+            evidence.update({
+                "overlap_p10": float(q[0]), "overlap_p50": float(q[1]),
+                "overlap_p90": float(q[2]), "overlap_p99": float(q[3]),
+                "overlap_frac_gt005": float((ov > 0.05).float().mean()),
+                "overlap_frac_gt050": float((ov > 0.50).float().mean()),
+                "overlap_mean": float(ov.mean()),
+                "n_sampled": int(ov.numel()),
+            })
             hq, wq = query_gray.shape[:2]
             hr, wr = ref_gray.shape[:2]
             pts_q, pts_r = self._model.to_pixel_coordinates(matches, hq, wq, hr, wr)
@@ -667,14 +725,18 @@ class RoMaV2Matcher(_LearnedMatcher):
             # увереннее. Это pair-level свидетельство: наружу идёт сводка, потому
             # что связке качества нужно одно число, а не 2048 матриц.
             trace = precision_ab.diagonal(dim1=-2, dim2=-1).sum(-1)
-            evidence = {
-                "overlap_mean": float(overlaps.mean().item()),
-                "precision_median": float(trace.median().item()),
-            }
+            evidence["precision_median"] = float(trace.median().item())
+            # Четвёртый выход sample() — Σ⁻¹ обратного направления (по исходнику
+            # пакета: sampled_precision[:, 1]). В pose пока не заводится — это
+            # отдельный эксперимент (RECHECK §7); наружу идёт сводка и форма.
+            if precision_ba is not None:
+                trace_ba = precision_ba.diagonal(dim1=-2, dim2=-1).sum(-1)
+                evidence["precision_ba_median"] = float(trace_ba.median().item())
+                evidence["precision_ba_shape"] = str(tuple(precision_ba.shape))
         corr = Correspondences(
             pts_q.detach().cpu().numpy().astype(np.float32),
             pts_r.detach().cpu().numpy().astype(np.float32),
-            overlaps.detach().cpu().numpy().astype(np.float32).reshape(-1),
+            overlaps.detach().float().cpu().numpy().astype(np.float32).reshape(-1),
             evidence=evidence,
         )
         keep = corr.conf >= self.min_conf

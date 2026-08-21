@@ -16,7 +16,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 IMAGES = ROOT / "test_images"
-NADIR_IMG = IMAGES / "00049.JPG"
+# Корневой дубликат удалён владельцем 2026-08-21; остался экземпляр в DRZ/.
+NADIR_IMG = IMAGES / "DRZ" / "00049.JPG"
 OBLIQUE_IMG = IMAGES / "DJI_0058.JPG"
 
 
