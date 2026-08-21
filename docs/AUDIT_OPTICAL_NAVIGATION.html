@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Аудит optical-navigation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,500;7..72,600;7..72,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F5;
+    --surface: #FFFFFF;
+    --surface-2: #EBF0EF;
+    --ink: #1E2B2D;
+    --muted: #5C6E6E;
+    --line: #D9E2E0;
+    --accent: #16706C;
+    --accent-ink: #0E5450;
+    --accent-soft: rgba(22, 112, 108, 0.09);
+    --ok: #2E7D4F;
+    --warn: #A65A12;
+    --crit: #A33B2E;
+    --warn-soft: rgba(166, 90, 18, 0.10);
+    --crit-soft: rgba(163, 59, 46, 0.10);
+    --ok-soft: rgba(46, 125, 79, 0.10);
+    --code-bg: #EDF2F1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101718;
+      --surface: #172021;
+      --surface-2: #1D2A2B;
+      --ink: #E3ECEA;
+      --muted: #93A5A2;
+      --line: #2A3638;
+      --accent: #4FB3AC;
+      --accent-ink: #7CCFC9;
+      --accent-soft: rgba(79, 179, 172, 0.12);
+      --ok: #5CB585;
+      --warn: #D98F4A;
+      --crit: #D2705F;
+      --warn-soft: rgba(217, 143, 74, 0.13);
+      --crit-soft: rgba(210, 112, 95, 0.13);
+      --ok-soft: rgba(92, 181, 133, 0.13);
+      --code-bg: #1C2627;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101718;
+    --surface: #172021;
+    --surface-2: #1D2A2B;
+    --ink: #E3ECEA;
+    --muted: #93A5A2;
+    --line: #2A3638;
+    --accent: #4FB3AC;
+    --accent-ink: #7CCFC9;
+    --accent-soft: rgba(79, 179, 172, 0.12);
+    --ok: #5CB585;
+    --warn: #D98F4A;
+    --crit: #D2705F;
+    --warn-soft: rgba(217, 143, 74, 0.13);
+    --crit-soft: rgba(210, 112, 95, 0.13);
+    --ok-soft: rgba(92, 181, 133, 0.13);
+    --code-bg: #1C2627;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 20px 96px;
+  }
+  .page { max-width: 880px; margin: 0 auto; }
+
+  h1, h2, h3 {
+    font-family: "Literata", Georgia, serif;
+    text-wrap: balance;
+    line-height: 1.22;
+  }
+  h1 { font-size: 2.15rem; font-weight: 700; margin: 0.4em 0 0.25em; }
+  h2 { font-size: 1.45rem; font-weight: 600; margin: 0 0 0.6em; }
+  h3 { font-size: 1.08rem; font-weight: 600; margin: 1.6em 0 0.5em; }
+  p { margin: 0.75em 0; max-width: 72ch; }
+  a { color: var(--accent-ink); }
+
+  code, pre, .mono {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 0.86em;
+  }
+  code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; }
+
+  /* Шапка */
+  header { padding: 56px 0 8px; border-bottom: 2px solid var(--ink); margin-bottom: 8px; }
+  .eyebrow {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  .subtitle { color: var(--muted); max-width: 68ch; margin-top: 0.2em; }
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 22px 0 30px;
+  }
+  .meta > div { background: var(--surface); padding: 10px 14px; }
+  .meta dt {
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+  .meta dd { margin: 0; font-size: 0.92rem; overflow-wrap: anywhere; }
+
+  /* Разделы */
+  section { margin: 44px 0; }
+  .sec-label {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+    margin-bottom: 6px;
+  }
+  .sec-label b { color: var(--accent-ink); font-weight: 600; }
+
+  ul { padding-left: 1.25em; max-width: 74ch; }
+  li { margin: 0.35em 0; }
+  li::marker { color: var(--accent); }
+
+  /* Таблицы */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; margin: 1em 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th, td { padding: 8px 13px; text-align: left; vertical-align: top; }
+  thead th {
+    background: var(--surface-2);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  tbody tr { border-top: 1px solid var(--line); background: var(--surface); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", monospace; font-size: 0.84rem; white-space: nowrap; }
+
+  /* Чипы состояния */
+  .chip {
+    display: inline-block;
+    font-size: 0.76rem;
+    font-weight: 600;
+    padding: 1px 9px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+  .chip.ok   { background: var(--ok-soft);   color: var(--ok); }
+  .chip.warn { background: var(--warn-soft); color: var(--warn); }
+  .chip.crit { background: var(--crit-soft); color: var(--crit); }
+
+  /* Конвейер */
+  .flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 1.1em 0; }
+  .flow .step {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+  .flow .arr { color: var(--muted); font-size: 0.85rem; }
+
+  /* Врезки */
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 8px 8px 0;
+    padding: 10px 16px;
+    margin: 1.2em 0;
+    max-width: 74ch;
+  }
+  .note.warn { border-left-color: var(--warn); }
+  .note.crit { border-left-color: var(--crit); }
+  .note p { margin: 0.35em 0; }
+
+  .kv { color: var(--muted); font-size: 0.85rem; }
+
+  footer {
+    margin-top: 64px;
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">Технический отчёт · sbermainframe</div>
+  <h1>Аудит проекта optical-navigation</h1>
+  <p class="subtitle">Сервис визуальной коррекции координат БПЛА: warp по телеметрии, мозаика XYZ-тайлов,
+  матчинг MINIMA-RoMa. Что лежит в <span class="mono">~/projects/ml/optical-navigation</span>, как устроено и что показывает eval.</p>
+  <dl class="meta">
+    <div><dt>Хост</dt><dd>sbermainframe · RTX 3060 12 ГБ</dd></div>
+    <div><dt>Репозиторий</dt><dd class="mono">sberworks.ru:7998/aip/optical_navigation_ext</dd></div>
+    <div><dt>Ветка</dt><dd class="mono">dev · 33 коммита · 18.06–04.08.2026</dd></div>
+    <div><dt>Версия сервиса</dt><dd class="mono">v1.8.1</dd></div>
+    <div><dt>Данные</dt><dd>107 ГБ тайлов (z12–16)</dd></div>
+    <div><dt>Дата аудита</dt><dd>21 августа 2026</dd></div>
+  </dl>
+</header>
+
+<section>
+  <div class="sec-label"><b>01</b> · Резюме</div>
+  <h2>Что это и в каком оно состоянии</h2>
+  <p><b>optical-navigation</b> — прототип бортового сервиса коррекции инерциальной навигации по
+  аэрофотоснимку. Постановка обратна нашему <span class="mono">image_localization</span>: не «найти, где сделан
+  снимок», а «исправить уже примерно известную позицию». На вход — кадр и телеметрия
+  (координаты prior, высота, углы, фокус, сенсор); на выход — поправка <span class="mono">delta_x/delta_y</span>
+  и набор GCP-точек «пиксель ↔ координата». Ошибка prior в рабочем сценарии — 40–80 м.</p>
+  <ul>
+    <li><span class="chip ok">работает</span>&nbsp; Код зрелый и опрятный: сервис, симулятор и подготовка тайлов разделены; отказ — честный HTTP 422; есть профилирование стадий.</li>
+    <li><span class="chip ok">есть данные</span>&nbsp; На диске 107 ГБ подложки и полные eval-результаты: 7 экспериментов × 200 кадров, с итоговым XLSX и графиком.</li>
+    <li><span class="chip warn">не запустится как есть</span>&nbsp; Конфиги унаследованы от чужой машины: пути <span class="mono">/home/zhenya/…</span> в <span class="mono">.env</span>, сломанный <span class="mono">.venv</span>, стек Docker остановлен.</li>
+    <li><span class="chip warn">качество зависит от высоты</span>&nbsp; Success rate растёт со 100 м (15–18%) до 300 м (82–89%); на «чужих сезонах» медианная ошибка подскакивает до ~60 м.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-label"><b>02</b> · Архитектура</div>
+  <h2>Три блока и конвейер /match</h2>
+  <p>Проект состоит из сервиса-ядра, симулятора для генерации синтетики и оценки, и утилит подготовки тайлового кэша.</p>
+
+  <h3>correction-service — ядро (FastAPI, Docker, GPU)</h3>
+  <p>Один контейнер на базе <span class="mono">nvcr.io/nvidia/pytorch:24.11-py3</span>, порт 8002→8001.
+  Обработка <span class="mono">POST /match</span> целиком в памяти, без временных GeoTIFF:</p>
+  <div class="flow">
+    <span class="step">кадр + телеметрия</span><span class="arr">→</span>
+    <span class="step">pitch-adaptive crop</span><span class="arr">→</span>
+    <span class="step">warp в UTM</span><span class="arr">→</span>
+    <span class="step">мозаика тайлов вокруг prior</span><span class="arr">→</span>
+    <span class="step">MINIMA-RoMa Large</span><span class="arr">→</span>
+    <span class="step">RANSAC + предикаты</span><span class="arr">→</span>
+    <span class="step">GCP + Δx/Δy</span>
+  </div>
+  <ul>
+    <li><b>Кроп по pitch</b> (<span class="mono">matching_crop.py</span>): при |pitch| ≤ 30° кадр не режется, дальше кусочно-линейно до центральных 50% при 60°+ (узлы 30→1.0, 40→0.75, 50→0.60, 60→0.50); размеры сенсора уменьшаются пропорционально. Дальняя зона наклонного кадра после warp растягивается и портит матчинг — её просто отрезают.</li>
+    <li><b>Warp</b> (<span class="mono">warp.py</span>): <span class="mono">cameratransform</span> строит лучи через углы кадра, пересечение с землёй даёт 4 GCP «пиксель фото → UTM», затем билинейный reproject через rasterio. UTM-зона выбирается автоматически по lat/lon. Если лучи не пересекают землю (широкий FOV при большом наклоне) — явная ошибка, не мусорный результат.</li>
+    <li><b>Мозаика</b> (<span class="mono">tiles.py</span>): XYZ-тайлы из локального каталога (<span class="mono">TILE_DIR</span>) или по URL-шаблону; зум подбирается автоматически в [12, 18], чтобы длинная сторона мозаики была ~2048 px; защитные пороги — максимум 5000 тайлов, минимум 80% покрытия, иначе 422.</li>
+    <li><b>Матчер</b> (<span class="mono">matchers/minima.py</span>): MINIMA-RoMa (<span class="mono">model_type="roma", model_size="large"</span>) в fp16; в боевой конфигурации <span class="mono">max_size=864</span>, до 1000 точек. RANSAC у модели отключён — геометрию проверяет сервис: <span class="mono">findHomography</span> (порог 10 px, 10 000 итераций, conf 0.995) плюс два масштабных предиката.</li>
+    <li><b>Предикаты масштаба</b> — знакомая нам идея «prior — ограничение»: сингулярные числа аффинной части гомографии сравниваются с ожидаемым масштабом warp↔карта; решение с неправдоподобным масштабом отбрасывается целиком, а не «подтягивается».</li>
+    <li><b>Лимиты запроса</b>: радиус поиска ≤ 1000 м, сторона кадра ≤ 20 000 px, диагональ footprint ≥ 150 м.</li>
+    <li>В образ вшиты веса: <span class="mono">minima_roma.ckpt</span>, <span class="mono">minima_loftr.ckpt</span> (запасной LoFTR-матчер), DINOv2 ViT-L/14 в <span class="mono">hub/checkpoints</span> — чекпоинт на месте. Библиотека матчинга — vendored <span class="mono">image-matching-models</span>; <span class="mono">cameratransform</span> ставится без зависимостей из-за пина numpy 1.26.4.</li>
+    <li>Есть вариант для Jetson Orin (<span class="mono">docker-compose.orin.yml</span>, лимит 16 ГБ RAM) — целевая платформа бортовая.</li>
+  </ul>
+
+  <h3>simulator — синтетика и оценка</h3>
+  <ul>
+    <li><b>Рендер кадров из ортофотоплана</b> по позе камеры: <span class="mono">data_sampler.py</span> (cameratransform + rasterio) и более точный <span class="mono">ray_trace_sampler.py</span>; генератор облачности <span class="mono">clouds.py</span>, тепловизор Boson (<span class="mono">boson_camera.py</span>, <span class="mono">simulator-termal.ipynb</span>).</li>
+    <li><b>Модель полёта</b>: маршрут из KML, ИНС с дрейфом (<span class="mono">inertial_navigation_system.py</span>), ground-truth навигация, периодическая коррекция через API сервиса (<span class="mono">optical_correction_client.py</span>).</li>
+    <li><b>VPR-клиент</b> (<span class="mono">vpr_client.py</span>): когда неопределённость больше max_range сервиса, область режется на окна-гипотезы — грубая локализация перед точным матчингом, аналог нашей retrieval-фазы.</li>
+    <li><b>Ноутбуки</b>: <span class="mono">mk-video-dataset</span> → <span class="mono">mk-frame-dataset</span> → <span class="mono">eval-frame-dataset</span> (главный сценарий оценки), плюс <span class="mono">profile.ipynb</span> и <span class="mono">profile-match.py</span> для профилирования. Есть юнит-тесты клиента и ray-trace-сэмплера.</li>
+  </ul>
+
+  <h3>tiles — подготовка подложки</h3>
+  <p><span class="mono">download_tiles.py</span> качает XYZ-тайлы по bounds растра или KML-маршрута (с буфером), параллельно и с докачкой; формат каталога <span class="mono">&lt;zoom&gt;/&lt;x&gt;/&lt;y&gt;.jpg</span>. Альтернатива локальному каталогу — раздача через nginx и <span class="mono">TILE_TEMPLATE_URL</span>.</p>
+</section>
+
+<section>
+  <div class="sec-label"><b>03</b> · Оценка</div>
+  <h2>Методика eval и фактические результаты</h2>
+  <p>Методика (<span class="mono">docs/eval-frame-dataset.md</span>): к ground-truth позе каждого синтетического кадра добавляют случайное смещение 40–80 м (seed 42), отправляют кадр с «ошибочной» телеметрией в <span class="mono">/match</span> и меряют остаточную ошибку после поправки. На машине лежат готовые результаты семи прогонов — конфигурация <span class="mono">offset_40_80 · imgsize 864 · 1000 kpts</span>, по 200 кадров каждый. Пересчитано из CSV при аудите:</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr>
+      <th>Съёмка (raster)</th><th>Высота, pitch</th>
+      <th class="num">Success</th><th class="num">Мед. ошибка, м</th><th class="num">P95, м</th><th class="num">Мед. время, с</th>
+    </tr></thead>
+    <tbody>
+      <tr><td rowspan="4">GTKAZ_F 2023.08.08<br><span class="kv">лето, базовый набор</span></td>
+          <td>100 м, 0°</td><td class="num">14.5%</td><td class="num">8.32</td><td class="num">48.7</td><td class="num">1.49</td></tr>
+      <tr><td>100 м, 15°</td><td class="num">18.5%</td><td class="num">9.34</td><td class="num">23.4</td><td class="num">1.43</td></tr>
+      <tr><td>200 м, 0°</td><td class="num">59.0%</td><td class="num">5.58</td><td class="num">8.8</td><td class="num">1.33</td></tr>
+      <tr><td>300 м, 0°</td><td class="num">89.0%</td><td class="num">5.42</td><td class="num">70.2</td><td class="num">2.97</td></tr>
+      <tr><td rowspan="2">GTKAZ_F 2023.10.16<br><span class="kv">осень — сезон ≠ подложке</span></td>
+          <td>200 м, 0°</td><td class="num">58.5%</td><td class="num">59.16</td><td class="num">151.6</td><td class="num">3.38</td></tr>
+      <tr><td>300 м, 0°</td><td class="num">82.0%</td><td class="num">8.09</td><td class="num">129.2</td><td class="num">5.92</td></tr>
+      <tr><td>GTKAZ_GNSS 2021.08.18<br><span class="kv">другой год съёмки</span></td>
+          <td>200 м, 0°</td><td class="num">56.5%</td><td class="num">59.53</td><td class="num">159.3</td><td class="num">6.20</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Все 644 отказа — один и тот же честный <span class="mono">HTTP 422: algorithm does not converge</span>: геометрическая проверка не пропустила решение. Из чисел видно три закономерности:</p>
+  <ul>
+    <li><b>Высота решает.</b> На 100 м footprint кадра мал относительно мозаики и success проваливается до 15–18%; на 300 м — 82–89%. Рабочая зона текущей конфигурации — от ~200 м.</li>
+    <li><b>Сезон и источник данных бьют по точности, а не по success.</b> Осенний и «2021-й» наборы сходятся так же часто (56–59%), но медианная ошибка успешных кадров вырастает с ~5.5 м до ~59 м — матчер уверенно цепляется, но за сместившуюся фактуру. Знакомый нам режим «уверенно-неверных» решений.</li>
+    <li><b>P95 тяжёлый везде</b> (до 160 м) — хвост грубых промахов фильтрацией пока не срезан; поле для доработки quality-контроля.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-label"><b>04</b> · Состояние</div>
+  <h2>Что на машине сейчас</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Компонент</th><th>Состояние</th><th>Комментарий</th></tr></thead>
+    <tbody>
+      <tr><td>Git</td><td><span class="chip warn">грязное дерево</span></td>
+          <td>Ветка <span class="mono">dev</span>; правки в <span class="mono">.gitignore</span>, docker-compose, Dockerfile.orin, eval-ноутбуке; два executed-ноутбука и <span class="mono">profile-match.py</span> не отслеживаются. Последний коммит — 04.08.2026.</td></tr>
+      <tr><td>Docker-стек</td><td><span class="chip warn">остановлен</span></td>
+          <td>По договорённости не поднимаем. Compose корректный (GPU, healthcheck, shm 8 ГБ).</td></tr>
+      <tr><td><span class="mono">.env</span></td><td><span class="chip crit">чужие пути</span></td>
+          <td><span class="mono">TILE_DIR=/home/zhenya/projects/…</span> — на этой машине должно быть <span class="mono">/home/bulat/projects/ml/optical-navigation/data/tiles</span>. То же в путях из документации.</td></tr>
+      <tr><td><span class="mono">.venv</span></td><td><span class="chip crit">сломан</span></td>
+          <td>Интерпретатор ссылается на несуществующий префикс (venv перенесён с другой машины): <span class="mono">ModuleNotFoundError: encodings</span>. Для ноутбуков нужно пересоздать.</td></tr>
+      <tr><td>Тайлы</td><td><span class="chip ok">на месте</span></td>
+          <td>107 ГБ, зумы 12–16 в <span class="mono">data/tiles</span>; диагностический набор z18 в комплекте.</td></tr>
+      <tr><td>Веса моделей</td><td><span class="chip ok">на месте</span></td>
+          <td>DINOv2 ViT-L/14 в <span class="mono">hub/checkpoints</span>; чекпоинты RoMa/LoFTR копируются в образ при сборке.</td></tr>
+      <tr><td>Документация</td><td><span class="chip ok">хорошая</span></td>
+          <td>README с примерами API и подробный <span class="mono">docs/eval-frame-dataset.md</span>. Нюанс: в корневом README примеры на порт 8001, локальный compose слушает 8002.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn">
+    <p><b>Чтобы запустить на этой машине</b>, достаточно трёх шагов: поправить <span class="mono">TILE_DIR</span> в <span class="mono">.env</span>, собрать образ (<span class="mono">docker compose up -d --build</span>, веса уже на диске) и пересоздать <span class="mono">.venv</span> под ноутбуки. GPU-требования RoMa Large fp16 при max_size 864 укладываются в 12 ГБ RTX 3060.</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-label"><b>05</b> · Связь с image_localization</div>
+  <h2>Пересечения и что можно позаимствовать</h2>
+  <p>Задачи комплементарны: наш проект решает глобальный поиск без надёжного prior
+  (retrieval по большой области), этот — точную коррекцию при ошибке ≤ 80–1000 м. Вместе они
+  складываются в двухэтажную схему, которую мы сами описали в статье: грубая локализация → точная привязка.</p>
+  <ul>
+    <li><b>Общий матчер.</b> Здесь в бою тот самый MINIMA-RoMa, который мы разбирали в <span class="mono">docs/MODEL_MINIMA_ROMA.html</span> — есть готовый стенд, чтобы сравнить его с нашими SIFT/LightGlue на одних кадрах.</li>
+    <li><b>Идеи в нашу сторону:</b> pitch-adaptive кроп перед warp; выбор зума мозаики под целевой размер; предикаты правдоподобия гомографии по сингулярным числам (родня нашему инварианту «приоры — ограничения»); VPR-окна как формализация перехода между этажами.</li>
+    <li><b>Идеи в их сторону:</b> наш quality-контроль (эллипс ковариации, NCC/DINO-проверка) мог бы срезать тяжёлый P95-хвост и «уверенно-неверные» решения на чужом сезоне.</li>
+    <li><b>Готовая синтетика.</b> Симулятор с ИНС-дрейфом, облаками и тепловизором — то, чего у нашего стенда нет; его можно направить на наши ортофотопланы.</li>
+  </ul>
+</section>
+
+<footer>
+  Отчёт составлен по результатам аудита кода и данных на sbermainframe (без запуска сервиса) · 21.08.2026 ·
+  исходники: <span class="mono">~/projects/ml/optical-navigation</span>, ветка dev, коммит d9cdcd8
+</footer>
+</div>
+
+</html>
