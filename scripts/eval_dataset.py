@@ -243,9 +243,18 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
         uniqueness=round(uniqueness, 4),
     )
 
+    # Переопределения порогов ядра — для перепроверок (LOFTR_RECHECK Э3);
+    # боевые дефолты ядер не меняются, флаги действуют только на этот прогон.
+    matcher_kwargs = {"max_side": args.matcher_max_side}
+    if args.coarse_thr is not None:
+        matcher_kwargs["coarse_thr"] = args.coarse_thr
+    if args.min_conf_pairs is not None:
+        matcher_kwargs["min_conf"] = args.min_conf_pairs
+
     t0 = time.perf_counter()
     result = localize(
-        frame, camera, case.prior, basemap, index=index, matcher=create_matcher(args.matcher, max_side=args.matcher_max_side),
+        frame, camera, case.prior, basemap, index=index,
+        matcher=create_matcher(args.matcher, **matcher_kwargs),
         # prerotate=True всегда: флаг значит «матчер не инвариантен к повороту»
         # (LightGlue такой), а не «курс известен». При trust_yaw=False угол берётся
         # у совпавшей клетки индекса — без этого аугментация чинит только Этаж 1.
@@ -369,6 +378,11 @@ def main() -> int:
                              "Матчер сменный по инварианту архитектуры — здесь это "
                              "ровно один флаг, и он же попадает в конфигурацию прогона, "
                              "чтобы регрессия не сравнила разные ядра между собой")
+    parser.add_argument("--coarse-thr", type=float, default=None,
+                        help="переопределить внутренний порог LoFTR (coarse_matching.thr) "
+                             "на этот прогон; None = дефолт ядра")
+    parser.add_argument("--min-conf-pairs", type=float, default=None,
+                        help="переопределить min_conf ядра на этот прогон; None = дефолт")
     parser.add_argument("--matcher-max-side", type=int, default=0,
                         help="рабочее разрешение матчера, px (0 = полное). Плотным "
                              "ядрам (LoFTR и далее RoMa/MINIMA) полное разрешение "

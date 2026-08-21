@@ -29,15 +29,20 @@ from aero_geoloc.basemap import ESRI_WORLD_IMAGERY, TileBasemap, TileCache  # no
 from aero_geoloc.dataset import load_dataset  # noqa: E402
 from aero_geoloc.geo import ground_mpp, haversine_m  # noqa: E402
 from aero_geoloc.matcher import create_matcher  # noqa: E402
-from aero_geoloc.oracle import alignment_for, north_up_crop, to_gray  # noqa: E402
+from aero_geoloc.oracle import alignment_for, north_up_crop, offset_lonlat, to_gray  # noqa: E402
 from aero_geoloc.pose import estimate_similarity  # noqa: E402
 
-#: Колонки CSV — по спецификации RECHECK §3, плюс сводка сырого поля (П2) и
-#: контекст (source/size/model_threshold), без которого строки не сравнить.
+#: Колонки CSV — по спецификациям RECHECK §3 (RoMa v2) и LOFTR_RECHECK §3, плюс
+#: контекст (source/size/max_side/пара), без которого строки не сравнить: именно
+#: неразличимость строк разных режимов дважды портила замеры LoFTR.
 FIELDS = [
-    "case", "matcher", "min_conf", "model_threshold", "size_px", "align_source",
-    "n_sampled", "n_pairs_after_filter", "pose_found", "n_inliers", "err_m",
-    "rmse_px",
+    "case", "matcher", "pair", "min_conf", "model_threshold", "coarse_thr",
+    "max_side", "size_px", "footprint_m", "align_source",
+    "n_sampled", "n_model_out", "n_pairs_after_filter", "pose_found",
+    "n_inliers", "err_m", "rmse_px",
+    "loftr_coarse_thr",
+    "conf_p10", "conf_p50", "conf_p90", "conf_p99", "conf_max",
+    "conf_frac_gt020", "conf_frac_gt050",
     "overlap_p10", "overlap_p50", "overlap_p90", "overlap_p99",
     "overlap_frac_gt005", "overlap_frac_gt050", "overlap_mean",
     "overlap_field_p10", "overlap_field_p50", "overlap_field_p90",
@@ -62,14 +67,21 @@ def load_poses(path: Path) -> dict[str, tuple[float, float, float]]:
     return poses
 
 
-def probe_case(case, align, basemap, matcher, args, max_zoom) -> dict:
-    """Одна строка CSV: матч на оракульном выравнивании и поза из него."""
+def probe_case(case, align, basemap, matcher, args, max_zoom,
+               *, pair="pos", centre=None) -> dict:
+    """Одна строка CSV: матч на оракульном выравнивании и поза из него.
+
+    ``pair="false"`` с центром ``centre`` — отрицательное плечо (Р4): то же
+    окно, но сдвинутое; ошибка при этом всё равно меряется против истинного
+    центра ``align`` — «нашёл верное место в сдвинутом окне» это не ошибка.
+    """
     z_fine = case.basemap_zoom(max_zoom=max_zoom)
     mpp = ground_mpp(case.prior.lat, z_fine)
     frame, _ = case.frame_at_mpp(mpp)
     query = north_up_crop(frame, align.yaw_deg)
     side = query.shape[0]
-    ref, georef = basemap(align.lon, align.lat, z_fine, side, side)
+    lat, lon = centre if centre is not None else (align.lat, align.lon)
+    ref, georef = basemap(lon, lat, z_fine, side, side)
     gray_ref = to_gray(ref)
 
     started = time.perf_counter()
@@ -77,10 +89,13 @@ def probe_case(case, align, basemap, matcher, args, max_zoom) -> dict:
     sec = time.perf_counter() - started
 
     row = {f: "" for f in FIELDS}
-    row.update(case=case.name, matcher=args.matcher,
+    row.update(case=case.name, matcher=args.matcher, pair=pair,
                min_conf=args.min_conf if args.min_conf is not None else "default",
                model_threshold=args.model_threshold or "default",
-               size_px=side, align_source=align.source,
+               coarse_thr=args.coarse_thr if args.coarse_thr is not None else "default",
+               max_side=args.max_side or 0,
+               size_px=side, footprint_m=round(side * mpp),
+               align_source=align.source,
                n_pairs_after_filter=len(corr), pose_found=0, sec=round(sec, 2))
     for key, value in corr.evidence.items():
         if key in FIELDS and key != "precision_ba_shape":
@@ -119,6 +134,17 @@ def main() -> int:
     parser.add_argument("--model-threshold", default=None,
                         help="только romav2: порог ур. 6 в модели — число либо "
                              "'none' (сырое поле); None = дефолт ядра")
+    parser.add_argument("--coarse-thr", type=float, default=None,
+                        help="только loftr/minima_loftr: внутренний порог kornia "
+                             "coarse_matching.thr; None = дефолт пакета (0.2)")
+    parser.add_argument("--max-side", type=int, default=0,
+                        help="обёртка ResizedMatcher: колпак на длинную сторону. "
+                             "Для LoFTR ОБЯЗАТЕЛЕН (исторические числа сняты при "
+                             "640/1024; полное разрешение — известная ловушка)")
+    parser.add_argument("--offset-m", type=float, default=0.0,
+                        help="отрицательное плечо: тот же кейс на окне, сдвинутом "
+                             "на столько метров (0 = выключено). Строка пишется, "
+                             "только если сдвиг больше наземного следа окна")
     parser.add_argument("--min-inliers", type=int, default=6)
     parser.add_argument("--ransac-px", type=float, default=6.0)
     parser.add_argument("--poses", default="eval_out/eval.csv",
@@ -140,6 +166,12 @@ def main() -> int:
             parser.error("--model-threshold применим только к romav2")
         kwargs["model_threshold"] = (None if args.model_threshold.lower() == "none"
                                      else float(args.model_threshold))
+    if args.coarse_thr is not None:
+        if args.matcher not in ("loftr", "minima_loftr"):
+            parser.error("--coarse-thr применим только к loftr/minima_loftr")
+        kwargs["coarse_thr"] = args.coarse_thr
+    if args.max_side:
+        kwargs["max_side"] = args.max_side
     matcher = create_matcher(args.matcher, **kwargs)
 
     basemap = TileBasemap(cache=TileCache(args.cache))
@@ -158,6 +190,19 @@ def main() -> int:
               f"поза={'да' if row['pose_found'] else 'НЕТ'} "
               f"инл={row['n_inliers'] or '—'} err={row['err_m'] or '—'} м "
               f"({row['sec']} с)")
+        if args.offset_m > 0:
+            # Р4: на крупных кадрах сдвиг меньше следа окна «ложным» не является —
+            # окно накрыло бы верное место, и строка только путала бы анализ.
+            if args.offset_m <= float(row["footprint_m"]):
+                print(f"[{case.name}] false-плечо пропущено: сдвиг {args.offset_m:.0f} м "
+                      f"не больше следа окна {row['footprint_m']} м")
+            else:
+                centre = offset_lonlat(align.lat, align.lon, args.offset_m, 45.0)
+                frow = probe_case(case, align, basemap, matcher, args, max_zoom,
+                                  pair="false", centre=centre)
+                rows.append(frow)
+                print(f"[{case.name}·false] пар={frow['n_pairs_after_filter']} "
+                      f"инл={frow['n_inliers'] or '—'}")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -81,12 +81,19 @@ class Correspondences:
         return int(self.pts_q.shape[0])
 
     @classmethod
-    def empty(cls) -> Correspondences:
-        """Пустой набор — штатный результат, когда матчить нечего."""
+    def empty(cls, evidence: dict | None = None) -> Correspondences:
+        """Пустой набор — штатный результат, когда матчить нечего.
+
+        ``evidence`` принимается и здесь: сводка сигнала до фильтра ценна ровно
+        в случае нуля пар — она отличает «модель не выдала ничего» от «фильтр
+        съел всё». Раньше нулевая ветка её выбрасывала (Л4 в
+        ``docs/RESEARCH_A_LOFTR_RECHECK.md``).
+        """
         return cls(
             pts_q=np.empty((0, 2), dtype=np.float32),
             pts_r=np.empty((0, 2), dtype=np.float32),
             conf=np.empty((0,), dtype=np.float32),
+            evidence=dict(evidence or {}),
         )
 
     def take(self, mask: np.ndarray) -> Correspondences:
@@ -398,25 +405,69 @@ class LightGlueMatcher(_LearnedMatcher):
         return corr.take(keep) if not keep.all() else corr
 
 
+#: Порог уверенности пары LoFTR ПОСЛЕ модели. Величина — dual-softmax по грубой
+#: матрице (температура 0.1), её калибровка есть свойство ОБУЧЕНИЯ: у kornia
+#: outdoor и у minima_loftr шкалы в общем случае разные. Голый 0.5 применялся к
+#: обоим и дал «ноль соответствий» у MINIMA-весов — тот же отпечаток, что снятая
+#: ловушка RoMa v2 (docs/RESEARCH_A_LOFTR_RECHECK.md). Значение не менялось до
+#: результата Э1 — здесь оно только названо и объяснено.
+LOFTR_MIN_CONF = 0.5
+
+
 class LoFTRMatcher(_LearnedMatcher):
     """Detector-free матчер LoFTR (``kornia``) за интерфейсом :class:`Matcher` — фаза 4.
 
     Плотный матчинг без детектора — сильнее на слабо-текстурных сценах, где
-    классике не хватает точек. Args: ``pretrained`` — ``"outdoor"``/``"indoor"``,
-    ``min_conf`` — порог уверенности пары, ``checkpoint`` — внешние веса
-    (``minima_loftr``) вместо штатных.
+    классике не хватает точек.
+
+    **Два порога, и оба — свойство обучения, а не константы природы.** Первый
+    режет внутри kornia: ``CoarseMatching.thr`` (дефолт 0.2) применяется к
+    dual-softmax грубой матрицы ДО mutual-NN, поэтому наружу физически не может
+    выйти соответствие с ``conf ≤ thr`` — возвращаемое распределение усечено по
+    построению. Второй — наш ``min_conf`` после модели. Оба калиброваны под
+    штатные outdoor-веса kornia; для других чекпоинтов (``minima_loftr``) их
+    пригодность надо мерить, а не наследовать.
+
+    Args:
+        pretrained: ``"outdoor"``/``"indoor"`` — штатные веса kornia.
+        min_conf: порог уверенности пары после модели
+            (:data:`LOFTR_MIN_CONF`).
+        coarse_thr: внутренний порог kornia ``coarse_matching.thr``;
+            ``None`` — не трогать дефолт пакета (0.2). Фактическое значение
+            после сборки модели видно в ``evidence["loftr_coarse_thr"]``.
+        checkpoint: внешние веса (``minima_loftr``) вместо штатных.
     """
 
     _requires = "torch и kornia"
 
-    def __init__(self, *, pretrained: str = "outdoor", min_conf: float = 0.5,
+    def __init__(self, *, pretrained: str = "outdoor",
+                 min_conf: float = LOFTR_MIN_CONF,
+                 coarse_thr: float | None = None,
                  checkpoint: str | None = None, device: str | None = None) -> None:
         super().__init__(device=device)
         self.pretrained = pretrained
         self.min_conf = min_conf
+        self.coarse_thr = coarse_thr
+        self.effective_coarse_thr: float | None = None
         self.checkpoint = checkpoint
         self.loaded_tensors: dict[str, int] = {}
         self._model = None
+
+    def _apply_coarse_thr(self, model) -> None:
+        """Применить ``coarse_thr`` к модели и запомнить ФАКТИЧЕСКИЙ порог.
+
+        Проверка ``hasattr`` обязательна: присваивание атрибута ``nn.Module``
+        всегда успешно, и без неё смена версии kornia дала бы молчаливый no-op —
+        «мы сняли порог» при неснятом пороге. Тот же урок, что с
+        ``model.threshold`` у RoMa v2.
+        """
+        if not hasattr(model, "coarse_matching") or not hasattr(model.coarse_matching, "thr"):
+            raise RuntimeError(
+                "kornia LoFTR: не найден coarse_matching.thr — проверить версию "
+                "kornia, порог менять вслепую нельзя")
+        if self.coarse_thr is not None:
+            model.coarse_matching.thr = float(self.coarse_thr)
+        self.effective_coarse_thr = float(model.coarse_matching.thr)
 
     def _import(self) -> None:  # pragma: no cover - требует torch+kornia
         import kornia
@@ -427,6 +478,7 @@ class LoFTRMatcher(_LearnedMatcher):
             body = {k[len("matcher."):]: v for k, v in state.items()
                     if k.startswith("matcher.")} or state
             self.loaded_tensors["loftr"] = apply_state_dict(model, body, label=self.checkpoint)
+        self._apply_coarse_thr(model)
         self._model = model.eval().to(self._device)
 
     def match(self, query_gray: np.ndarray, ref_gray: np.ndarray) -> Correspondences:
@@ -438,9 +490,23 @@ class LoFTRMatcher(_LearnedMatcher):
         pts_q = out["keypoints0"].cpu().numpy().astype(np.float32)
         pts_r = out["keypoints1"].cpu().numpy().astype(np.float32)
         conf = out["confidence"].cpu().numpy().astype(np.float32)
+        # Сводка распределения ДО фильтра — иначе «ноль пар» неотличим от
+        # «модель не видит». n_model_out = 0 — тоже число, и очень информативное.
+        c = conf.reshape(-1)
+        evidence = {
+            "loftr_coarse_thr": self.effective_coarse_thr,
+            "n_model_out": int(c.size),
+            "conf_p10": float(np.quantile(c, 0.10)) if c.size else float("nan"),
+            "conf_p50": float(np.quantile(c, 0.50)) if c.size else float("nan"),
+            "conf_p90": float(np.quantile(c, 0.90)) if c.size else float("nan"),
+            "conf_p99": float(np.quantile(c, 0.99)) if c.size else float("nan"),
+            "conf_max": float(c.max()) if c.size else float("nan"),
+            "conf_frac_gt020": float((c > 0.20).mean()) if c.size else 0.0,
+            "conf_frac_gt050": float((c > 0.50).mean()) if c.size else 0.0,
+        }
         if len(pts_q) == 0:
-            return Correspondences.empty()
-        corr = Correspondences(pts_q, pts_r, conf)
+            return Correspondences.empty(evidence)
+        corr = Correspondences(pts_q, pts_r, conf, evidence=evidence)
         keep = conf >= self.min_conf
         return corr.take(keep) if not keep.all() else corr
 
@@ -591,7 +657,7 @@ class RoMaMatcher(_LearnedMatcher):
             }
             matches, conf = self._model.sample(warp, certainty, num=self.max_samples)
             if matches.shape[0] == 0:
-                return Correspondences.empty()
+                return Correspondences.empty(evidence)   # Л4: сводка ценна именно при нуле
             hq, wq = query_gray.shape[:2]
             hr, wr = ref_gray.shape[:2]
             pts_q, pts_r = self._model.to_pixel_coordinates(matches, hq, wq, hr, wr)
@@ -716,7 +782,7 @@ class RoMaV2Matcher(_LearnedMatcher):
             matches, overlaps, precision_ab, precision_ba = self._model.sample(
                 preds, self.max_samples)
             if matches.shape[0] == 0:
-                return Correspondences.empty()
+                return Correspondences.empty(evidence)   # Л4: сводка ценна именно при нуле
             ov = overlaps.detach().float().reshape(-1)
             q = torch.quantile(ov, torch.tensor([0.1, 0.5, 0.9, 0.99], device=ov.device))
             evidence.update({
