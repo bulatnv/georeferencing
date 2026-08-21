@@ -41,8 +41,11 @@ FIELDS = [
     "n_sampled", "n_model_out", "n_pairs_after_filter", "pose_found",
     "n_inliers", "err_m", "rmse_px",
     "loftr_coarse_thr",
+    "lg_filter_threshold", "lg_depth_confidence", "lg_width_confidence",
+    "lg_detection_threshold", "lg_stop", "lg_prune_q_mean", "lg_prune_r_mean",
+    "n_kpts_q", "n_kpts_r", "n_matches",
     "conf_p10", "conf_p50", "conf_p90", "conf_p99", "conf_max",
-    "conf_frac_gt020", "conf_frac_gt050",
+    "conf_frac_gt010", "conf_frac_gt020", "conf_frac_gt050",
     "overlap_p10", "overlap_p50", "overlap_p90", "overlap_p99",
     "overlap_frac_gt005", "overlap_frac_gt050", "overlap_mean",
     "overlap_field_p10", "overlap_field_p50", "overlap_field_p90",
@@ -141,6 +144,14 @@ def main() -> int:
                         help="обёртка ResizedMatcher: колпак на длинную сторону. "
                              "Для LoFTR ОБЯЗАТЕЛЕН (исторические числа сняты при "
                              "640/1024; полное разрешение — известная ловушка)")
+    parser.add_argument("--filter-threshold", type=float, default=None,
+                        help="только lightglue-семейство: порог выхода назначения")
+    parser.add_argument("--depth-confidence", type=float, default=None,
+                        help="только lightglue-семейство: ранняя остановка (-1 = выкл)")
+    parser.add_argument("--width-confidence", type=float, default=None,
+                        help="только lightglue-семейство: прунинг точек (-1 = выкл)")
+    parser.add_argument("--detection-threshold", type=float, default=None,
+                        help="только lightglue-семейство: порог score SuperPoint")
     parser.add_argument("--offset-m", type=float, default=0.0,
                         help="отрицательное плечо: тот же кейс на окне, сдвинутом "
                              "на столько метров (0 = выключено). Строка пишется, "
@@ -170,6 +181,16 @@ def main() -> int:
         if args.matcher not in ("loftr", "minima_loftr"):
             parser.error("--coarse-thr применим только к loftr/minima_loftr")
         kwargs["coarse_thr"] = args.coarse_thr
+    lg_family = ("lightglue", "gim_lightglue", "minima_lightglue")
+    lg_over = {"filter_threshold": args.filter_threshold,
+               "depth_confidence": args.depth_confidence,
+               "width_confidence": args.width_confidence,
+               "detection_threshold": args.detection_threshold}
+    for name, value in lg_over.items():
+        if value is not None:
+            if args.matcher not in lg_family:
+                parser.error(f"--{name.replace('_', '-')} применим только к {lg_family}")
+            kwargs[name] = value
     if args.max_side:
         kwargs["max_side"] = args.max_side
     matcher = create_matcher(args.matcher, **kwargs)

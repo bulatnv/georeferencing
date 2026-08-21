@@ -328,15 +328,40 @@ def lightglue_state_dict(state: dict) -> dict:
     return out
 
 
+#: Пороги пакета cvg/LightGlue, применяемые к выходам ОБУЧЕННЫХ голов
+#: (TokenConfidence, matchability, log_assignment) и к score детектора.
+#: Дефолты подобраны под официальные веса; GIM и MINIMA — другое обучение, и
+#: переносить их без замера нельзя (docs/RESEARCH_A_LIGHTGLUE_RECHECK.md).
+#: depth/width = -1 штатно отключают раннюю остановку и прунинг точек.
+#: Особая злокачественность width_confidence: прунинг удаляет точки ИЗ
+#: ВЫЧИСЛЕНИЯ безвозвратно — они не доходят до log_assignment, и по гистограмме
+#: выходных пар их отсутствие не видно в принципе.
+LIGHTGLUE_FILTER_THRESHOLD = 0.1
+LIGHTGLUE_DEPTH_CONFIDENCE = 0.95
+LIGHTGLUE_WIDTH_CONFIDENCE = 0.99
+SUPERPOINT_DETECTION_THRESHOLD = 0.0005
+
+
 class LightGlueMatcher(_LearnedMatcher):
     """SuperPoint + LightGlue (``lightglue``) за интерфейсом :class:`Matcher` — фаза 4.
 
     Быстрый и точный на умеренном appearance gap. Смена классики на него —
     ``create_matcher("lightglue")``, и всё выше матчера не меняется.
 
+    **Четыре порога чужой калибровки** живут внутри пакета: ``detection_threshold``
+    в детекторе (бьёт только по GIM — у него свой SuperPoint), ``width_confidence``
+    (прунинг точек в середине сети), ``depth_confidence`` (ранняя остановка),
+    ``filter_threshold`` (порог на выходе назначения). Наш внешний ``min_score``
+    по умолчанию 0.0 и не режет ничего — что создаёт ложное впечатление
+    «у LightGlue порогов нет».
+
     Args:
         max_keypoints: верхняя граница числа точек SuperPoint.
-        min_score: порог уверенности LightGlue для пары.
+        min_score: наш внешний порог уверенности пары (0.0 = не резать).
+        filter_threshold, depth_confidence, width_confidence,
+        detection_threshold: ручки пакета, см. константы модуля. Значения по
+            умолчанию — дефолты пакета; фактические значения после сборки
+            модели видны в ``evidence["lg_*"]``.
         checkpoint: имя внешних весов из :data:`aero_geoloc.weights.CHECKPOINTS`
             (``gim_lightglue`` / ``minima_lightglue``) вместо штатных. Смена
             обучения — это ровно один аргумент; архитектура та же.
@@ -345,20 +370,56 @@ class LightGlueMatcher(_LearnedMatcher):
     _requires = "torch и lightglue"
 
     def __init__(self, *, max_keypoints: int = 2048, min_score: float = 0.0,
+                 filter_threshold: float = LIGHTGLUE_FILTER_THRESHOLD,
+                 depth_confidence: float = LIGHTGLUE_DEPTH_CONFIDENCE,
+                 width_confidence: float = LIGHTGLUE_WIDTH_CONFIDENCE,
+                 detection_threshold: float = SUPERPOINT_DETECTION_THRESHOLD,
                  checkpoint: str | None = None, device: str | None = None) -> None:
         super().__init__(device=device)
         self.max_keypoints = max_keypoints
         self.min_score = min_score
+        self.filter_threshold = filter_threshold
+        self.depth_confidence = depth_confidence
+        self.width_confidence = width_confidence
+        self.detection_threshold = detection_threshold
+        self.effective: dict[str, float] = {}
         self.checkpoint = checkpoint
         self.loaded_tensors: dict[str, int] = {}
         self._extractor = None
         self._matcher = None
 
+    def _read_effective(self, matcher_conf, extractor_conf) -> dict[str, float]:
+        """Прочитать ОБРАТНО фактические пороги из собранных моделей.
+
+        Урок ``model.threshold`` (RoMa v2) и ``coarse_matching.thr`` (LoFTR):
+        молчаливый no-op при смене версии пакета стоил бы всего эксперимента,
+        поэтому отсутствие любого ключа — ошибка, а в ``evidence`` идут
+        значения, прочитанные из моделей, а не запрошенные.
+        """
+        out: dict[str, float] = {}
+        for name in ("filter_threshold", "depth_confidence", "width_confidence"):
+            if not hasattr(matcher_conf, name):
+                raise RuntimeError(
+                    f"lightglue: в conf нет {name!r} — проверить версию пакета, "
+                    f"пороги менять вслепую нельзя")
+            out[name] = float(getattr(matcher_conf, name))
+        if not hasattr(extractor_conf, "detection_threshold"):
+            raise RuntimeError(
+                "lightglue: в conf SuperPoint нет 'detection_threshold' — "
+                "проверить версию пакета, пороги менять вслепую нельзя")
+        out["detection_threshold"] = float(extractor_conf.detection_threshold)
+        return out
+
     def _import(self) -> None:  # pragma: no cover - требует torch+lightglue
         from lightglue import LightGlue, SuperPoint
 
-        extractor = SuperPoint(max_num_keypoints=self.max_keypoints).eval()
-        matcher = LightGlue(features="superpoint").eval()
+        extractor = SuperPoint(max_num_keypoints=self.max_keypoints,
+                               detection_threshold=self.detection_threshold).eval()
+        matcher = LightGlue(features="superpoint",
+                            filter_threshold=self.filter_threshold,
+                            depth_confidence=self.depth_confidence,
+                            width_confidence=self.width_confidence).eval()
+        self.effective = self._read_effective(matcher.conf, extractor.conf)
         if self.checkpoint:
             state = read_state_dict(checkpoint_path(self.checkpoint))
             # У GIM веса лежат под model./superpoint., у MINIMA — плоско: обе
@@ -390,17 +451,40 @@ class LightGlueMatcher(_LearnedMatcher):
             out = self._matcher({"image0": f0, "image1": f1})
         f0, f1, out = (rbd(x) for x in (f0, f1, out))
         matches = out["matches"]
-        if matches.shape[0] == 0:
-            return Correspondences.empty()
-        pts_q = f0["keypoints"][matches[:, 0]].cpu().numpy().astype(np.float32)
-        pts_r = f1["keypoints"][matches[:, 1]].cpu().numpy().astype(np.float32)
         scores = out.get("scores")
         conf = (
-            scores.detach().cpu().numpy().astype(np.float32)
+            scores.detach().cpu().numpy().astype(np.float32).reshape(-1)
             if scores is not None
-            else np.ones(len(pts_q), np.float32)
+            else np.ones(int(matches.shape[0]), np.float32)
         )
-        corr = Correspondences(pts_q, pts_r, conf)
+        # Сводка популяции на трёх срезах — ДО фильтра (Г3): отсев идёт в
+        # детекторе, в прунинге/остановке и на выходе назначения, и по одному
+        # числу не понять, где именно. stop/prune отдаёт сам пакет.
+        evidence = {
+            **{f"lg_{k}": v for k, v in self.effective.items()},
+            "n_kpts_q": int(len(f0["keypoints"])),
+            "n_kpts_r": int(len(f1["keypoints"])),
+            "n_matches": int(matches.shape[0]),
+            "conf_p10": float(np.quantile(conf, 0.10)) if conf.size else float("nan"),
+            "conf_p50": float(np.quantile(conf, 0.50)) if conf.size else float("nan"),
+            "conf_p90": float(np.quantile(conf, 0.90)) if conf.size else float("nan"),
+            "conf_p99": float(np.quantile(conf, 0.99)) if conf.size else float("nan"),
+            "conf_max": float(conf.max()) if conf.size else float("nan"),
+            "conf_frac_gt010": float((conf > 0.10).mean()) if conf.size else 0.0,
+            "conf_frac_gt050": float((conf > 0.50).mean()) if conf.size else 0.0,
+        }
+        if "stop" in out:
+            evidence["lg_stop"] = int(out["stop"])
+        for side, key in (("q", "prune0"), ("r", "prune1")):
+            if key in out:
+                prune = out[key].detach().float().cpu().numpy().reshape(-1)
+                if prune.size:
+                    evidence[f"lg_prune_{side}_mean"] = float(prune.mean())
+        if matches.shape[0] == 0:
+            return Correspondences.empty(evidence)
+        pts_q = f0["keypoints"][matches[:, 0]].cpu().numpy().astype(np.float32)
+        pts_r = f1["keypoints"][matches[:, 1]].cpu().numpy().astype(np.float32)
+        corr = Correspondences(pts_q, pts_r, conf, evidence=evidence)
         keep = conf >= self.min_score
         return corr.take(keep) if not keep.all() else corr
 

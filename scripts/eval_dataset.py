@@ -250,6 +250,11 @@ def evaluate_case(case: EvalCase, args, encoder, basemap, max_zoom) -> dict:
         matcher_kwargs["coarse_thr"] = args.coarse_thr
     if args.min_conf_pairs is not None:
         matcher_kwargs["min_conf"] = args.min_conf_pairs
+    for name in ("filter_threshold", "depth_confidence", "width_confidence",
+                 "detection_threshold"):
+        value = getattr(args, name)
+        if value is not None:
+            matcher_kwargs[name] = value
 
     t0 = time.perf_counter()
     result = localize(
@@ -383,6 +388,14 @@ def main() -> int:
                              "на этот прогон; None = дефолт ядра")
     parser.add_argument("--min-conf-pairs", type=float, default=None,
                         help="переопределить min_conf ядра на этот прогон; None = дефолт")
+    parser.add_argument("--filter-threshold", type=float, default=None,
+                        help="lightglue-семейство: порог выхода назначения (на прогон)")
+    parser.add_argument("--depth-confidence", type=float, default=None,
+                        help="lightglue-семейство: ранняя остановка, -1 = выкл (на прогон)")
+    parser.add_argument("--width-confidence", type=float, default=None,
+                        help="lightglue-семейство: прунинг точек, -1 = выкл (на прогон)")
+    parser.add_argument("--detection-threshold", type=float, default=None,
+                        help="lightglue-семейство: порог score SuperPoint (на прогон)")
     parser.add_argument("--matcher-max-side", type=int, default=0,
                         help="рабочее разрешение матчера, px (0 = полное). Плотным "
                              "ядрам (LoFTR и далее RoMa/MINIMA) полное разрешение "
