@@ -31,12 +31,13 @@ from aero_geoloc.geo import ground_mpp, haversine_m  # noqa: E402
 from aero_geoloc.matcher import create_matcher  # noqa: E402
 from aero_geoloc.oracle import alignment_for, north_up_crop, offset_lonlat, to_gray  # noqa: E402
 from aero_geoloc.pose import estimate_similarity  # noqa: E402
+from poses_provenance import PROVENANCE_FIELDS, PosesError, load_poses_with_provenance  # noqa: E402
 
 #: Колонки CSV — по спецификациям RECHECK §3 (RoMa v2) и LOFTR_RECHECK §3, плюс
 #: контекст (source/size/max_side/пара), без которого строки не сравнить: именно
 #: неразличимость строк разных режимов дважды портила замеры LoFTR.
 FIELDS = [
-    "case", "matcher", "pair", "min_conf", "model_threshold", "coarse_thr",
+    "case", "matcher", "status", "pair", "min_conf", "model_threshold", "coarse_thr",
     "max_side", "size_px", "footprint_m", "align_source",
     "n_sampled", "n_model_out", "n_pairs_after_filter", "pose_found",
     "n_inliers", "err_m", "rmse_px",
@@ -52,22 +53,8 @@ FIELDS = [
     "overlap_field_p99", "overlap_field_frac_gt005", "overlap_field_frac_gt050",
     "certainty_mean", "certainty_cover",
     "precision_median", "precision_ba_median", "precision_ba_shape", "sec",
+    *PROVENANCE_FIELDS,
 ]
-
-
-def load_poses(path: Path) -> dict[str, tuple[float, float, float]]:
-    """Позы пайплайна для кейсов без EXIF-курса (оракул ``manual`` иначе слеп)."""
-    poses: dict[str, tuple[float, float, float]] = {}
-    if not path.exists():
-        return poses
-    with open(path, newline="", encoding="utf-8") as fh:
-        for row in csv.DictReader(fh):
-            try:
-                poses[row["case"]] = (float(row["found_lat"]), float(row["found_lon"]),
-                                      float(row["heading_deg"]))
-            except (KeyError, ValueError):
-                continue
-    return poses
 
 
 def probe_case(case, align, basemap, matcher, args, max_zoom,
@@ -161,6 +148,9 @@ def main() -> int:
     parser.add_argument("--poses", default="eval_out/eval.csv",
                         help="CSV с found_lat/found_lon/heading_deg для manual-кейсов")
     parser.add_argument("--pose-tolerance-m", type=float, default=150.0)
+    parser.add_argument("--allow-partial-poses", action="store_true",
+                        help="работать при неполном файле поз: пропуски manual-кейсов "
+                             "попадут в CSV строками skipped_no_pose (Ф4)")
     parser.add_argument("--cache", default="tiles")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
@@ -197,15 +187,30 @@ def main() -> int:
 
     basemap = TileBasemap(cache=TileCache(args.cache))
     max_zoom = ESRI_WORLD_IMAGERY.max_zoom
-    poses = load_poses(Path(args.poses))
+    # Провенанс входа (FIX_EVAL_ARTIFACT_LEAK): позы обязаны отвечать «кем,
+    # когда и каким ядром сделаны», и ответы доезжают до выходной таблицы.
+    required = {c.name for c in cases if not c.trust_yaw}
+    try:
+        poses, provenance = load_poses_with_provenance(
+            args.poses, required=required, allow_partial=args.allow_partial_poses)
+    except PosesError as exc:
+        parser.error(str(exc))
 
     rows = []
     for case in cases:
         align = alignment_for(case, poses, tolerance_m=args.pose_tolerance_m)
         if align is None:
-            print(f"[{case.name}] пропуск: оракульную позу построить не из чего")
+            # Отсутствующая строка неотличима от «кейса не просили» — пишем
+            # skipped_no_pose в CSV, а не только в консоль (Ф3).
+            row = {f: "" for f in FIELDS}
+            row.update(case=case.name, matcher=args.matcher,
+                       status="skipped_no_pose", pair="pos", **provenance)
+            rows.append(row)
+            print(f"[{case.name}] пропуск: оракульную позу построить не из чего "
+                  f"(в CSV — skipped_no_pose)")
             continue
         row = probe_case(case, align, basemap, matcher, args, max_zoom)
+        row.update(status="ok", **provenance)
         rows.append(row)
         print(f"[{case.name}] пар={row['n_pairs_after_filter']} "
               f"поза={'да' if row['pose_found'] else 'НЕТ'} "
@@ -221,6 +226,7 @@ def main() -> int:
                 centre = offset_lonlat(align.lat, align.lon, args.offset_m, 45.0)
                 frow = probe_case(case, align, basemap, matcher, args, max_zoom,
                                   pair="false", centre=centre)
+                frow.update(status="ok", **provenance)
                 rows.append(frow)
                 print(f"[{case.name}·false] пар={frow['n_pairs_after_filter']} "
                       f"инл={frow['n_inliers'] or '—'}")

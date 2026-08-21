@@ -189,6 +189,40 @@ def run_config(args) -> dict:
     return config
 
 
+def _cases_slug(cases_arg: str, limit: int = 60) -> str:
+    """Детерминированное имя для частичного прогона из списка кейсов.
+
+    Небезопасные для имени файла символы заменяются; длинный список сворачивается
+    в «первый кейс + md5 + счёт», чтобы имя не выросло за пределы разумного и
+    при этом два разных списка не столкнулись.
+    """
+    import hashlib
+    import re as _re
+
+    names = [n.strip() for n in cases_arg.split(",") if n.strip()]
+    slug = "-".join(_re.sub(r"[^\w.-]", "_", n) for n in names)
+    if len(slug) > limit:
+        digest = hashlib.md5(slug.encode("utf-8")).hexdigest()[:8]
+        slug = f"{names[0]}_and_{len(names) - 1}_more_{digest}"
+    return slug
+
+
+def output_csv_path(out: str, out_dir: str, cases_arg: str) -> Path:
+    """Куда писать таблицу прогона (FIX_EVAL_ARTIFACT_LEAK, Ф1).
+
+    Канонический ``eval.csv`` — вход других экспериментов (``--poses`` у
+    оракульных проб), и частичный прогон, молча перезаписывающий его одной
+    строкой, подменяет вход всем потребителям. Поэтому частичный прогон без
+    явного ``--out`` пишет в производное имя ``eval_cases_<slug>.csv``.
+    Молча попасть в ``eval.csv`` частичным прогоном нельзя.
+    """
+    if out:
+        return Path(out)
+    if cases_arg:
+        return Path(out_dir) / f"eval_cases_{_cases_slug(cases_arg)}.csv"
+    return Path(out_dir) / "eval.csv"
+
+
 def region_radius_m(case: EvalCase, args) -> float:
     """Радиус района под **этот** кейс: из его приора, как это делает инструмент.
 
@@ -527,7 +561,13 @@ def main() -> int:
         rows.append(row)
         print(f"  → {row['status']}  ошибка={row['error_m'] or '—'}  {row['blame']}", flush=True)
 
-    out_csv = Path(args.out) if args.out else Path(args.out_dir) / "eval.csv"
+    out_csv = output_csv_path(args.out, args.out_dir, args.cases)
+    if args.cases and not args.out:
+        print(f"\nчастичный прогон ({len(rows)} кейсов) → {out_csv}; "
+              f"канонический eval.csv не тронут")
+    elif args.cases and out_csv.name == "eval.csv":
+        print("\nВНИМАНИЕ: частичный прогон пишет в канонический eval.csv по явному "
+              "--out — вход оракульных проб (--poses) будет подменён")
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     with open(out_csv, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=FIELDS)

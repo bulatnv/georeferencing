@@ -46,6 +46,7 @@ from aero_geoloc.geo import ground_mpp, haversine_m  # noqa: E402
 from aero_geoloc.matcher import RoMaV2Matcher  # noqa: E402
 from aero_geoloc.oracle import alignment_for, north_up_crop, offset_lonlat, to_gray  # noqa: E402
 from aero_geoloc.pose import SimilarityTransform, estimate_similarity  # noqa: E402
+from poses_provenance import PROVENANCE_FIELDS, PosesError, load_poses_with_provenance  # noqa: E402
 
 #: Порог инлайера в эквивалентных пикселях (совпадает с ransac_threshold_px
 #: пайплайна) и абсолютный колпак для взвешенного плеча: пара с крошечной
@@ -56,24 +57,11 @@ INLIER_PX = 6.0
 ABS_CAP_PX = 12.0
 MIN_INLIERS = 6
 
-FIELDS = ["case", "n_pairs", "prec_med_pos", "prec_med_false", "sec"]
+FIELDS = ["case", "status", "n_pairs", "prec_med_pos", "prec_med_false", "sec",
+          *PROVENANCE_FIELDS]
 for arm in ("cv2", "msac", "msac_sigma"):
     FIELDS += [f"{arm}_found", f"{arm}_inl", f"{arm}_scale", f"{arm}_rot",
                f"{arm}_err_m", f"{arm}_gate_ok"]
-
-
-def load_poses(path: Path) -> dict[str, tuple[float, float, float]]:
-    poses: dict[str, tuple[float, float, float]] = {}
-    if path.exists():
-        with open(path, newline="", encoding="utf-8") as fh:
-            for row in csv.DictReader(fh):
-                try:
-                    poses[row["case"]] = (float(row["found_lat"]),
-                                          float(row["found_lon"]),
-                                          float(row["heading_deg"]))
-                except (KeyError, ValueError):
-                    continue
-    return poses
 
 
 # --- взвешенный MSAC для подобия ---------------------------------------------
@@ -179,16 +167,23 @@ def main() -> int:
     parser.add_argument("--iters", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--poses", default="eval_out/eval.csv")
+    parser.add_argument("--allow-partial-poses", action="store_true",
+                        help="работать при неполном файле поз (пропуски видны в CSV)")
     parser.add_argument("--cache", default="tiles")
     parser.add_argument("--out", default="eval_out/e_sigma.csv")
     args = parser.parse_args()
 
     dataset = load_dataset(args.manifest)
-    poses = load_poses(Path(args.poses))
     if args.cases:
         cases = [dataset.by_name(n.strip()) for n in args.cases.split(",")]
     else:
         cases = dataset.cases
+    required = {c.name for c in cases if not c.trust_yaw}
+    try:
+        poses, provenance = load_poses_with_provenance(
+            args.poses, required=required, allow_partial=args.allow_partial_poses)
+    except PosesError as exc:
+        parser.error(str(exc))
 
     matcher = RoMaV2Matcher(keep_pair_precision=True)
     basemap = TileBasemap(cache=TileCache(args.cache))
@@ -199,7 +194,10 @@ def main() -> int:
     for case in cases:
         align = alignment_for(case, poses)
         if align is None:
-            print(f"[{case.name}] пропуск: нет оракульной позы")
+            row = {f: "" for f in FIELDS}
+            row.update(case=case.name, status="skipped_no_pose", **provenance)
+            rows.append(row)
+            print(f"[{case.name}] пропуск: нет оракульной позы (в CSV — skipped_no_pose)")
             continue
         started = time.perf_counter()
         z_fine = case.basemap_zoom(max_zoom=max_zoom)
@@ -210,7 +208,7 @@ def main() -> int:
         corr = matcher.match(query, to_gray(ref))
         prec = matcher.last_precision_ab
         row = {f: "" for f in FIELDS}
-        row.update(case=case.name, n_pairs=len(corr),
+        row.update(case=case.name, status="ok", **provenance, n_pairs=len(corr),
                    prec_med_pos=round(corr.evidence.get("precision_median", float("nan")), 4))
 
         if len(corr) >= MIN_INLIERS and prec is not None and len(prec) == len(corr):
