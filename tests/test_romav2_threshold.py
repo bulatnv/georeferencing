@@ -45,3 +45,9 @@ def test_model_threshold_defaults_to_the_paper_flattening():
     По умолчанию включено авторское значение; None остаётся доступным для
     измерений сырого поля."""
     assert _default(RoMaV2Matcher, "model_threshold") == ROMAV2_MIN_OVERLAP
+
+
+def test_pair_precision_capture_is_opt_in():
+    """Попарные Σ⁻¹ — только по явной просьбе эксперимента: (N,2,2)-массивам не
+    место в evidence и диагностике штатного тракта."""
+    assert _default(RoMaV2Matcher, "keep_pair_precision") is False

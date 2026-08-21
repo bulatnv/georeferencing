@@ -661,12 +661,21 @@ class RoMaV2Matcher(_LearnedMatcher):
                  min_conf: float = ROMAV2_MIN_OVERLAP,
                  model_threshold: float | None = ROMAV2_MIN_OVERLAP,
                  setting: str = "precise",
+                 keep_pair_precision: bool = False,
                  compile: bool = False, device: str | None = None) -> None:
         super().__init__(device=device)
         self.max_samples = max_samples
         self.min_conf = min_conf
         self.model_threshold = model_threshold
         self.setting = setting
+        #: Opt-in для эксперимента Σ⁻¹ (RECHECK §7): после каждого match хранить
+        #: попарные матрицы точности, выровненные с возвращёнными парами, в
+        #: ``last_precision_ab``/``last_precision_ba``. В ``evidence`` они не
+        #: кладутся сознательно: evidence едет в diagnostics и сериализацию,
+        #: а (N,2,2)-массиву там не место.
+        self.keep_pair_precision = keep_pair_precision
+        self.last_precision_ab: np.ndarray | None = None
+        self.last_precision_ba: np.ndarray | None = None
         self.compile = compile
         self._model = None
 
@@ -740,6 +749,14 @@ class RoMaV2Matcher(_LearnedMatcher):
             evidence=evidence,
         )
         keep = corr.conf >= self.min_conf
+        if self.keep_pair_precision:
+            mask = keep if not keep.all() else np.ones(len(corr), bool)
+            self.last_precision_ab = (
+                precision_ab.detach().float().cpu().numpy()[mask]
+                if precision_ab is not None else None)
+            self.last_precision_ba = (
+                precision_ba.detach().float().cpu().numpy()[mask]
+                if precision_ba is not None else None)
         return corr.take(keep) if not keep.all() else corr
 
 
