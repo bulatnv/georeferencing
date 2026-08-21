@@ -23,6 +23,7 @@
 | [EVAL_PLAN.md](EVAL_PLAN.md) | **Текущий трек**: доведение до измеримого теста на реальных снимках `test_images/` (инвентаризация датасета, блокеры, протокол) |
 | [RESEARCH_A_CANDIDATES.md](RESEARCH_A_CANDIDATES.md) · [RESEARCH_B_VERIFICATION.md](RESEARCH_B_VERIFICATION.md) | Обзоры кандидатов по направлениям A (чем матчить) и B (чем проверять) |
 | [RESEARCH_A_RESULTS.md](RESEARCH_A_RESULTS.md) | **Результаты перебора ядер**: измеренные числа по LoFTR, GIM, MINIMA×3, RoMa v2 — чтобы не получать их заново |
+| [RESEARCH_A_ROMAV2_REPORT.md](RESEARCH_A_ROMAV2_REPORT.md) | **Отчёт о перепроверке RoMa v2** (2026-08-21): «0 поз» был артефактом порога; ядро работает, но домену чужое; Σ⁻¹ — отрицательный результат |
 | [RESEARCH_CROSS_SEASON.md](RESEARCH_CROSS_SEASON.md) | **Открытый трек исследования**: Этаж 2 на смене сезона — чем матчить вместо разреженных точек и чем проверять вместо NCC |
 | [OPTIMIZATION_PLAN.md](OPTIMIZATION_PLAN.md) | Ускорение сервиса: где измеренно уходит время (загрузка тайлов, батч кодирования, веер матчера) и что оптимизировать по отдаче |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Двухэтажная архитектура, границы модулей, offline vs runtime, форматы данных |
