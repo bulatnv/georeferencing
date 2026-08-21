@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Как устроен MINIMA-RoMa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F5F7FA; --surface:#FFFFFF; --surface-2:#EBEFF5;
+  --ink:#131922; --ink-2:#525C6B; --ink-3:#7C8695;
+  --line:#DBE1E9; --line-2:#C2CAD6;
+  --accent:#8A6410; --accent-2:#6B4C0B; --accent-wash:#F6EEDA;
+  --warn:#9A3B2E; --warn-wash:#F8E9E5;
+  --shadow:0 1px 2px rgba(19,25,34,.05), 0 8px 24px rgba(19,25,34,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D1116; --surface:#151A21; --surface-2:#1B222B;
+    --ink:#E6EAF0; --ink-2:#A2ACB9; --ink-3:#76818E;
+    --line:#232B35; --line-2:#333D49;
+    --accent:#DCA83E; --accent-2:#F0CB7C; --accent-wash:#2A2113;
+    --warn:#E28C77; --warn-wash:#2C1A16;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D1116; --surface:#151A21; --surface-2:#1B222B;
+  --ink:#E6EAF0; --ink-2:#A2ACB9; --ink-3:#76818E;
+  --line:#232B35; --line-2:#333D49;
+  --accent:#DCA83E; --accent-2:#F0CB7C; --accent-wash:#2A2113;
+  --warn:#E28C77; --warn-wash:#2C1A16;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Source Serif 4","Georgia",serif;
+  font-size:17px; line-height:1.65;
+  font-variant-numeric:oldstyle-nums;
+}
+.wrap{max-width:1200px;margin:0 auto;padding:0 24px}
+.grid{display:grid;grid-template-columns:1fr;gap:0}
+@media (min-width:1080px){
+  .grid{grid-template-columns:224px minmax(0,1fr);gap:56px}
+}
+/* ---- masthead ---- */
+header.mast{border-bottom:1px solid var(--line);background:var(--surface)}
+.mast-in{max-width:1200px;margin:0 auto;padding:44px 24px 36px}
+.eyebrow{
+  font-family:"Golos Text",system-ui,sans-serif;font-size:12px;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:0 0 14px
+}
+h1{
+  font-family:"Golos Text",system-ui,sans-serif;font-weight:700;
+  font-size:clamp(30px,5vw,46px);line-height:1.08;letter-spacing:-.02em;
+  margin:0 0 16px;text-wrap:balance;max-width:20ch
+}
+.standfirst{font-size:19px;color:var(--ink-2);max-width:62ch;margin:0}
+.meta{
+  margin-top:22px;display:flex;flex-wrap:wrap;gap:8px 10px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;color:var(--ink-3)
+}
+.meta span{border:1px solid var(--line);border-radius:2px;padding:3px 8px;background:var(--bg)}
+/* ---- toc ---- */
+nav.toc{display:none}
+@media (min-width:1080px){
+  nav.toc{
+    display:block;position:sticky;top:0;align-self:start;
+    padding:48px 0;max-height:100vh;overflow-y:auto
+  }
+}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t;margin:0 0 2px}
+nav.toc a{
+  display:block;padding:5px 0 5px 26px;position:relative;
+  font-family:"Golos Text",system-ui,sans-serif;font-size:13.5px;line-height:1.35;
+  color:var(--ink-2);text-decoration:none;border-left:2px solid transparent
+}
+nav.toc a::before{
+  content:counter(t,decimal-leading-zero);position:absolute;left:6px;top:5px;
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3)
+}
+nav.toc a:hover{color:var(--accent);border-left-color:var(--accent)}
+nav.toc a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* ---- article ---- */
+article{padding:48px 0 96px;min-width:0}
+section{margin:0 0 56px;scroll-margin-top:24px}
+h2{
+  font-family:"Golos Text",system-ui,sans-serif;font-weight:600;
+  font-size:26px;line-height:1.2;letter-spacing:-.015em;
+  margin:0 0 18px;padding-top:14px;border-top:2px solid var(--ink);
+  text-wrap:balance;max-width:26ch
+}
+h2 .num{
+  display:block;font-family:"IBM Plex Mono",monospace;font-size:11px;
+  font-weight:500;letter-spacing:.12em;color:var(--accent);margin-bottom:8px
+}
+h3{
+  font-family:"Golos Text",system-ui,sans-serif;font-weight:600;font-size:18px;
+  line-height:1.3;margin:34px 0 10px;text-wrap:balance
+}
+h4{
+  font-family:"Golos Text",system-ui,sans-serif;font-weight:600;font-size:15px;
+  margin:24px 0 8px;color:var(--ink)
+}
+p{margin:0 0 16px;max-width:68ch}
+ul,ol{margin:0 0 18px;padding-left:22px;max-width:68ch}
+li{margin:0 0 8px}
+strong{font-weight:600}
+em{font-style:italic;color:var(--ink-2)}
+a{color:var(--accent);text-underline-offset:2px}
+code,.m{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.86em;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:3px;
+  padding:1px 5px;font-variant-numeric:normal
+}
+.formula{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:14px;line-height:1.7;
+  background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:3px;padding:14px 18px;margin:0 0 18px;overflow-x:auto;
+  font-variant-numeric:normal;color:var(--ink)
+}
+.formula .cap{display:block;font-family:"Golos Text",sans-serif;font-size:12px;color:var(--ink-3);margin-top:8px}
+blockquote{
+  margin:0 0 18px;padding:2px 0 2px 18px;border-left:2px solid var(--line-2);
+  color:var(--ink-2);font-style:italic;max-width:64ch
+}
+blockquote p{margin:0}
+/* ---- callouts ---- */
+.note{
+  border:1px solid var(--line);border-radius:4px;background:var(--surface);
+  padding:18px 20px;margin:0 0 22px;box-shadow:var(--shadow)
+}
+.note.key{border-color:var(--accent);background:var(--accent-wash)}
+.note.trap{border-color:var(--warn);background:var(--warn-wash)}
+.note .tag{
+  display:inline-block;font-family:"Golos Text",sans-serif;font-size:11px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;color:var(--accent)
+}
+.note.trap .tag{color:var(--warn)}
+.note p:last-child{margin-bottom:0}
+/* ---- tables ---- */
+.tw{overflow-x:auto;margin:0 0 22px;border:1px solid var(--line);border-radius:4px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;font-family:"Golos Text",system-ui,sans-serif}
+th,td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{
+  font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--ink-2);background:var(--surface-2);white-space:nowrap
+}
+tbody tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;font-family:"IBM Plex Mono",monospace;font-size:13px}
+td .win{color:var(--accent);font-weight:600}
+caption{caption-side:bottom;padding:10px 14px;font-size:12.5px;color:var(--ink-3);text-align:left;font-family:"Golos Text",sans-serif}
+/* ---- figures ---- */
+figure{margin:0 0 26px}
+figure svg{display:block;width:100%;max-width:100%;height:auto;color:var(--ink-2)}
+.figbox{border:1px solid var(--line);border-radius:4px;background:var(--surface);padding:20px;overflow-x:auto}
+figcaption{
+  margin-top:10px;font-family:"Golos Text",system-ui,sans-serif;font-size:13px;
+  line-height:1.5;color:var(--ink-3);max-width:68ch
+}
+svg text{font-family:"Golos Text",system-ui,sans-serif}
+svg .mono{font-family:"IBM Plex Mono",monospace}
+svg .accent{fill:var(--accent)}
+svg .astroke{stroke:var(--accent)}
+/* ---- misc ---- */
+.lede{font-size:19px;color:var(--ink-2);max-width:64ch}
+hr{border:none;border-top:1px solid var(--line);margin:40px 0}
+footer{border-top:1px solid var(--line);padding:28px 0 60px;color:var(--ink-3);font-size:14px}
+footer a{color:var(--ink-2)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:15px;margin:0 0 20px;max-width:68ch}
+.kv dt{font-family:"Golos Text",sans-serif;font-weight:600;color:var(--ink-2);font-size:13.5px;padding-top:2px}
+.kv dd{margin:0}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="mast">
+  <div class="mast-in">
+    <p class="eyebrow">Разбор архитектуры · aero-geoloc</p>
+    <h1>Как устроен MINIMA-RoMa</h1>
+    <p class="standfirst">Ядро по умолчанию нашего пайплайна. Внутри — RoMa v1 без единого изменения в архитектуре: замороженный DINOv2, гауссов процесс вместо прямого сопоставления, классификация по 4096 якорям и пять рефайнеров. Вся разница с ванильной RoMa — в четырёх эпохах дообучения на синтетических кросс-модальных парах.</p>
+    <div class="meta">
+      <span>RoMa: arXiv:2305.15404</span><span>MINIMA: arXiv:2412.19412</span><span>веса Apache-2.0</span><span>445 МБ + DINOv2 1.13 ГБ</span><span>составлено 21.08.2026</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="grid">
+<nav class="toc" aria-label="Содержание">
+  <ol>
+    <li><a href="#s1">Суть в одном экране</a></li>
+    <li><a href="#s2">Два бэкбона и зачем их два</a></li>
+    <li><a href="#s3">Гауссов процесс: грубое сопоставление</a></li>
+    <li><a href="#s4">Классификация вместо регрессии</a></li>
+    <li><a href="#s5">Пять рефайнеров</a></li>
+    <li><a href="#s6">Certainty и сэмплирование</a></li>
+    <li><a href="#s7">Обучение самой RoMa</a></li>
+    <li><a href="#s8">Дообучение MINIMA</a></li>
+    <li><a href="#s9">Что дало дообучение</a></li>
+    <li><a href="#s10">Чего в MINIMA нет</a></li>
+    <li><a href="#s11">Что это значит для нас</a></li>
+  </ol>
+</nav>
+
+<article>
+
+<section id="s1">
+<h2><span class="num">01</span>Суть в одном экране</h2>
+
+<p class="lede">MINIMA-RoMa — это те же самые веса и та же самая сеть RoMa v1, дообученные так, чтобы «одним и тем же местом» считались снимки радикально разного вида.</p>
+
+<p>Начать стоит с того, чего в MINIMA <strong>нет</strong>. Нет новых модулей, голов, адаптеров. Нет своего лосса — «Without pursuing fancy modules». Нет изменений в сэмплировании и порогах. Авторы формулируют прямо: «We directly use the official models of LightGlue, LoFTR and RoMa as the pre-trained models, and then fine-tune them with our MD-syn».</p>
+
+<p>Косвенное подтверждение — время инференса: RoMa 639.1 мс на пару против MINIMA-RoMa 633.3 мс. Разница в пределах шума, потому что считается ровно то же самое.</p>
+
+<p>Значит, чтобы понять ядро, надо понять <strong>RoMa v1</strong> — а дообучение разбирать отдельно, как работу с данными. Так этот документ и устроен: разделы 02–06 про архитектуру, 07–08 про два обучения (сначала базовое, потом MINIMA), 09–11 про результат.</p>
+
+<p>Центральная идея RoMa, вокруг которой собрано всё остальное, — <strong>внутреннее противоречие между грубой устойчивостью и точной локализацией</strong>. Признаки, по которым можно надёжно узнать место при смене вида, размазаны и не дают субпикселя. Признаки, дающие субпиксель, не переживают смену вида. RoMa не ищет компромисс, а разводит эти роли по разным сетям и разным стадиям.</p>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 960 344" role="img" aria-label="Пайплайн RoMa v1: замороженный DINOv2 даёт грубые семантические фичи, гауссов процесс превращает их в match embeddings, ViT-декодер классифицирует по 4096 якорям, затем пять рефайнеров на фичах VGG19 доводят варп до страйда 1">
+  <defs>
+    <marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <text x="16" y="26" font-size="11" fill="currentColor" font-weight="600" opacity=".7">ГРУБАЯ СТАДИЯ — «где примерно», страйд 14</text>
+  <g stroke="currentColor" fill="none" stroke-width="1.3">
+    <rect x="16" y="40" width="60" height="92"/>
+    <rect x="112" y="40" width="152" height="92"/>
+    <rect x="300" y="40" width="164" height="92"/>
+    <rect x="500" y="40" width="176" height="92"/>
+    <rect x="712" y="40" width="140" height="92"/>
+  </g>
+  <text x="46" y="80" font-size="11.5" text-anchor="middle" fill="currentColor" font-weight="600">I<tspan font-size="9" dy="3">A</tspan></text>
+  <text x="46" y="104" font-size="11.5" text-anchor="middle" fill="currentColor" font-weight="600">I<tspan font-size="9" dy="3">B</tspan></text>
+
+  <text x="188" y="70" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="600">DINOv2 ViT-L/14</text>
+  <text x="188" y="90" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">заморожен</text>
+  <text x="188" y="108" font-size="10" text-anchor="middle" fill="currentColor" class="mono" opacity=".75">патч 14 → 1024 → 512</text>
+
+  <text x="382" y="70" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="600">Gaussian Process</text>
+  <text x="382" y="90" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">ядро exp(cossim/τ)</text>
+  <text x="382" y="108" font-size="10" text-anchor="middle" fill="currentColor" opacity=".75">→ match embedding 512</text>
+
+  <text x="588" y="70" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="600">ViT-декодер</text>
+  <text x="588" y="90" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">5 блоков · 8 голов · 1024</text>
+  <text x="588" y="108" font-size="9.5" text-anchor="middle" fill="currentColor" class="mono" opacity=".75">4096 логитов + certainty</text>
+
+  <text x="782" y="80" font-size="12" text-anchor="middle" fill="currentColor" font-weight="600">warp + certainty</text>
+  <text x="782" y="102" font-size="10.5" text-anchor="middle" fill="currentColor" class="mono" opacity=".75">страйд 14</text>
+
+  <g stroke="currentColor" stroke-width="1.3" marker-end="url(#m1)">
+    <line x1="76" y1="86" x2="106" y2="86"/>
+    <line x1="264" y1="86" x2="294" y2="86"/>
+    <line x1="464" y1="86" x2="494" y2="86"/>
+    <line x1="676" y1="86" x2="706" y2="86"/>
+  </g>
+
+  <path d="M782,132 L782,170 L488,170 L488,198" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#m1)"/>
+
+  <text x="16" y="192" font-size="11" fill="currentColor" font-weight="600" opacity=".7">ТОЧНАЯ СТАДИЯ — «где именно», страйды 14 → 1</text>
+  <g stroke="currentColor" fill="none" stroke-width="1.3">
+    <rect x="112" y="204" width="152" height="92"/>
+    <rect x="300" y="204" width="376" height="92"/>
+  </g>
+  <rect x="712" y="204" width="140" height="92" fill="none" class="astroke" stroke-width="2"/>
+
+  <text x="188" y="240" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="600">VGG19</text>
+  <text x="188" y="260" font-size="10" text-anchor="middle" fill="currentColor" class="mono" opacity=".75">страйды 1 · 2 · 4 · 8</text>
+  <text x="188" y="278" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">обучаемый</text>
+
+  <text x="488" y="234" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="600">5 рефайнеров · страйды 14 → 8 → 4 → 2 → 1</text>
+  <text x="488" y="256" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">окно локальной корреляции 15 · 7 · 5 · 0 · 0</text>
+  <text x="488" y="276" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">каждый выдаёт Δ-смещение и Δ-certainty</text>
+
+  <text x="782" y="244" font-size="12" text-anchor="middle" class="accent" font-weight="600">warp + certainty</text>
+  <text x="782" y="266" font-size="10.5" text-anchor="middle" class="accent mono">страйд 1</text>
+
+  <g stroke="currentColor" stroke-width="1.3" marker-end="url(#m1)">
+    <line x1="264" y1="250" x2="294" y2="250"/>
+    <line x1="676" y1="250" x2="706" y2="250"/>
+  </g>
+  <text x="16" y="326" font-size="11" fill="currentColor" opacity=".7">Два бэкбона, две стадии, две разные функции потерь. В v1 обе стадии обучаются совместно, с отсечкой градиентов между уровнями.</text>
+</svg>
+</div>
+<figcaption>Полный тракт RoMa v1. Обратите внимание на разделение труда: DINOv2 участвует только в грубой стадии, VGG19 — только в точной.</figcaption>
+</figure>
+</section>
+
+<section id="s2">
+<h2><span class="num">02</span>Два бэкбона и зачем их два</h2>
+
+<p>Авторы называют это «inherent tension between fine localizability and coarse robustness». Проверено экспериментом: как <em>грубые</em> фичи VGG19 заметно хуже ResNet50 (EPE 87.6 против 60.2), а как <em>тонкие</em> — заметно лучше. Один энкодер не может быть хорош в обеих ролях, поэтому их два.</p>
+
+<h3>DINOv2 ViT-L/14 — грубые, замороженные</h3>
+<ul>
+  <li>Патч-фичи, CLS-токен не используется. Патч 14, то есть эффективный страйд 14; размерность 1024, линейная проекция с BatchNorm до 512.</li>
+  <li><strong>Полностью заморожен на всё обучение</strong>: «We keep the DINOv2 encoder frozen throughout training… reduces overfitting».</li>
+</ul>
+
+<div class="note key">
+<span class="tag">Почему это важно именно нам</span>
+<p>Заморозка foundation-бэкбона — то, что даёт RoMa устойчивость к экстремальным сдвигам вида, и то, за что RoMa v2 критикует UFM: разморозка бэкбона «leads to worse performance on datasets with extreme appearance changes».</p>
+<p>Практическое следствие для дообучения: <strong>основной носитель «знания о мире» в этой сети не обучается вообще.</strong> MINIMA учит не бэкбон, а то, как из его фич собирается соответствие. Это объясняет и малое число эпох, и отсутствие катастрофического забывания.</p>
+</div>
+
+<h3>VGG19 — точные, обучаемые</h3>
+<p>Страйды {1, 2, 4, 8}, размерности {64, 128, 256, 512}, спроецированные до {9, 64, 256, 512}. В отличие от DINOv2, обучается — но с очень маленьким LR (см. раздел 07).</p>
+
+<p>Отсюда, кстати, разбирается терминология MINIMA: когда они пишут про «RoMa encoder» с LR 7.5·10⁻⁷, речь идёт именно об этом обучаемом VGG19, а не о DINOv2.</p>
+</section>
+
+<section id="s3">
+<h2><span class="num">03</span>Гауссов процесс: как получается грубое соответствие</h2>
+
+<p>Это самая непривычная часть архитектуры. На страйде 14 сопоставление делает не слой внимания и не корреляция, а <strong>ядерная регрессия</strong>.</p>
+
+<p>Формально: имея фичи обоих снимков, GP предсказывает апостериорное распределение над <strong>эмбеддингами координат</strong> второго изображения. Не над координатами — над их кодами.</p>
+
+<div class="formula">ядро: exp( 1/τ · cossim(f<sup>A</sup><sub>m</sub>, f<sup>B</sup><sub>n</sub>) ),&nbsp;&nbsp; τ = 1/10<br><br>«наблюдения»: χ<sup>B</sup><sub>n</sub> = cos(2πω W x<sup>B</sup><sub>n</sub>) ⊕ sin(2πω W x<sup>B</sup><sub>n</sub>)
+<span class="cap">W — необучаемая случайная матрица из N(0,1). В v1 частота ω инициализировалась восьмёркой и <strong>обучалась</strong>; в v2 её зафиксировали единицей ради устойчивости к смене разрешения.</span></div>
+
+<p>Выход — «match embedding» размерности 512 на каждый патч A: взвешенное ядром среднее координатных эмбеддингов всех патчей B. По сути это ядерное сглаживание соответствий, которое естественным образом выражает мультимодальность и неопределённость — не одну точку, а распределение.</p>
+
+<p>Дальше идёт <strong>transformer match decoder</strong>: 5 ViT-блоков, 8 голов, скрытая размерность 1024, MLP 4096. На вход — конкатенация выхода GP и спроецированных DINOv2-фич. На выход — тензор <code>B×H×W×(K+1)</code>: K логитов якорей плюс один логит certainty.</p>
+
+<div class="note">
+<span class="tag">Что здесь оказалось слабым местом</span>
+<p>Декодер <strong>однокадровый</strong>: кадры «видят друг друга» только внутри ядра GP, и больше нигде. RoMa v2 называет это главной слабостью v1 — «the lack of multi-view context in the matcher» — и заменяет GP на обычное одноголовое внимание после мультивидового трансформера. Попытка просто вставить трансформер перед GP провалилась: градиенты через GP «were not sufficiently informative».</p>
+</div>
+</section>
+<section id="s4">
+<h2><span class="num">04</span>Классификация вместо регрессии</h2>
+
+<p>Почему грубая стадия не предсказывает координату напрямую? Потому что распределение «куда попал пиксель» на реальных снимках <strong>мультимодально</strong>. Ряд одинаковых окон, повторяющаяся разметка, поля одинаковой формы — модель честно видит несколько равноправных кандидатов. Регрессия усредняет моды и выдаёт координату <em>между</em> ними, то есть заведомо неверную.</p>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 820 250" role="img" aria-label="Слева: распределение с двумя равноправными модами, среднее падает между ними на неверное место. Справа: сетка 64 на 64 якоря, декодер выбирает моду классификацией и уточняет координату внутри неё">
+  <defs>
+    <marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <text x="20" y="24" font-size="12" fill="currentColor" font-weight="600">Проблема: две равноправные моды</text>
+  <path d="M30,170 L70,170 Q110,74 150,170 L230,170 Q270,74 310,170 L370,170"
+        fill="none" stroke="currentColor" stroke-width="1.6"/>
+  <line x1="30" y1="170" x2="370" y2="170" stroke="currentColor" stroke-width="1" opacity=".45"/>
+  <line x1="110" y1="170" x2="110" y2="112" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/>
+  <line x1="270" y1="170" x2="270" y2="112" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/>
+  <text x="110" y="106" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">кандидат 1</text>
+  <text x="270" y="106" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">кандидат 2</text>
+  <line x1="190" y1="176" x2="190" y2="140" stroke="currentColor" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <g stroke="currentColor" stroke-width="2">
+    <line x1="183" y1="183" x2="197" y2="197"/><line x1="197" y1="183" x2="183" y2="197"/>
+  </g>
+  <text x="190" y="216" font-size="11" text-anchor="middle" fill="currentColor" font-weight="600">среднее</text>
+  <text x="190" y="232" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".75">попадает в стену между окнами</text>
+
+  <line x1="410" y1="16" x2="410" y2="234" stroke="currentColor" stroke-width="1" opacity=".25"/>
+
+  <text x="450" y="24" font-size="12" class="accent" font-weight="600">Решение: сетка 64×64 = 4096 якорей</text>
+  <g fill="currentColor" opacity=".4">
+    <circle cx="470" cy="60" r="2.5"/><circle cx="506" cy="60" r="2.5"/><circle cx="542" cy="60" r="2.5"/><circle cx="578" cy="60" r="2.5"/><circle cx="614" cy="60" r="2.5"/><circle cx="650" cy="60" r="2.5"/><circle cx="686" cy="60" r="2.5"/><circle cx="722" cy="60" r="2.5"/>
+    <circle cx="470" cy="96" r="2.5"/><circle cx="506" cy="96" r="2.5"/><circle cx="542" cy="96" r="2.5"/><circle cx="614" cy="96" r="2.5"/><circle cx="650" cy="96" r="2.5"/><circle cx="686" cy="96" r="2.5"/><circle cx="722" cy="96" r="2.5"/>
+    <circle cx="470" cy="132" r="2.5"/><circle cx="506" cy="132" r="2.5"/><circle cx="542" cy="132" r="2.5"/><circle cx="578" cy="132" r="2.5"/><circle cx="614" cy="132" r="2.5"/><circle cx="650" cy="132" r="2.5"/><circle cx="686" cy="132" r="2.5"/><circle cx="722" cy="132" r="2.5"/>
+    <circle cx="470" cy="168" r="2.5"/><circle cx="506" cy="168" r="2.5"/><circle cx="542" cy="168" r="2.5"/><circle cx="578" cy="168" r="2.5"/><circle cx="614" cy="168" r="2.5"/><circle cx="650" cy="168" r="2.5"/><circle cx="686" cy="168" r="2.5"/><circle cx="722" cy="168" r="2.5"/>
+  </g>
+  <circle cx="578" cy="96" r="14" fill="none" class="astroke" stroke-width="2"/>
+  <circle cx="578" cy="96" r="3.5" class="accent"/>
+  <text x="578" y="48" font-size="10.5" text-anchor="middle" class="accent" font-weight="600">argmax πₖ</text>
+  <circle cx="584" cy="90" r="2" fill="none" class="astroke" stroke-width="1.4" stroke-dasharray="2 2"/>
+  <text x="640" y="206" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">затем softargmax по соседям —</text>
+  <text x="640" y="222" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">непрерывное уточнение внутри выбранной моды</text>
+</svg>
+</div>
+<figcaption>Классификация выбирает <em>одну</em> моду вместо усреднения всех; непрерывность возвращается softargmax-ом уже внутри неё. Ровно этот шаг в RoMa v2 заменили на робастную регрессию с Charbonnier-лоссом.</figcaption>
+</figure>
+
+<p>Механика:</p>
+<ul>
+  <li>Пространство второго изображения покрывается <strong>K = 64×64 = 4096</strong> равномерно расположенными якорями.</li>
+  <li>Декодер предсказывает дискретное распределение <code>p(x^B|x^A) = Σ_k π_k(x^A) · B_{m_k}</code>, где <code>B_{m_k}</code> — равномерная базовая плотность вокруг якоря k.</li>
+  <li>Обучение — <strong>кросс-энтропия</strong> по индексу якоря, ближайшего к истинному варпу.</li>
+  <li>На инференсе: <code>k* = argmax_k π_k</code>, затем локальное уточнение softargmax-ом по нескольким соседним якорям.</li>
+</ul>
+
+<p>Вклад измерен в абляции статьи: переход к regression-by-classification улучшает 100−PCK с 14.3 / 4.6 / 3.2 до 13.6 / 4.1 / 2.8 (1 / 3 / 5 px, меньше — лучше).</p>
+</section>
+
+<section id="s5">
+<h2><span class="num">05</span>Пять рефайнеров</h2>
+
+<p>Каскад на страйдах <strong>{14, 8, 4, 2, 1}</strong> — пять уровней, потому что грубая стадия отдаёт результат на страйде 14. (В RoMa v2 матчер выдаёт страйд 4, и рефайнеров хватает трёх — отсюда бо́льшая часть выигрыша в скорости.)</p>
+
+<div class="tw">
+<table>
+  <caption>Внутренние размерности и окна локальной корреляции по уровням.</caption>
+  <thead><tr><th class="num">Страйд</th><th class="num">Внутренняя размерность</th><th class="num">Окно local corr</th></tr></thead>
+  <tbody>
+    <tr><td class="num">14</td><td class="num">1377</td><td class="num">15×15</td></tr>
+    <tr><td class="num">8</td><td class="num">1137</td><td class="num">7×7</td></tr>
+    <tr><td class="num">4</td><td class="num">569</td><td class="num">5×5</td></tr>
+    <tr><td class="num">2</td><td class="num">144</td><td class="num">нет</td></tr>
+    <tr><td class="num">1</td><td class="num">24</td><td class="num">нет</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Вход каждого рефайнера — свои фичи, фичи второго снимка <strong>сэмплированные текущим варпом</strong>, линейно закодированное смещение и локальная корреляция в окне вокруг текущей гипотезы. Блок внутри: 8 слоёв «5×5 depthwise conv → BatchNorm → ReLU → 1×1 pointwise conv».</p>
+
+<p>Выход каждого уровня — <strong>дельта смещения</strong> и <strong>дельта certainty</strong> (logit-offset к предыдущей уверенности). Между стадиями градиенты детачатся, варп апсэмплится билинейно.</p>
+</section>
+
+<section id="s6">
+<h2><span class="num">06</span>Certainty и сэмплирование пар</h2>
+
+<p><strong>Certainty</strong> — вероятность того, что пиксель ко-видим. Ground truth берётся из согласованности глубин: пиксель ко-видим, если перепроекция через глубину согласована. Обучается бинарной кросс-энтропией — на грубом уровне по логиту из декодера, на каждом рефайнере по накопленным logit-offset-ам. Вес в общем лоссе λ = 0.1.</p>
+
+<p>Плотный warp превращается в разреженные пары <strong>balanced sampling</strong>-ом:</p>
+<ol>
+  <li>отбрасываются пиксели с certainty ниже порога — в коде <code>sample_thresh = 0.05</code>;</li>
+  <li>по оставшимся строится KDE-оценка плотности матчей;</li>
+  <li>сэмплы перевзвешиваются <strong>обратной плотностью</strong> (<code>p ∝ 1/(density+1)</code>), чтобы не набрать все точки в одной хорошо текстурированной области;</li>
+  <li>дефолт в коде — 10 000 матчей на пару (мы берём 2048).</li>
+</ol>
+
+<div class="note key">
+<span class="tag">Почему у нас conf выходит константой 1.0</span>
+<p>Режим сэмплирования в v1 содержит внутренний порог и обрезает всё, что выше него, в единицу. Поэтому <code>Correspondences.conf</code> после <code>sample()</code> у нас — константа 1.0, одинаково на верных и на заведомо чужих парах. Информация живёт в поле целиком, до сэмплирования — отсюда и наши <code>certainty_mean</code> / <code>certainty_cover</code>, снимаемые до вызова <code>sample</code>.</p>
+<p>Побочный эффект той же константы: наследственный фильтр <code>conf ≥ 0.5</code> в <code>RoMaMatcher</code> — no-op. В <code>RoMaV2Matcher</code>, где на его месте оказался <code>overlap</code> со шкалой в сотых, тот же самый порог обрезал всё. См. <code>RESEARCH_A_ROMAV2_RECHECK.md</code>.</p>
+</div>
+</section>
+
+<section id="s7">
+<h2><span class="num">07</span>Обучение самой RoMa</h2>
+
+<p>Чтобы понять, что делает MINIMA, надо сначала знать исходную точку.</p>
+
+<div class="formula">L = L<sub>coarse</sub> + L<sub>fine</sub></div>
+
+<dl class="kv">
+  <dt>L_coarse</dt><dd>Кросс-энтропия по якорю, ближайшему к истинному варпу, плюс взвешенный BCE на matchability: <code>−∫ log π_{k†}(x^A) + λ log p_coarse(x^A) dq</code>, λ = 0.1.</dd>
+  <dt>L_fine</dt><dd>Обобщённый Charbonnier, α = 0.5, c = 10⁻³: <code>L_warp ∝ (‖r‖²/(ic)² + 1)^{α/2}</code>, где r — остаток варпа, i — страйд.</dd>
+</dl>
+
+<p>Логика связки читается в одну фразу: <strong>классификация там, где мультимодально (грубый уровень), робастная регрессия там, где нужна точность (тонкие уровни).</strong> Смысл робастности Charbonnier — градиент локально ведёт себя как L2, но затухает на больших остатках: окклюзии и промахи грубой стадии не тянут рефайнер за собой.</p>
+
+<div class="tw">
+<table>
+  <thead><tr><th>Параметр</th><th>Значение</th></tr></thead>
+  <tbody>
+    <tr><td>данные</td><td>MegaDepth (для outdoor-модели, которую мы и используем)</td></tr>
+    <tr><td>разрешение</td><td>560×560</td></tr>
+    <tr><td>батч</td><td class="num">8</td></tr>
+    <tr><td>LR</td><td class="num">1·10⁻⁴ декодер / 5·10⁻⁶ энкодер (VGG19)</td></tr>
+    <tr><td>DINOv2</td><td>заморожен</td></tr>
+    <tr><td>число итераций</td><td>в статье не указано</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Опорные числа v1: MegaDepth-1500 AUC@5/10/20 = <strong>62.6 / 76.7 / 86.3</strong>; ScanNet-1500 = 31.8 / 53.4 / 70.9; IMC2022 mAA 88.0; WxBS mAA@10px 80.1 против 58.9 у DKM. Скорость — 198.8 мс/пара при 560×560 на RTX 6000, около 639 мс при 640 px на RTX 3090.</p>
+</section>
+<section id="s8">
+<h2><span class="num">08</span>Дообучение MINIMA</h2>
+
+<p class="lede">Вся идея MINIMA — не менять сеть, а <strong>дать ей данные, которых не существует</strong>: пары «то же самое место, радикально другой вид» с точной попиксельной разметкой.</p>
+
+<h3>Фабрика данных MD-syn</h3>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 940 322" role="img" aria-label="Фабрика данных MINIMA: из MegaDepth генеративными моделями делаются псевдо-модальности, метки соответствий наследуются без изменений, пары составляются так что одна сторона остаётся RGB, данные чистятся, затем на них дообучается RoMa">
+  <defs>
+    <marker id="m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <g stroke="currentColor" fill="none" stroke-width="1.3">
+    <rect x="14" y="40" width="146" height="100"/>
+    <rect x="196" y="24" width="196" height="132"/>
+    <rect x="428" y="40" width="164" height="100"/>
+    <rect x="628" y="40" width="298" height="100"/>
+  </g>
+
+  <text x="87" y="70" font-size="12" text-anchor="middle" fill="currentColor" font-weight="600">MegaDepth</text>
+  <text x="87" y="92" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">40 млн пар · 196 сцен</text>
+  <text x="87" y="110" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">метки: depth + pose</text>
+  <text x="87" y="128" font-size="10" text-anchor="middle" fill="currentColor" opacity=".65">наземные фото</text>
+
+  <text x="294" y="48" font-size="12" text-anchor="middle" fill="currentColor" font-weight="600">6 генеративных моделей</text>
+  <text x="294" y="72" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">IR — StyleBooth + LoRA-256</text>
+  <text x="294" y="90" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">Depth — DepthAnything V2</text>
+  <text x="294" y="108" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">Normal — DSINE</text>
+  <text x="294" y="128" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".55">Event · Sketch · Paint</text>
+  <text x="294" y="146" font-size="9.5" text-anchor="middle" fill="currentColor" opacity=".55">— в финальную модель не вошли</text>
+
+  <text x="510" y="74" font-size="12" text-anchor="middle" class="accent" font-weight="600">MD-syn</text>
+  <text x="510" y="98" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".85">480 млн пар</text>
+  <text x="510" y="118" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".85">метки унаследованы</text>
+
+  <text x="777" y="70" font-size="12" text-anchor="middle" fill="currentColor" font-weight="600">чистка</text>
+  <text x="777" y="94" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".85">перематчить пару, восстановить гомографию</text>
+  <text x="777" y="116" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".85">ошибка углов больше 10 px — выбросить (0.91%)</text>
+
+  <g stroke="currentColor" stroke-width="1.3" marker-end="url(#m3)">
+    <line x1="160" y1="90" x2="190" y2="90"/>
+    <line x1="392" y1="90" x2="422" y2="90"/>
+    <line x1="592" y1="90" x2="622" y2="90"/>
+  </g>
+
+  <rect x="14" y="204" width="396" height="98" fill="none" stroke="currentColor" stroke-width="1.3" stroke-dasharray="4 3"/>
+  <text x="212" y="228" font-size="11.5" text-anchor="middle" fill="currentColor" font-weight="600">Как составляется пара: одна сторона остаётся RGB</text>
+  <rect x="56" y="248" width="52" height="40" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="82" y="273" font-size="11" text-anchor="middle" fill="currentColor" class="mono">A₀</text>
+  <text x="130" y="273" font-size="13" text-anchor="middle" fill="currentColor">↔</text>
+  <rect x="152" y="248" width="52" height="40" fill="none" class="astroke" stroke-width="1.6"/>
+  <text x="178" y="273" font-size="11" text-anchor="middle" class="accent mono">Bᵢ</text>
+  <text x="310" y="262" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">или {Aᵢ, B₀}.</text>
+  <text x="310" y="280" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">Пар без RGB не строили.</text>
+
+  <rect x="428" y="204" width="498" height="98" fill="none" class="astroke" stroke-width="2"/>
+  <text x="677" y="230" font-size="12" text-anchor="middle" class="accent" font-weight="600">Дообучение RoMa</text>
+  <text x="677" y="253" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".85">старт — официальные веса · 4 эпохи · батч 12 · 4×RTX 3090</text>
+  <text x="677" y="273" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".85">LR: декодер 1.5·10⁻⁵, VGG19 7.5·10⁻⁷ — одна десятая от исходного</text>
+  <text x="677" y="293" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".85">на каждой итерации случайно: RGB-IR / RGB-Depth / RGB-Normal</text>
+
+  <path d="M777,140 L777,172 L677,172 L677,198" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#m3)"/>
+</svg>
+</div>
+<figcaption>Ключ ко всему рецепту в третьем блоке: генерация попиксельно выровнена с оригиналом, поэтому depth и pose исходной пары переносятся без изменений. Разметка не создаётся — она наследуется.</figcaption>
+</figure>
+
+<p>Дословно про наследование меток: «the generated images have the same resolution as RGB… Those accurate and dense labels can be directly inherited by the generated data».</p>
+
+<p>Про выбор основы: MegaDepth взят потому, что «Multimodal perception tasks are typically performed outdoors» и метки там уже плотные и точные. Путь GIM — обучение на интернет-видео — отвергнут явно: «GIM uses several times the scale of images but merely achieves slight gains in outdoor performance. Considering the high computational cost of generative models, using long videos is not economical».</p>
+
+<h3>Чистка данных — приём, который стоит перенять</h3>
+
+<blockquote><p>«for each RGB image and its corresponding pseudo modalities, we use our matching model (fine-tuned on the target modality) to recover the homographies (the ground truths are the identity matrix) for them. Any image pair with the mean projection error of corner points larger than 10 pixels is regarded as dirty data and dropped. Finally, <strong>0.91% of the matching pairs are dropped</strong> in the training set.»</p></blockquote>
+
+<p>Логика простая и проверяемая: если пара действительно выровнена, матчер обязан восстановить единичное преобразование. Не восстановил — значит генерация испортила геометрию, и такую пару в обучение не пускают.</p>
+
+<h3>Гиперпараметры дообучения</h3>
+
+<div class="tw">
+<table>
+  <caption>LR понижен до 1/10 от исходного с линейным масштабированием под батч: 1·10⁻⁴ · (12/8) · (1/10) = 1.5·10⁻⁵ и 5·10⁻⁶ · (12/8) · (1/10) = 7.5·10⁻⁷. Расписания затухания — дефолтные для каждого пайплайна.</caption>
+  <thead><tr><th>Матчер</th><th>Что обучается</th><th class="num">LR</th><th class="num">Эпох</th><th class="num">Батч</th></tr></thead>
+  <tbody>
+    <tr><td><strong>RoMa</strong></td><td>декодер + рефайнеры + VGG19; DINOv2 заморожен</td><td class="num">1.5·10⁻⁵ / 7.5·10⁻⁷</td><td class="num"><span class="win">4</span></td><td class="num">12</td></tr>
+    <tr><td>LightGlue</td><td>только LightGlue; SuperPoint заморожен</td><td class="num">1·10⁻⁴</td><td class="num">50</td><td class="num">32</td></tr>
+    <tr><td>LoFTR</td><td>вся сеть</td><td class="num">1·10⁻⁴</td><td class="num">30</td><td class="num">8</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Про четыре эпохи авторы говорят прямо: «we fine-tune RoMa for only 4 epochs <strong>due to its inherent capabilities</strong>, which have already achieved amazing gains». Железо — 4×RTX 3090 на все три модели.</p>
+
+<p><strong>Чего в статье нет:</strong> оптимизатор, разрешение обучения, число итераций, время обучения в часах, аугментации при дообучении, стратегия выбора чекпоинта.</p>
+
+<h3>Что вошло в финальную модель</h3>
+
+<p>Только три модальности из шести: «we <strong>only use RGB-IR, RGB-Depth, RGB-Normal</strong> modality pairs for training, which is sufficient to achieve satisfying performance». На каждой итерации одна из трёх выбирается случайно.</p>
+
+<div class="tw">
+<table>
+  <caption>Табл. A2: вклад состава данных, средний AUC по пяти реальным доменам.</caption>
+  <thead><tr><th>Состав</th><th class="num">RoMa</th><th class="num">LightGlue</th><th class="num">LoFTR</th></tr></thead>
+  <tbody>
+    <tr><td>без дообучения</td><td class="num">43.95</td><td class="num">23.55</td><td class="num">25.79</td></tr>
+    <tr><td>лучшая одиночная модальность</td><td class="num">52.7 (Normal)</td><td class="num">—</td><td class="num">—</td></tr>
+    <tr><td><strong>IR + Depth + Normal</strong></td><td class="num"><span class="win">53.96</span></td><td class="num"><span class="win">43.44</span></td><td class="num"><span class="win">39.33</span></td></tr>
+    <tr><td>все шесть модальностей</td><td class="num">53.79</td><td class="num">—</td><td class="num">—</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Артистические модальности не помогают: «using artistic data (Paint and Sketch) can not further enhance the performance because the artistic type has no physical property».</p>
+
+<div class="note key">
+<span class="tag">Вывод, важный для нашего дообучения</span>
+<p>Самый крупный одиночный вклад для RoMa дают <strong>Depth и Normal, а не инфракрасная модальность</strong>. Переносится не конкретный вид, а сама инвариантность к смене вида: сеть учат не «понимать ИК», а не опираться на фотометрию как таковую.</p>
+<p>Отсюда следует, что для нашего сезонного разрыва не обязательно нужны именно сезонные пары — достаточно любых пар, где то же самое место выглядит принципиально иначе при точно известном выравнивании.</p>
+</div>
+</section>
+
+<section id="s9">
+<h2><span class="num">09</span>Что дало дообучение</h2>
+
+<h3>Забывания практически нет</h3>
+<div class="tw">
+<table>
+  <caption>Табл. A5, MegaDepth-1500 (только RGB), AUC@5/10/20°.</caption>
+  <thead><tr><th>Модель</th><th class="num">до</th><th class="num">после дообучения</th></tr></thead>
+  <tbody>
+    <tr><td><strong>RoMa</strong></td><td class="num">62.6 / 76.7 / 86.3</td><td class="num">61.7 / 76.5 / 86.4</td></tr>
+    <tr><td>LightGlue</td><td class="num">49.9 / 67.0 / 80.1</td><td class="num">47.3 / 65.0 / 78.6</td></tr>
+    <tr><td>LoFTR</td><td class="num">53.6 / 69.9 / 82.0</td><td class="num">29.9 / 45.3 / 59.5</td></tr>
+  </tbody>
+</table>
+</div>
+<p>«our MINIMA can well maintain the ability of RGB-only matching, <strong>except for LoFTR</strong>». У RoMa цена — меньше одного пункта AUC@5°. Это прямое следствие того, что бэкбон заморожен, а обучаемая часть трогается очень маленьким LR четыре эпохи.</p>
+
+<h3>Выигрыш на кросс-модальных данных</h3>
+<div class="tw">
+<table>
+  <caption>AUC, %. Реальные бенчмарки — не те данные, на которых обучались.</caption>
+  <thead><tr><th>Бенчмарк</th><th class="num">RoMa</th><th class="num">MINIMA-RoMa</th></tr></thead>
+  <tbody>
+    <tr><td>METU-VisTIR — реальный RGB-IR</td><td class="num">25.61 / 48.12 / 68.37</td><td class="num"><span class="win">37.45 / 60.70 / 78.00</span></td></tr>
+    <tr><td>DIODE — реальный RGB-Depth</td><td class="num">9.21 / 24.64 / 49.31</td><td class="num"><span class="win">28.98 / 50.88 / 72.54</span></td></tr>
+    <tr><td><strong>Remote Sensing (zero-shot)</strong></td><td class="num">29.24 / 40.50 / 57.84</td><td class="num"><span class="win">32.55 / 44.68 / 64.38</span></td></tr>
+    <tr><td>MD-syn RGB-Depth</td><td class="num">10.21 / 22.75 / 39.43</td><td class="num"><span class="win">29.56 / 48.58 / 65.87</span></td></tr>
+    <tr><td>MD-syn RGB-Paint</td><td class="num"><span class="win">41.30 / 58.36 / 72.70</span></td><td class="num">40.09 / 57.21 / 71.96</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Строка Remote Sensing — ближайшее к нашему домену, что вообще есть в статье: семь zero-shot кейсов из MMIM, включая Optical-SAR, Optical-Map, Optical-Depth и Day-Night. Прирост ~+6.5 пункта AUC@10px, лучший результат в таблице.</p>
+</section>
+
+<section id="s10">
+<h2><span class="num">10</span>Чего в MINIMA нет</h2>
+
+<p>Проверено прямым поиском по тексту статьи: слова <strong>aerial, satellite, season, UAV отсутствуют полностью.</strong> MD-syn целиком выведен из MegaDepth — наземные туристические фотографии достопримечательностей, 196 outdoor-сцен.</p>
+
+<p>То есть наш режим — надирный кадр против ортотрансформированного спутникового тайла, снятых в разные сезоны — в обучающих данных MINIMA <strong>не представлен ни одним примером</strong>. И при этом MINIMA-RoMa у нас на реальном наборе даёт 16/16 поз и берёт кросс-сезонный кадр, где остальные семь ядер дают ноль.</p>
+
+<div class="note key">
+<span class="tag">Главный аргумент за дообучение под свой домен</span>
+<p>Рецепт доказанно работает — на трёх парах «та же архитектура, другое обучение» выигрывает обучение. При этом наш домен в этом рецепте <strong>ещё даже не участвовал</strong>. Это редкая ситуация: известно, что метод даёт, и известно, что его к нашей задаче не применяли.</p>
+</div>
+
+<p>Отдельно стоит держать в голове и слабое место самого набора: сезонность и масштаб в наших измерениях сцеплены, кросс-сезонных сцен всего две, и «вывод остаётся направлением, а не доказательством».</p>
+</section>
+
+<section id="s11">
+<h2><span class="num">11</span>Что это значит для нашего проекта</h2>
+
+<ol>
+  <li><strong>Дообучение реалистично по стоимости.</strong> Четыре эпохи, батч 12, 4×RTX 3090 у авторов — на одной 4090 это порядок суток, а не недель. Обучаемая часть скромная: бэкбон заморожен, чекпоинт весит 445 МБ против 1.13 ГБ у DINOv2.</li>
+  <li><strong>Разметка у нас дешевле, чем у них.</strong> MINIMA пришлось генерировать псевдо-модальности, чтобы унаследовать метки. У нас сцена планарна, преобразование кадр↔подложка — подобие с 4 DoF, и <code>oracle.py</code> уже строит это выравнивание из EXIF, без единого пикселя матчинга. Плотное поле GT получается аналитически.</li>
+  <li><strong>Кросс-сезонные пары можно делать без дронов.</strong> Esri Wayback даёт исторические слои того же тайла — идеально ко-регистрированные между собой. Разрыв «камера дрона против спутника» добирается аугментацией.</li>
+  <li><strong>Чистку данных перенести один в один:</strong> перематчить пару, восстановить преобразование, при ошибке углов больше 10 px — выбросить. У авторов отсеялось 0.91%.</li>
+  <li><strong>Ставку делать на разнообразие вида, а не на сезон буквально.</strong> Абляция говорит, что переносится инвариантность как таковая: Depth и Normal дали больше, чем ИК.</li>
+</ol>
+
+<p>И то, что после дообучения обязательно придётся сделать заново: порог <code>MIN_INLIERS_DENSE = 185</code> откалиброван под текущее ядро с запасом в 13 инлайеров. Любая смена весов — повод пересчитать его на данных, а сторож <code>regress.py</code> против <code>golden.yaml</code> для этого уже стоит.</p>
+</section>
+
+<footer>
+<p><strong>Источники.</strong> Edstedt J. et al. <em>RoMa: Robust Dense Feature Matching.</em> CVPR 2024, <a href="https://arxiv.org/abs/2305.15404">arXiv:2305.15404</a> · <a href="https://github.com/Parskatt/RoMa">github.com/Parskatt/RoMa</a>. Ren J. et al. <em>MINIMA: Modality Invariant Image Matching.</em> CVPR 2025, <a href="https://arxiv.org/abs/2412.19412">arXiv:2412.19412</a> · <a href="https://github.com/LSXI7/MINIMA">github.com/LSXI7/MINIMA</a>. Часть деталей v1 приводится по описаниям в статье RoMa v2 и по коду репозитория; там, где источник данных не даёт, это отмечено в тексте.</p>
+<p>Парный документ: <em>Как устроен RoMa v2</em> (<code>MODEL_ROMA_V2.html</code>). Проектные документы: <code>RESEARCH_A_PAPERS.md</code>, <code>RESEARCH_A_ROMAV2_RECHECK.md</code>, <code>RESEARCH_A_RESULTS.md</code>.</p>
+</footer>
+
+</article>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Как устроен RoMa v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F5F7FA; --surface:#FFFFFF; --surface-2:#EBEFF5;
+  --ink:#131922; --ink-2:#525C6B; --ink-3:#7C8695;
+  --line:#DBE1E9; --line-2:#C2CAD6;
+  --accent:#0B6E78; --accent-2:#075860; --accent-wash:#E0F0F1;
+  --warn:#8A5A0B; --warn-wash:#FAF1DE;
+  --shadow:0 1px 2px rgba(19,25,34,.05), 0 8px 24px rgba(19,25,34,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D1116; --surface:#151A21; --surface-2:#1B222B;
+    --ink:#E6EAF0; --ink-2:#A2ACB9; --ink-3:#76818E;
+    --line:#232B35; --line-2:#333D49;
+    --accent:#4FC2CC; --accent-2:#8FDCE3; --accent-wash:#102529;
+    --warn:#D9A63C; --warn-wash:#271F12;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D1116; --surface:#151A21; --surface-2:#1B222B;
+  --ink:#E6EAF0; --ink-2:#A2ACB9; --ink-3:#76818E;
+  --line:#232B35; --line-2:#333D49;
+  --accent:#4FC2CC; --accent-2:#8FDCE3; --accent-wash:#102529;
+  --warn:#D9A63C; --warn-wash:#271F12;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Source Serif 4","Georgia",serif;
+  font-size:17px; line-height:1.65;
+  font-variant-numeric:oldstyle-nums;
+}
+.wrap{max-width:1200px;margin:0 auto;padding:0 24px}
+.grid{display:grid;grid-template-columns:1fr;gap:0}
+@media (min-width:1080px){
+  .grid{grid-template-columns:224px minmax(0,1fr);gap:56px}
+}
+/* ---- masthead ---- */
+header.mast{border-bottom:1px solid var(--line);background:var(--surface)}
+.mast-in{max-width:1200px;margin:0 auto;padding:44px 24px 36px}
+.eyebrow{
+  font-family:"Golos Text",system-ui,sans-serif;font-size:12px;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:0 0 14px
+}
+h1{
+  font-family:"Golos Text",system-ui,sans-serif;font-weight:700;
+  font-size:clamp(30px,5vw,46px);line-height:1.08;letter-spacing:-.02em;
+  margin:0 0 16px;text-wrap:balance;max-width:20ch
+}
+.standfirst{font-size:19px;color:var(--ink-2);max-width:62ch;margin:0}
+.meta{
+  margin-top:22px;display:flex;flex-wrap:wrap;gap:8px 10px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;color:var(--ink-3)
+}
+.meta span{border:1px solid var(--line);border-radius:2px;padding:3px 8px;background:var(--bg)}
+/* ---- toc ---- */
+nav.toc{display:none}
+@media (min-width:1080px){
+  nav.toc{
+    display:block;position:sticky;top:0;align-self:start;
+    padding:48px 0;max-height:100vh;overflow-y:auto
+  }
+}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t;margin:0 0 2px}
+nav.toc a{
+  display:block;padding:5px 0 5px 26px;position:relative;
+  font-family:"Golos Text",system-ui,sans-serif;font-size:13.5px;line-height:1.35;
+  color:var(--ink-2);text-decoration:none;border-left:2px solid transparent
+}
+nav.toc a::before{
+  content:counter(t,decimal-leading-zero);position:absolute;left:6px;top:5px;
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3)
+}
+nav.toc a:hover{color:var(--accent);border-left-color:var(--accent)}
+nav.toc a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* ---- article ---- */
+article{padding:48px 0 96px;min-width:0}
+section{margin:0 0 56px;scroll-margin-top:24px}
+h2{
+  font-family:"Golos Text",system-ui,sans-serif;font-weight:600;
+  font-size:26px;line-height:1.2;letter-spacing:-.015em;
+  margin:0 0 18px;padding-top:14px;border-top:2px solid var(--ink);
+  text-wrap:balance;max-width:26ch
+}
+h2 .num{
+  display:block;font-family:"IBM Plex Mono",monospace;font-size:11px;
+  font-weight:500;letter-spacing:.12em;color:var(--accent);margin-bottom:8px
+}
+h3{
+  font-family:"Golos Text",system-ui,sans-serif;font-weight:600;font-size:18px;
+  line-height:1.3;margin:34px 0 10px;text-wrap:balance
+}
+h4{
+  font-family:"Golos Text",system-ui,sans-serif;font-weight:600;font-size:15px;
+  margin:24px 0 8px;color:var(--ink)
+}
+p{margin:0 0 16px;max-width:68ch}
+ul,ol{margin:0 0 18px;padding-left:22px;max-width:68ch}
+li{margin:0 0 8px}
+strong{font-weight:600}
+em{font-style:italic;color:var(--ink-2)}
+a{color:var(--accent);text-underline-offset:2px}
+code,.m{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.86em;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:3px;
+  padding:1px 5px;font-variant-numeric:normal
+}
+.formula{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:14px;line-height:1.7;
+  background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:3px;padding:14px 18px;margin:0 0 18px;overflow-x:auto;
+  font-variant-numeric:normal;color:var(--ink)
+}
+.formula .cap{display:block;font-family:"Golos Text",sans-serif;font-size:12px;color:var(--ink-3);margin-top:8px}
+blockquote{
+  margin:0 0 18px;padding:2px 0 2px 18px;border-left:2px solid var(--line-2);
+  color:var(--ink-2);font-style:italic;max-width:64ch
+}
+blockquote p{margin:0}
+/* ---- callouts ---- */
+.note{
+  border:1px solid var(--line);border-radius:4px;background:var(--surface);
+  padding:18px 20px;margin:0 0 22px;box-shadow:var(--shadow)
+}
+.note.key{border-color:var(--accent);background:var(--accent-wash)}
+.note.trap{border-color:var(--warn);background:var(--warn-wash)}
+.note .tag{
+  display:inline-block;font-family:"Golos Text",sans-serif;font-size:11px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;color:var(--accent)
+}
+.note.trap .tag{color:var(--warn)}
+.note p:last-child{margin-bottom:0}
+/* ---- tables ---- */
+.tw{overflow-x:auto;margin:0 0 22px;border:1px solid var(--line);border-radius:4px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;font-family:"Golos Text",system-ui,sans-serif}
+th,td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{
+  font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--ink-2);background:var(--surface-2);white-space:nowrap
+}
+tbody tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;font-family:"IBM Plex Mono",monospace;font-size:13px}
+td .win{color:var(--accent);font-weight:600}
+caption{caption-side:bottom;padding:10px 14px;font-size:12.5px;color:var(--ink-3);text-align:left;font-family:"Golos Text",sans-serif}
+/* ---- figures ---- */
+figure{margin:0 0 26px}
+figure svg{display:block;width:100%;max-width:100%;height:auto;color:var(--ink-2)}
+.figbox{border:1px solid var(--line);border-radius:4px;background:var(--surface);padding:20px;overflow-x:auto}
+figcaption{
+  margin-top:10px;font-family:"Golos Text",system-ui,sans-serif;font-size:13px;
+  line-height:1.5;color:var(--ink-3);max-width:68ch
+}
+svg text{font-family:"Golos Text",system-ui,sans-serif}
+svg .mono{font-family:"IBM Plex Mono",monospace}
+svg .accent{fill:var(--accent)}
+svg .astroke{stroke:var(--accent)}
+/* ---- misc ---- */
+.lede{font-size:19px;color:var(--ink-2);max-width:64ch}
+hr{border:none;border-top:1px solid var(--line);margin:40px 0}
+footer{border-top:1px solid var(--line);padding:28px 0 60px;color:var(--ink-3);font-size:14px}
+footer a{color:var(--ink-2)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:15px;margin:0 0 20px;max-width:68ch}
+.kv dt{font-family:"Golos Text",sans-serif;font-weight:600;color:var(--ink-2);font-size:13.5px;padding-top:2px}
+.kv dd{margin:0}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="mast">
+  <div class="mast-in">
+    <p class="eyebrow">Разбор архитектуры · aero-geoloc</p>
+    <h1>Как устроен RoMa v2</h1>
+    <p class="standfirst">Плотный матчер без детектора: предсказывает соответствие для каждого пикселя, а вместе с ним — вероятность того, что пиксель вообще виден на втором снимке, и ковариацию собственной ошибки. Разбор по шагам: от замороженного бэкбона до сэмплирования пар и обучения.</p>
+    <div class="meta">
+      <span>arXiv:2511.15706v3</span><span>Edstedt et al.</span><span>ревизия 06.07.2026</span><span>код MIT · веса DINOv3 — Meta</span><span>составлено 21.08.2026</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="grid">
+<nav class="toc" aria-label="Содержание">
+  <ol>
+    <li><a href="#s1">Суть в одном экране</a></li>
+    <li><a href="#s2">Три выхода модели</a></li>
+    <li><a href="#s3">Бэкбоны: два источника фич</a></li>
+    <li><a href="#s4">Матчер: грубый warp</a></li>
+    <li><a href="#s5">Рефайнеры: субпиксель</a></li>
+    <li><a href="#s6">Инференс и сэмплирование</a></li>
+    <li><a href="#s7">Ковариация в оценке геометрии</a></li>
+    <li><a href="#s8">Обучение</a></li>
+    <li><a href="#s9">Измеренные результаты</a></li>
+    <li><a href="#s10">Слабые места</a></li>
+    <li><a href="#s11">Что это значит для нас</a></li>
+  </ol>
+</nav>
+
+<article>
+
+<section id="s1">
+<h2><span class="num">01</span>Суть в одном экране</h2>
+
+<p class="lede">RoMa v2 отвечает на вопрос «куда на снимке B попал каждый пиксель снимка A» — не для отобранных точек, а для всех сразу.</p>
+
+<p>Классический матчер работает в три хода: детектор находит ключевые точки, дескриптор их описывает, матчер сопоставляет описания. Хрупкий тут первый ход — детектор обязан найти <em>одни и те же</em> точки на обоих снимках. Авторы формулируют это как зависимость от «salient image regions, where repeatable keypoints can be detected». Когда снимки сделаны разными сенсорами, в разные сезоны или под разным освещением, повторяемость рассыпается: угол крыши, найденный на кадре БПЛА, на спутниковом тайле просто не задетектируется.</p>
+
+<p>Detector-free методы (LoFTR и родня) убирают детектор, но матчат по разреженной сетке. Плотные матчеры — DKM, RoMa, UFM, RoMa v2 — идут дальше: <strong>соответствие предсказывается для каждого пикселя</strong>, повторять нечего в принципе. Цена — вычисления и то, что на выходе получается поле, а не список точек; разреженные пары из него потом сэмплируют.</p>
+
+<p>RoMa v2 стоит между двумя предшественниками. От RoMa v1 он берёт <strong>замороженный foundation-бэкбон</strong> — именно заморозка даёт устойчивость к экстремальным сдвигам вида. От UFM — <strong>скорость и расцепленное двухстадийное обучение</strong>. Про UFM авторы говорят прямо, почему не пошли его путём целиком:</p>
+
+<blockquote><p>«UFM requires finetuning of the pretrained feature extracting backbone, which leads to worse performance on datasets with extreme appearance changes such as WxBS»</p></blockquote>
+
+<p>Конструктивно модель — это две стадии, обучаемые раздельно: <strong>матчер</strong> даёт грубый warp на страйде 4, <strong>три рефайнера</strong> доводят его до страйда 1 и добавляют оценку собственной ошибки.</p>
+</section>
+
+<section id="s2">
+<h2><span class="num">02</span>Три выхода модели</h2>
+
+<p>На вход — пара изображений <code>I_A, I_B ∈ R^{H×W×3}</code>. На выход — три сущности, и каждая считается <strong>в обе стороны</strong> (A↦B и B↦A):</p>
+
+<dl class="kv">
+  <dt>warp</dt><dd><code>W^{A↦B} ∈ R^{H×W×2}</code> — для каждого пикселя A его координата в B. Плотное поле, по сути оптический поток между видами.</dd>
+  <dt>overlap</dt><dd><code>p^{A↦B} ∈ [0,1]^{H×W×1}</code> — вероятность того, что пиксель <strong>ко-видим</strong>, то есть наблюдается на обоих снимках.</dd>
+  <dt>precision</dt><dd><code>Σ⁻¹ ∈ R^{H×W×2×2}</code> — новинка v2. Обратная ковариация ошибки координаты, в пикселях, анизотропная.</dd>
+</dl>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 760 300" role="img" aria-label="Схема трёх выходов: warp переносит пиксель из снимка A в снимок B, overlap говорит виден ли он там вообще, ковариация задаёт эллипс неопределённости в точке приземления">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+    <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="accent"/>
+    </marker>
+  </defs>
+  <text x="40" y="30" font-size="12.5" fill="currentColor" font-weight="600">снимок A — кадр БПЛА</text>
+  <rect x="40" y="42" width="180" height="180" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <g stroke="currentColor" stroke-width=".5" opacity=".35">
+    <line x1="85" y1="42" x2="85" y2="222"/><line x1="130" y1="42" x2="130" y2="222"/><line x1="175" y1="42" x2="175" y2="222"/>
+    <line x1="40" y1="87" x2="220" y2="87"/><line x1="40" y1="132" x2="220" y2="132"/><line x1="40" y1="177" x2="220" y2="177"/>
+  </g>
+  <rect x="85" y="87" width="45" height="45" class="accent" opacity=".85"/>
+  <text x="107" y="115" font-size="11" text-anchor="middle" fill="var(--surface)" class="mono">x</text>
+
+  <text x="540" y="30" font-size="12.5" fill="currentColor" font-weight="600">снимок B — спутниковый тайл</text>
+  <rect x="540" y="42" width="180" height="180" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <g stroke="currentColor" stroke-width=".5" opacity=".35">
+    <line x1="585" y1="42" x2="585" y2="222"/><line x1="630" y1="42" x2="630" y2="222"/><line x1="675" y1="42" x2="675" y2="222"/>
+    <line x1="540" y1="87" x2="720" y2="87"/><line x1="540" y1="132" x2="720" y2="132"/><line x1="540" y1="177" x2="720" y2="177"/>
+  </g>
+
+  <path d="M135,105 C 260,60 420,60 535,120" fill="none" stroke="currentColor" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="335" y="130" font-size="12.5" text-anchor="middle" fill="currentColor" class="mono">W(x)</text>
+  <text x="335" y="148" font-size="11.5" text-anchor="middle" fill="currentColor" opacity=".75">куда попал пиксель</text>
+
+  <ellipse cx="600" cy="140" rx="34" ry="15" transform="rotate(-22 600 140)" fill="none" class="astroke" stroke-width="1.6" stroke-dasharray="4 3"/>
+  <circle cx="600" cy="140" r="3" class="accent"/>
+  <text x="630" y="250" font-size="11.5" text-anchor="middle" class="accent" font-weight="600">Σ — эллипс ошибки</text>
+  <text x="630" y="266" font-size="11" text-anchor="middle" fill="currentColor" opacity=".75">из предсказанной Σ⁻¹</text>
+
+  <text x="40" y="252" font-size="11.5" fill="currentColor" font-weight="600">overlap p(x)</text>
+  <rect x="40" y="260" width="180" height="24" fill="none" stroke="currentColor" stroke-width="1"/>
+  <rect x="40" y="260" width="122" height="24" class="accent" opacity=".3"/>
+  <line x1="162" y1="260" x2="162" y2="284" stroke="currentColor" stroke-width="1"/>
+  <text x="101" y="277" font-size="10.5" text-anchor="middle" fill="currentColor" class="mono">виден в B</text>
+  <text x="191" y="277" font-size="10.5" text-anchor="middle" fill="currentColor" class="mono" opacity=".6">нет</text>
+  <text x="240" y="277" font-size="11.5" fill="currentColor" opacity=".8">— маска ко-видимости, а не «качество матча»</text>
+</svg>
+</div>
+<figcaption>Три выхода отвечают на три разных вопроса: <strong>куда</strong> (warp), <strong>виден ли вообще</strong> (overlap) и <strong>насколько точно</strong> (Σ⁻¹). Смешивать первые два нельзя: overlap не про качество соответствия.</figcaption>
+</figure>
+
+<div class="note key">
+<span class="tag">Ключевое различение</span>
+<p>Определение overlap у авторов: «for a perfect matcher, the confidence <code>p^{A↦B}</code> is 1 for pixels corresponding to a 3D point in the scene that is observable from both views, i.e., <strong>that are co-visible</strong>, and 0 for occluded pixels».</p>
+<p>В RoMa v1 это поле называлось <code>certainty</code> и было единственным сигналом неопределённости — оно поневоле смешивало «виден ли пиксель» и «насколько точна координата». В v2 второе вынесено в отдельную голову Σ⁻¹. Поэтому высокий overlap ≠ хороший матч, и наоборот.</p>
+</div>
+</section>
+<section id="s3">
+<h2><span class="num">03</span>Бэкбоны: два источника фич</h2>
+
+<p>Фичи в модель приходят из двух совершенно разных мест, и это не избыточность, а решение старого противоречия: признаки, хорошие для грубого глобального поиска, плохи для субпиксельной локализации, и наоборот.</p>
+
+<h3>DINOv3 ViT-L — грубые, семантические, замороженные</h3>
+
+<p>Патч-страйд <strong>16</strong> (у DINOv2 в v1 было 14). Берутся <strong>слои 11 и 17</strong>, каждый размерности 1024, конкатенируются и линейно проецируются в 768:</p>
+
+<div class="formula">f̃<sup>A</sup> = P( f<sup>A</sup><sub>11</sub> ⊕ f<sup>A</sup><sub>17</sub> ) ∈ R<sup>768</sup>,&nbsp;&nbsp; P ∈ R<sup>768×2048</sup>
+<span class="cap">Аналогично для B. Веса энкодера заморожены: «As in RoMa, but unlike UFM, we freeze the encoder weights».</span></div>
+
+<p>Заморозка — принципиальный выбор, а не экономия. Именно она даёт устойчивость к экстремальным сдвигам вида: бэкбон не подстраивается под обучающее распределение и не теряет то, что знал.</p>
+
+<p>Смена DINOv2 → DINOv3 измерена отдельно, линейным пробингом замороженных фич с ядерным NN-матчером на MegaDepth:</p>
+
+<div class="tw">
+<table>
+  <caption>Табл. 1 статьи. Robustness — доля матчей с ошибкой менее 32 px.</caption>
+  <thead><tr><th>Бэкбон</th><th class="num">EPE ↓</th><th class="num">Robustness % ↑</th></tr></thead>
+  <tbody>
+    <tr><td>DINOv2</td><td class="num">27.1</td><td class="num">77.0</td></tr>
+    <tr><td>DINOv3</td><td class="num"><span class="win">19.0</span></td><td class="num"><span class="win">86.4</span></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Сквозная абляция (матчер без рефайнеров) даёт куда более скромную разницу — WxBS 35.6 → 34.2, Hypersim 78.1 → 79.2. То есть бэкбон сам по себе не объясняет прирост v2; работает связка.</p>
+
+<h3>VGG19 — точные, локальные, только до страйда 4</h3>
+
+<p>Второй источник нужен рефайнерам: трансформерные фичи слишком грубы для субпикселя. Здесь и прячется важная экономия v2. Матчер выдаёт результат на <strong>страйде 4</strong> (в v1 — на 14), поэтому VGG19 нужен только до страйда 4, а не до 16:</p>
+
+<div class="formula">φ<sub>4</sub> ∈ R<sup>H/4×W/4×192</sup>&nbsp;&nbsp; φ<sub>2</sub> ∈ R<sup>H/2×W/2×48</sup>&nbsp;&nbsp; φ<sub>1</sub> ∈ R<sup>H×W×12</sup>
+<span class="cap">Сырые активации VGG19 прямо перед соответствующим maxpool (256 / 128 / 64 каналов), спроецированные линейными слоями в 192 / 48 / 12. Заморожен ли VGG19 — в статье не указано.</span></div>
+</section>
+
+<section id="s4">
+<h2><span class="num">04</span>Матчер: как получается грубый warp</h2>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 960 316" role="img" aria-label="Пайплайн матчера RoMa v2: два снимка через замороженный DINOv3 в мультивидовый трансформер, затем матрица сходства, match embeddings и DPT-голова, дающая warp и overlap на страйде 4">
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <g stroke="currentColor" fill="none" stroke-width="1.3">
+    <rect x="16" y="52" width="70" height="70"/>
+    <rect x="16" y="176" width="70" height="70"/>
+    <rect x="126" y="52" width="128" height="194"/>
+    <rect x="294" y="52" width="148" height="194"/>
+    <rect x="482" y="58" width="128" height="82"/>
+    <rect x="482" y="164" width="128" height="82"/>
+    <rect x="650" y="52" width="130" height="194"/>
+  </g>
+  <rect x="820" y="106" width="124" height="86" fill="none" class="astroke" stroke-width="2"/>
+
+  <text x="51" y="92" font-size="12" text-anchor="middle" fill="currentColor" font-weight="600">I<tspan font-size="10" dy="3">A</tspan></text>
+  <text x="51" y="216" font-size="12" text-anchor="middle" fill="currentColor" font-weight="600">I<tspan font-size="10" dy="3">B</tspan></text>
+
+  <text x="190" y="130" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="600">DINOv3 ViT-L</text>
+  <text x="190" y="150" font-size="11" text-anchor="middle" fill="currentColor" opacity=".8">заморожен</text>
+  <text x="190" y="168" font-size="10.5" text-anchor="middle" fill="currentColor" class="mono" opacity=".75">слои 11+17 → 768</text>
+  <text x="190" y="184" font-size="10.5" text-anchor="middle" fill="currentColor" class="mono" opacity=".75">страйд 16</text>
+
+  <text x="368" y="112" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="600">Multi-view</text>
+  <text x="368" y="130" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="600">Transformer</text>
+  <text x="368" y="152" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">ViT-B · 12 блоков · 768</text>
+  <text x="368" y="172" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">global attn — без PE</text>
+  <text x="368" y="188" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8">frame-wise attn + RoPE</text>
+
+  <text x="546" y="88" font-size="12" text-anchor="middle" fill="currentColor" font-weight="600">матрица сходства</text>
+  <text x="546" y="110" font-size="11" text-anchor="middle" fill="currentColor" class="mono">S = exp(cossim/τ)</text>
+  <text x="546" y="128" font-size="10.5" text-anchor="middle" fill="currentColor" class="mono" opacity=".75">τ = 1/10</text>
+
+  <text x="546" y="194" font-size="12" text-anchor="middle" fill="currentColor" font-weight="600">match embedding</text>
+  <text x="546" y="216" font-size="10.5" text-anchor="middle" fill="currentColor" class="mono">χ = Softmax(S)·χ<tspan font-size="9" dy="3">B</tspan></text>
+  <text x="546" y="234" font-size="10" text-anchor="middle" fill="currentColor" opacity=".75">Фурье-код координат</text>
+
+  <text x="715" y="126" font-size="12.5" text-anchor="middle" fill="currentColor" font-weight="600">DPT-голова</text>
+  <text x="715" y="150" font-size="10.5" text-anchor="middle" fill="currentColor" class="mono" opacity=".75">scratch 256</text>
+  <text x="715" y="168" font-size="9.5" text-anchor="middle" fill="currentColor" class="mono" opacity=".75">out 256·512·1024·1024</text>
+  <text x="715" y="186" font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".75">страйды 32 → 4</text>
+
+  <text x="882" y="138" font-size="12" text-anchor="middle" class="accent" font-weight="600">warp + overlap</text>
+  <text x="882" y="160" font-size="11" text-anchor="middle" class="accent mono">страйд 4</text>
+
+  <g stroke="currentColor" stroke-width="1.3" marker-end="url(#a2)" fill="none">
+    <line x1="86" y1="87" x2="120" y2="87"/>
+    <line x1="86" y1="211" x2="120" y2="211"/>
+    <line x1="254" y1="149" x2="288" y2="149"/>
+    <line x1="442" y1="99" x2="476" y2="99"/>
+    <line x1="442" y1="205" x2="476" y2="205"/>
+    <line x1="546" y1="140" x2="546" y2="158"/>
+    <line x1="610" y1="149" x2="644" y2="149"/>
+    <line x1="780" y1="149" x2="814" y2="149"/>
+  </g>
+  <text x="459" y="92" font-size="10" text-anchor="middle" fill="currentColor" class="mono" opacity=".7">z</text>
+  <text x="16" y="290" font-size="11" fill="currentColor" opacity=".7">Оба снимка токенизируются независимо; вся кросс-видовая информация появляется только в Multi-view Transformer.</text>
+</svg>
+</div>
+<figcaption>Матчер, шаг за шагом. Единственное место, где кадры «видят друг друга» до матрицы сходства, — global attention внутри трансформера.</figcaption>
+</figure>
+
+<h3>Шаг 1. Токенизация</h3>
+<p>Оба изображения проходят через DINOv3 <strong>независимо</strong> → <code>f̃^A ∈ R^{M×768}</code>, <code>f̃^B ∈ R^{N×768}</code>, где M и N — числа патчей.</p>
+
+<h3>Шаг 2. Multi-view Transformer</h3>
+<p>Токены обоих кадров стакаются и идут в трансформер архитектуры ViT-B: <code>dim=768</code>, <code>depth=12</code>, <code>heads=12</code>, <code>ffn_ratio=4</code>, без LayerScale, с линейным отображением выхода в 1024.</p>
+
+<div class="formula">(z<sup>A</sup>, z<sup>B</sup>) = m<sub>θ</sub>(f̃<sup>A</sup>, f̃<sup>B</sup>) ∈ (R<sup>M×1024</sup>, R<sup>N×1024</sup>)</div>
+
+<p>Внимание чередуется, по образцу VGGT: <strong>global attention</strong> обрабатывает оба кадра совместно и <strong>без всякого позиционного кодирования</strong>; <strong>frame-wise attention</strong> работает внутри кадра с нормализованным Axial RoPE. Отличие от VGGT прописано явно: «In contrast to VGGT, we only use RoPE for the frame-wise Attention».</p>
+
+<p>Почему в глобальном внимании нет позиционного кодирования: обмен информацией между кадрами не должен быть привязан к абсолютным координатам — два снимка одного места сняты из разных точек. А RoPE считается на <strong>нормализованной</strong> сетке, а не пиксельной: «This ensures that distances are always in distribution, even when changing resolution significantly». Это то, что делает модель устойчивой к смене разрешения.</p>
+
+<h3>Шаг 3. Матрица сходства</h3>
+<div class="formula">S<sub>mn</sub> = exp( 1/τ · cossim(z<sup>A</sup><sub>m</sub>, z<sup>B</sup><sub>n</sub>) ),&nbsp;&nbsp; S ∈ R<sup>M×N</sup>,&nbsp;&nbsp; τ = 1/10</div>
+
+<h3>Шаг 4. Match embeddings</h3>
+<p>Координаты патчей B кодируются случайными Фурье-признаками:</p>
+<div class="formula">χ<sup>B</sup><sub>n</sub> = cos(2πω W x<sup>B</sup><sub>n</sub>) ⊕ sin(2πω W x<sup>B</sup><sub>n</sub>) ∈ R<sup>1024</sup>
+<span class="cap">W ∈ R<sup>512×2</sup> — необучаемая матрица из N(0,1). ω = 1 <strong>фиксировано</strong> (в RoMa v1 инициализировалось 8 и обучалось).</span></div>
+
+<p>Зачем фиксировать частоту низкой: «the absolute position encodings used for the match embeddings need to be of low enough frequency to ensure that their interpolation is unproblematic». Авторы предполагают, что именно высокочастотные PE заставляют UFM работать на единственном фиксированном разрешении 420×560.</p>
+
+<p>Агрегация — softmax-взвешенное усреднение координатных эмбеддингов B: <code>χ^{A↦B}_m = S_m χ^B ∈ R^1024</code>. Это и есть «одноголовое внимание», заменившее гауссов процесс.</p>
+
+<h3>Шаг 5. DPT-голова</h3>
+<p>Scratch dimension 256, out dims [256, 512, 1024, 1024] для страйдов [4, 8, 16, 32], «finest resolution to a quarter of the original image size». Финальное предсказание — <strong>warp и overlap на страйде 4</strong>. Всё, что тоньше, достаётся рефайнерам.</p>
+
+<h3>Почему выкинули гауссов процесс</h3>
+
+<p>В RoMa v1 грубое сопоставление делал <strong>Gaussian Process match decoder</strong> — ядерная регрессия, дававшая распределение над координатными эмбеддингами. Слабость v1 авторы называют прямо: «one of its main weaknesses is the lack of multi-view context in the matcher, which relies solely on Gaussian Process (GP) regression combined with a single-view Transformer decoder to classify warp bins».</p>
+
+<p>Очевидная починка — вставить мультивидовый трансформер <em>перед</em> GP — не сработала:</p>
+
+<blockquote><p>«we found that in practice the gradients through the GP were not sufficiently informative to yield improvements, and caused stability issues during training»</p></blockquote>
+
+<p>Поэтому GP заменён на «a simple single-headed Attention mechanism» — ту самую операцию <code>Softmax(S)·χ^B</code> — плюс вспомогательный лосс <code>L_NLL</code>, который берёт на себя роль обучающего сигнала для матрицы сходства.</p>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 800 214" role="img" aria-label="Сравнение грубой стадии: в RoMa v1 гауссов процесс и однокадровый декодер дают warp на страйде 14; в RoMa v2 мультивидовый трансформер и одноголовое внимание дают warp на страйде 4">
+  <defs>
+    <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <text x="8" y="24" font-size="12" fill="currentColor" font-weight="600" opacity=".8">RoMa v1</text>
+  <g stroke="currentColor" fill="none" stroke-width="1.2" opacity=".85">
+    <rect x="96" y="8" width="120" height="46"/>
+    <rect x="256" y="8" width="150" height="46"/>
+    <rect x="446" y="8" width="170" height="46"/>
+    <rect x="656" y="8" width="136" height="46"/>
+  </g>
+  <text x="156" y="30" font-size="11" text-anchor="middle" fill="currentColor">фичи A, фичи B</text>
+  <text x="156" y="45" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">по отдельности</text>
+  <text x="331" y="30" font-size="11.5" text-anchor="middle" fill="currentColor" font-weight="600">Gaussian Process</text>
+  <text x="331" y="45" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">ядерная регрессия</text>
+  <text x="531" y="30" font-size="11.5" text-anchor="middle" fill="currentColor">ViT-декодер, 5 блоков</text>
+  <text x="531" y="45" font-size="9.5" text-anchor="middle" fill="currentColor" opacity=".7">классификация 64×64 якорей</text>
+  <text x="724" y="30" font-size="11.5" text-anchor="middle" fill="currentColor">warp</text>
+  <text x="724" y="45" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">страйд 14</text>
+  <g stroke="currentColor" stroke-width="1.2" marker-end="url(#a3)" opacity=".85">
+    <line x1="216" y1="31" x2="250" y2="31"/><line x1="406" y1="31" x2="440" y2="31"/><line x1="616" y1="31" x2="650" y2="31"/>
+  </g>
+
+  <line x1="8" y1="88" x2="792" y2="88" stroke="currentColor" stroke-width="1" opacity=".25"/>
+
+  <text x="8" y="130" font-size="12" class="accent" font-weight="600">RoMa v2</text>
+  <g fill="none" stroke-width="1.2">
+    <rect x="96" y="114" width="120" height="46" stroke="currentColor" opacity=".85"/>
+    <rect x="256" y="114" width="150" height="46" class="astroke" stroke-width="2"/>
+    <rect x="446" y="114" width="170" height="46" class="astroke" stroke-width="2"/>
+    <rect x="656" y="114" width="136" height="46" stroke="currentColor" opacity=".85"/>
+  </g>
+  <text x="156" y="136" font-size="11" text-anchor="middle" fill="currentColor">фичи A, фичи B</text>
+  <text x="156" y="151" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">по отдельности</text>
+  <text x="331" y="136" font-size="10.5" text-anchor="middle" class="accent" font-weight="600">Multi-view Transformer</text>
+  <text x="331" y="151" font-size="10" text-anchor="middle" class="accent" opacity=".85">кадры видят друг друга</text>
+  <text x="531" y="136" font-size="11.5" text-anchor="middle" class="accent" font-weight="600">Softmax(S)·χ + DPT</text>
+  <text x="531" y="151" font-size="10" text-anchor="middle" class="accent" opacity=".85">одноголовое внимание</text>
+  <text x="724" y="136" font-size="11.5" text-anchor="middle" fill="currentColor">warp + overlap</text>
+  <text x="724" y="151" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">страйд 4</text>
+  <g stroke="currentColor" stroke-width="1.2" marker-end="url(#a3)" opacity=".85">
+    <line x1="216" y1="137" x2="250" y2="137"/><line x1="406" y1="137" x2="440" y2="137"/><line x1="616" y1="137" x2="650" y2="137"/>
+  </g>
+  <text x="8" y="196" font-size="11" fill="currentColor" opacity=".7">Меняются два средних блока. Следствие страйда 4 вместо 14: рефайнеров нужно три, а не пять, и VGG19 — только до страйда 4.</text>
+</svg>
+</div>
+<figcaption>Что именно заменили в грубой стадии. Мультивидовый контекст появляется <em>до</em> сопоставления, а не после, и грубый выход становится вчетверо детальнее.</figcaption>
+</figure>
+</section>
+<section id="s5">
+<h2><span class="num">05</span>Рефайнеры: откуда берётся субпиксель</h2>
+
+<p>Три рефайнера на страйдах <strong>4 → 2 → 1</strong>. Каждый получает предсказание предыдущего уровня и предсказывает три поправки: <strong>смещение</strong> (уточнение warp), <strong>дельту overlap</strong> и <strong>приращение точности ΔΣ⁻¹</strong>.</p>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 960 296" role="img" aria-label="Каскад из трёх рефайнеров на страйдах 4, 2 и 1: каждый получает фичи VGG19, фичи второго снимка сэмплированные текущим варпом, закодированное смещение и локальную корреляцию, и выдаёт поправки к варпу, overlap и точности">
+  <defs>
+    <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <rect x="120" y="10" width="716" height="34" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".85"/>
+  <text x="478" y="32" font-size="11.5" text-anchor="middle" fill="currentColor">VGG19 · φ₄ (192 кан.) · φ₂ (48) · φ₁ (12) — «точные» локальные фичи</text>
+
+  <g stroke="currentColor" fill="none" stroke-width="1.3">
+    <rect x="120" y="86" width="204" height="122"/>
+    <rect x="376" y="86" width="204" height="122"/>
+    <rect x="632" y="86" width="204" height="122"/>
+  </g>
+
+  <g font-size="12.5" font-weight="600" text-anchor="middle" fill="currentColor">
+    <text x="222" y="110">рефайнер · страйд 4</text>
+    <text x="478" y="110">рефайнер · страйд 2</text>
+    <text x="734" y="110">рефайнер · страйд 1</text>
+  </g>
+  <g font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".8" class="mono">
+    <text x="222" y="132">local corr 7×7</text>
+    <text x="478" y="132">local corr 3×3</text>
+    <text x="734" y="132">без корреляции</text>
+    <text x="222" y="150">вход 512 кан.</text>
+    <text x="478" y="150">вход 128 кан.</text>
+    <text x="734" y="150">вход 32 кан.</text>
+  </g>
+  <g font-size="10.5" text-anchor="middle" fill="currentColor" opacity=".7">
+    <text x="222" y="176">8 блоков</text>
+    <text x="222" y="192">5×5 DW → BN → ReLU → 1×1</text>
+    <text x="478" y="176">8 блоков</text>
+    <text x="478" y="192">5×5 DW → BN → ReLU → 1×1</text>
+    <text x="734" y="176">8 блоков</text>
+    <text x="734" y="192">5×5 DW → BN → ReLU → 1×1</text>
+  </g>
+
+  <g stroke="currentColor" stroke-width="1.3" marker-end="url(#a4)">
+    <line x1="222" y1="44" x2="222" y2="80"/>
+    <line x1="478" y1="44" x2="478" y2="80"/>
+    <line x1="734" y1="44" x2="734" y2="80"/>
+    <line x1="46" y1="147" x2="114" y2="147"/>
+    <line x1="324" y1="147" x2="370" y2="147"/>
+    <line x1="580" y1="147" x2="626" y2="147"/>
+    <line x1="836" y1="147" x2="900" y2="147"/>
+  </g>
+  <text x="46" y="128" font-size="10.5" fill="currentColor" opacity=".75">от матчера</text>
+  <text x="46" y="171" font-size="10.5" fill="currentColor" opacity=".75">страйд 4</text>
+  <text x="347" y="138" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">Δ</text>
+  <text x="603" y="138" font-size="10" text-anchor="middle" fill="currentColor" opacity=".7">Δ</text>
+  <text x="900" y="128" font-size="11" class="accent" font-weight="600">выход</text>
+  <text x="900" y="171" font-size="10" fill="currentColor" opacity=".75">страйд 1</text>
+
+  <rect x="120" y="240" width="716" height="34" fill="none" class="astroke" stroke-width="1.6" stroke-dasharray="4 3"/>
+  <text x="478" y="262" font-size="11.5" text-anchor="middle" class="accent mono">точность складывается по уровням:  Σ⁻¹ᵢ = Σ_{j≥i} ΔΣ⁻¹ⱼ</text>
+  <g stroke="currentColor" stroke-width="1" opacity=".5" stroke-dasharray="3 3">
+    <line x1="222" y1="208" x2="222" y2="240"/>
+    <line x1="478" y1="208" x2="478" y2="240"/>
+    <line x1="734" y1="208" x2="734" y2="240"/>
+  </g>
+</svg>
+</div>
+<figcaption>Каскад рефайнеров. Локальная корреляция сужается с уровнем: на страйде 4 модель ищет поправку в окне 7×7, на страйде 1 — не ищет вовсе, потому что там уже нечего искать.</figcaption>
+</figure>
+
+<h3>Что подаётся на вход</h3>
+<div class="formula">φ<sup>A</sup><sub>i</sub> ⊕ φ<sup>B</sup><sub>i</sub>(W<sup>A↦B</sup>) ⊕ g<sub>i</sub>(W<sup>A↦B</sup> − x<sup>A</sup>) ⊕ local_corr(φ<sup>A</sup><sub>i</sub>, φ<sup>B</sup><sub>i</sub>, W<sup>A↦B</sup>, k<sub>i</sub>)
+<span class="cap">Свои фичи; фичи второго снимка, <strong>сэмплированные текущим варпом</strong>; линейно закодированное смещение; локальная корреляция в окне k<sub>i</sub>×k<sub>i</sub> вокруг текущей гипотезы. Параметры: [k₄, k₂, k₁] = [7, 3, без корреляции], g₄ ∈ R<sup>79×2</sup>, g₂ ∈ R<sup>23×2</sup>, g₁ ∈ R<sup>8×2</sup>.</span></div>
+
+<p>Суммарные размерности входа — <strong>512, 128, 32</strong> канала. Это не случайные числа: «intentionally powers of two, as this slightly increases inference speed». Проверка: 192+192+79+49 = 512; 48+48+23+9 = 128; 12+12+8+0 = 32.</p>
+
+<p>Блок внутри — как в DKM и RoMa: «8 layers each consisting of 5×5 depthwise convolution, followed by BatchNorm, ReLU, and 1×1 pointwise convolution».</p>
+
+<h3>Кастомное CUDA-ядро</h3>
+<p>Локальная корреляция на высоком разрешении — главный пожиратель памяти: «we find that the local correlation implementation used in RoMa uses a large amount of memory, especially at high resolution. To remedy this we write a custom CUDA kernel as a PyTorch extension». Эффект — 5.6 → 4.8 ГБ при почти том же throughput.</p>
+
+<h3>Матрица точности: как она устроена</h3>
+<p>Невязка определяется как <code>r_θ := W^{A↦B}_θ − W^{A↦B}_GT ∈ R^{H×W×2}</code>. Сеть предсказывает три числа, из которых собирается разложение Холецкого — так положительная определённость гарантирована конструкцией, а не штрафом:</p>
+
+<div class="formula">l₁₁ = Softplus(z₁₁) + 10⁻⁶,&nbsp; l₂₁ = z₂₁,&nbsp; l₂₂ = Softplus(z₂₂) + 10⁻⁶<br>L = [[l₁₁, 0], [l₂₁, l₂₂]],&nbsp;&nbsp; <strong>Σ⁻¹ = L Lᵀ</strong></div>
+
+<p>Обучается прямой NLL гауссианы: <code>L_prec(r) = ½ rᵀΣ⁻¹r − ½ log det(Σ⁻¹) + log(2π)</code>.</p>
+
+<div class="note trap">
+<span class="tag">Важное ограничение</span>
+<p>«To ensure stability, we only train the model to predict this covariance for <strong>covisible regions where ‖r‖ &lt; 8 pixels</strong>. We detach the residuals r_θ before the loss.»</p>
+<p>Σ⁻¹ валидна только для матчей, уже похожих на инлайеры. Для грубых выбросов она бессмысленна — отбраковку по-прежнему делают overlap и RANSAC. Использовать Σ⁻¹ как детектор ложных матчей нельзя.</p>
+</div>
+
+<h3>EMA — почему усреднение весов даёт субпиксель</h3>
+<p>Авторы заметили, что предсказания «плавают» с амплитудой «typically around ±0.1 pixels in resolution 640×640», причём по ходу обучения этот сдвиг выглядит «almost random» — значит, усредняется. Экспоненциальное скользящее среднее весов с <code>α = 0.999</code>:</p>
+
+<div class="tw">
+<table>
+  <caption>Табл. 9 статьи, AUC@5/10/20°. EMA помогает ровно там, где нужен субпиксель, и не мешает там, где не нужен.</caption>
+  <thead><tr><th></th><th class="num">MegaDepth-1500</th><th class="num">ScanNet-1500</th></tr></thead>
+  <tbody>
+    <tr><td>без EMA</td><td class="num">61.4 / 75.8 / 85.7</td><td class="num">33.6 / 56.1 / 73.5</td></tr>
+    <tr><td>с EMA</td><td class="num"><span class="win">62.8 / 77.0 / 86.6</span></td><td class="num">33.6 / 56.2 / 73.8</td></tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<section id="s6">
+<h2><span class="num">06</span>Инференс и сэмплирование пар</h2>
+
+<p>Рабочие разрешения при оценке позы — <strong>coarse 800×800, fine 1024×1024</strong>. Для чистого плотного матчинга в бенчмарках снимки подаются напрямую в 640×640.</p>
+
+<p>Варпы считаются <strong>в обе стороны</strong>, и из объединённого поля сэмплируются разреженные пары. Формула отбора (раздел 4.1, ур. 6):</p>
+
+<div class="formula">p̂<sup>A↦B</sup> = max( 𝟙<sub>{ p<sup>A↦B</sup> &gt; 0.05 }</sub> ,&nbsp; p<sup>A↦B</sup> )</div>
+
+<p>Читается так. Пиксель с <code>p &gt; 0.05</code> получает вес ровно <strong>1</strong> — то есть выше порога распределение <strong>плоское</strong>, и само значение overlap как вес не используется вообще. Пиксель с <code>p ≤ 0.05</code> получает вес, равный собственному <code>p</code>: почти ноль, но не ноль. Дальше из этого распределения <strong>сэмплируют</strong>, а не берут top-K.</p>
+
+<p>Поверх — <strong>KDE-балансировка</strong>, унаследованная от RoMa v1: плотность матчей в пространстве соответствий оценивается ядром, и вероятность сэмплирования взвешивается обратно ей. Без этого все точки собрались бы в одной хорошо текстурированной области. Точное число сэмплируемых пар в статье не указано.</p>
+
+<div class="note trap">
+<span class="tag">Ловушка, на которую мы наступили</span>
+<p>Порог у авторов — <strong>0.05</strong>. В нашей интеграции <code>RoMaV2Matcher</code> унаследовал от v1 значение <code>min_conf = 0.5</code> — <strong>в десять раз выше</strong>. При измеренном распределении overlap 0.03–0.08 фильтр обрезал практически всё: «0–29 соответствий» из отчёта — это случайно проскочивший хвост, а не выход модели.</p>
+<p>Почему у v1 та же строка безобидна: там <code>conf</code> после <code>sample</code> — константа 1.0, и порог 0.5 оказывается no-op. Один и тот же код: для v1 — ничего, для v2 — глушилка. Подробности и протокол перепроверки — в <code>RESEARCH_A_ROMAV2_RECHECK.md</code>.</p>
+</div>
+</section>
+
+<section id="s7">
+<h2><span class="num">07</span>Ковариация в оценке геометрии</h2>
+
+<p>Модель предсказывает только «прямую» ковариацию, а невязка эпиполярной геометрии двусторонняя. Полная 4×4 ковариация соответствия аппроксимируется блочно-диагональной, причём блок для точки в <code>I_A</code> берётся сэмплированием обратного направления:</p>
+
+<div class="formula">(Σ⁻¹)<sup>A</sup>(x<sup>A</sup>) ≈ (Σ⁻¹)<sup>B↦A</sup>( W<sup>A↦B</sup>(x<sup>A</sup>) )</div>
+
+<p>Дальше минимизируется <strong>ковариационно-взвешенная ошибка Сампсона</strong>:</p>
+
+<div class="formula">( x<sub>B</sub><sup>T</sup> F x<sub>A</sub> ) / ( ‖F₁₂ x<sub>A</sub>‖²<sub>Σ_A</sub> + ‖(F<sup>T</sup>)₁₂ x<sub>B</sub>‖²<sub>Σ_B</sub> ),&nbsp;&nbsp; где ‖u‖²<sub>Σ</sub> = u<sup>T</sup> Σ u</div>
+
+<p>Та же невязка заводится «inside the MSAC scoring, inside a standard LO-RANSAC» — то есть ковариация влияет не только на финальную доводку, но и на то, какая гипотеза выигрывает внутри RANSAC.</p>
+
+<div class="tw">
+<table>
+  <caption>Табл. 12 статьи. 1500 пар из валидационных сцен HyperSim, пары с перекрытием менее 0.2 отброшены.</caption>
+  <thead><tr><th>Режим</th><th class="num">AUC@1°</th><th class="num">AUC@3°</th><th class="num">AUC@5°</th></tr></thead>
+  <tbody>
+    <tr><td>без Σ⁻¹</td><td class="num">54.9</td><td class="num">79.5</td><td class="num">85.9</td></tr>
+    <tr><td>Σ⁻¹ только в доводке</td><td class="num">75.8</td><td class="num">89.0</td><td class="num">92.6</td></tr>
+    <tr><td>Σ⁻¹ и в RANSAC, и в доводке</td><td class="num"><span class="win">76.4</span></td><td class="num"><span class="win">89.3</span></td><td class="num"><span class="win">92.8</span></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>+21.5 пункта AUC@1°</strong> — самый крупный одиночный выигрыш во всей статье, и он не требует ни новых данных, ни обучения. У нас Σ⁻¹ уже приходит наружу из <code>sample()</code> и сводится к медиане следа в диагностике.</p>
+</section>
+<section id="s8">
+<h2><span class="num">08</span>Обучение</h2>
+
+<p class="lede">Главное архитектурное решение здесь не в слоях, а в порядке: матчер и рефайнеры обучаются <strong>раздельно</strong>.</p>
+
+<h3>Расцепленные две стадии</h3>
+
+<p>В DKM и RoMa v1 грубая стадия и рефайнеры обучались совместно, с отсечкой градиентов между уровнями. RoMa v2 берёт схему UFM: «we instead opt for a <strong>two-stage training paradigm</strong> inspired by UFM. This enables rapid experimentation». Сначала обучается матчер; затем он замораживается и переводится в режим инференса, и уже на его выходах обучаются рефайнеры.</p>
+
+<p>Для нас это практически важно: <strong>дообучать можно одну стадию, не трогая другую.</strong> Если домен ломает грубое сопоставление — работать с матчером; если проблема в субпиксельной точности на нашем разрешении — с рефайнерами.</p>
+
+<h3>Данные</h3>
+
+<div class="tw">
+<table>
+  <caption>Табл. 3 статьи. Итого 5069 сцен. Порядок числа пар: ScanNet++ ≈ 8·10⁶, MegaDepth — до 200 тыс. пар на сцену.</caption>
+  <thead><tr><th>Датасет</th><th>Тип</th><th class="num">Вес сэмплирования</th><th class="num">Сцен</th></tr></thead>
+  <tbody>
+    <tr><td>MegaDepth</td><td>наземные фото, MVS</td><td class="num">1</td><td class="num">169</td></tr>
+    <tr><td><strong>AerialMegaDepth</strong></td><td>аэро, MVS</td><td class="num">1</td><td class="num">124</td></tr>
+    <tr><td>BlendedMVS</td><td>аэро, меш</td><td class="num">1</td><td class="num">493</td></tr>
+    <tr><td>Hypersim</td><td>синтетика, интерьеры</td><td class="num">1</td><td class="num">393</td></tr>
+    <tr><td>TartanAir v2</td><td>синтетика</td><td class="num">1</td><td class="num">46</td></tr>
+    <tr><td>Map-Free</td><td>улицы</td><td class="num">1</td><td class="num">397</td></tr>
+    <tr><td>ScanNet++ v2</td><td>интерьеры</td><td class="num">1</td><td class="num">856</td></tr>
+    <tr><td>FlyingThings3D</td><td>синтетика, flow</td><td class="num">0.5</td><td class="num">2239</td></tr>
+    <tr><td>UnrealStereo4k</td><td>синтетика</td><td class="num">0.01</td><td class="num">8</td></tr>
+    <tr><td>Virtual KITTI 2</td><td>синтетика, погода</td><td class="num">0.01</td><td class="num">5</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>Что здесь есть и чего нет.</strong> Аэро-данные есть — AerialMegaDepth и BlendedMVS, оба с полным весом. Но роль их авторы формулируют как устойчивость к «large rotations and <strong>air-to-ground</strong> viewpoint changes» — это воздух против земли, а не надир против ортотрансформированного спутникового тайла. Кросс-сезонность не упоминается вообще; ближайший прокси — погодная аугментация Virtual KITTI 2 («During training we randomly draw conditions»).</p>
+
+<h3>Как строится ground truth для overlap</h3>
+
+<p>Бинарная маска, два разных критерия по типу датасета:</p>
+<ul>
+  <li><strong>MVS-датасеты</strong> — относительная согласованность глубин: <code>|z^B(x^{A↦B}) − z^{A↦B}| / z^B(x^{A↦B}) &lt; τ</code>, <code>τ = 0.05</code>.</li>
+  <li><strong>Flow-датасеты</strong> — цикл-консистентность варпа: <code>‖W^{B↦A}(W^{A↦B}(x^A)) − x^A‖ &lt; 5·10⁻³</code>, что при 640×640 составляет ≈ 1.6 px.</li>
+</ul>
+
+<p>Второй критерий стоит запомнить: <strong>цикл-консистентность не требует глубины и позы вообще.</strong> Для домена, где выравнивание задано аналитически, GT-маска получается почти бесплатно.</p>
+
+<h3>Лоссы матчера</h3>
+
+<div class="formula">L<sub>matcher</sub> = L<sub>NLL</sub> + L<sub>warp</sub>(r<sub>θ</sub>, p<sub>GT</sub>) + 0.1 · L<sub>overlap</sub>(p<sub>θ</sub>, p<sub>GT</sub>)</div>
+
+<dl class="kv">
+  <dt>L_NLL</dt><dd>«dense directional version of, e.g. LoFTR»: <code>L_NLL = Σ_m −log(Softmax(S_m)_{n*})</code>, где <code>n*</code> — «the index of the patch closest to the GT warp for patch m». Обратите внимание: таргет строится не из разметки матчей, а из ближайшего к GT-варпу патча. Это тот сигнал, который в v1 давал GP.</dd>
+  <dt>L_warp</dt><dd>Робастная регрессия — обобщённый Charbonnier (тот же, что в рефайнерах). Заменил классификацию по варп-бинам из v1.</dd>
+  <dt>L_overlap</dt><dd>Попиксельная бинарная кросс-энтропия, вес λ = 0.1 — «the same overlap loss and weighting factor (λ = 0.1), as in RoMa».</dd>
+</dl>
+
+<div class="note">
+<span class="tag">Следствие, о котором стоит помнить</span>
+<p>Вес overlap-лосса намеренно мал: 0.1 в матчере и 10⁻² в рефайнерах. Величина <strong>не откалибрована как вероятность в строгом смысле</strong> — её учили ранжировать, а не давать честные вероятности. Отсюда и вывод: пороги на overlap нельзя переносить между версиями и обучающими смесями, их надо мерить на своих данных.</p>
+</div>
+
+<h3>Лосс рефайнеров</h3>
+
+<div class="formula">L<sub>warp</sub> = (ic)<sup>α</sup> ( ‖r‖²/(ic)² + 1 )<sup>α/2</sup>,&nbsp;&nbsp; α = 0.5,&nbsp; c = 10⁻³,&nbsp; i ∈ {4, 2, 1} — страйд<br><br>L<sub>refiners</sub> = Σ<sub>i∈S</sub> [ L<sub>warp</sub>(r<sub>θi</sub>, p<sub>GT</sub>) + λ<sub>ov</sub> L<sub>ov</sub>(p<sub>θi</sub>, p<sub>GT</sub>) + λ<sub>prec</sub> L<sub>prec</sub>(Σ⁻¹<sub>θi</sub>, detach(r<sub>θi</sub>)) ]
+<span class="cap">S = {1, 2, 4}, λ_ov = 10⁻², λ_prec = 10⁻³.</span></div>
+
+<p>Смысл робастности Charbonnier: градиент ведёт себя локально как L2, но затухает на больших остатках. Грубые промахи грубой стадии и окклюзии не тянут рефайнер за собой — он занимается тем, что уже почти правильно.</p>
+
+<h3>Гиперпараметры</h3>
+
+<div class="tw">
+<table>
+  <thead><tr><th>Стадия</th><th class="num">Шагов</th><th class="num">Батч</th><th class="num">Пар</th><th class="num">LR</th><th>Разрешение</th></tr></thead>
+  <tbody>
+    <tr><td>матчер</td><td class="num">300 000</td><td class="num">128</td><td class="num">≈ 38 млн</td><td class="num">4·10⁻⁴</td><td>микс 512×512, 592×448, 624×416, 688×384 и транспонированные</td></tr>
+    <tr><td>рефайнеры</td><td class="num">300 000</td><td class="num">64</td><td class="num">≈ 19 млн</td><td class="num">4·10⁻⁴</td><td>только 640×640</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>Аугментации:</strong> горизонтальный флип, <strong>grayscale с вероятностью 0.1</strong>, мультипликативная яркость [1/1.5, 1.5], hue jitter ±15° в HSV; для MegaDepth и AerialMegaDepth — случайный сдвиг на ±32 px по строкам и столбцам.</p>
+
+<p>Grayscale-аугментация закрывает вопрос, который у нас возникал: подавать в модель серое — штатный режим, а не выход за распределение.</p>
+
+<p><strong>Чего в статье нет:</strong> оптимизатор, weight decay, LR-расписание, число GPU, время обучения. Рекомендаций по дообучению на своём домене авторы не дают; дообучение упоминается один раз — как критика UFM за разморозку бэкбона.</p>
+
+<p>Свёртки рефайнеров, обученные только на 640×640, работают на других разрешениях благодаря приёму из RoMa: «the input displacement is rescaled relative to a canonical resolution». Смещение подаётся в канонических единицах, а не в пикселях.</p>
+</section>
+
+<section id="s9">
+<h2><span class="num">09</span>Измеренные результаты</h2>
+
+<h3>Скорость и память</h3>
+<div class="tw">
+<table>
+  <caption>Табл. 8: 640×640, батч 8, H200. RoMa и UFM гонялись на 644×644 из-за патча 14.</caption>
+  <thead><tr><th>Модель</th><th class="num">Пар/с ↑</th><th class="num">Память, ГБ ↓</th></tr></thead>
+  <tbody>
+    <tr><td>UFM</td><td class="num">43.0</td><td class="num">16.2</td></tr>
+    <tr><td>RoMa v1</td><td class="num">18.5</td><td class="num">4.7</td></tr>
+    <tr><td>RoMa v2 без CUDA-ядра</td><td class="num">30.3</td><td class="num">5.6</td></tr>
+    <tr><td>RoMa v2 с ядром</td><td class="num"><span class="win">30.9</span></td><td class="num"><span class="win">4.8</span></td></tr>
+  </tbody>
+</table>
+</div>
+<p>«1.7× faster than RoMa with similar memory footprint» — медленнее UFM, но втрое экономнее по памяти.</p>
+
+<h3>Плотный матчинг: где разрыв с v1 самый большой</h3>
+<div class="tw">
+<table>
+  <caption>Табл. 6–7, EPE ↓ при 640×640. Строки, ближайшие к нашему домену, выделены.</caption>
+  <thead><tr><th>Датасет</th><th class="num">RoMa v1</th><th class="num">UFM</th><th class="num">RoMa v2</th></tr></thead>
+  <tbody>
+    <tr><td><strong>AerialMegaDepth</strong></td><td class="num">25.05</td><td class="num">17.44</td><td class="num"><span class="win">4.12</span></td></tr>
+    <tr><td>MapFree</td><td class="num">8.55</td><td class="num">3.59</td><td class="num"><span class="win">2.03</span></td></tr>
+    <tr><td>ScanNet++ v2</td><td class="num">27.52</td><td class="num">6.93</td><td class="num"><span class="win">4.00</span></td></tr>
+    <tr><td>TA-WB</td><td class="num">60.61</td><td class="num">15.85</td><td class="num"><span class="win">13.82</span></td></tr>
+    <tr><td>MegaDepth</td><td class="num">2.34</td><td class="num">3.15</td><td class="num"><span class="win">1.47</span></td></tr>
+    <tr><td>FlyingThings3D</td><td class="num">5.68</td><td class="num">1.33</td><td class="num"><span class="win">0.93</span></td></tr>
+  </tbody>
+</table>
+</div>
+<p>На AerialMegaDepth — «84% lower EPE compared to RoMa».</p>
+
+<h3>Сложные бенчмарки</h3>
+<div class="tw">
+<table>
+  <caption>Табл. 11. SatAst — спутниковая астронавтская съёмка, ближайший к нам публичный бенчмарк.</caption>
+  <thead><tr><th>Бенчмарк</th><th class="num">RoMa v1</th><th class="num">UFM</th><th class="num">RoMa v2</th></tr></thead>
+  <tbody>
+    <tr><td><strong>SatAst</strong>, AUC@10px</td><td class="num">23.5</td><td class="num">1.8</td><td class="num"><span class="win">37.0</span></td></tr>
+    <tr><td>RUBIK, success %</td><td class="num">47.3</td><td class="num">53.1</td><td class="num"><span class="win">57.3</span></td></tr>
+    <tr><td>WxBS, mAA@10px</td><td class="num"><span class="win">60.8</span></td><td class="num">42.3</td><td class="num">55.4</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>WxBS — <strong>единственная регрессия против v1</strong>, и причина названа: кросс-модальное подмножество IR↔RGB. Это ровно та ниша, ради которой существует MINIMA.</p>
+
+<h3>Откуда берётся преимущество: эксперимент с квантильным отображением</h3>
+
+<p>Изящная проверка (табл. 13): предсказания RoMa v2 искусственно «загрубляются» до распределения ошибок UFM через квантильное отображение <code>r̃ = Q_UFM(F_{RoMa v2}(r))</code>. MegaDepth-1500 падает с 62.8/77.0/86.6 до 46.3/63.7/77.4 — почти до уровня UFM (41.5/57.9/72.4).</p>
+
+<p><strong>Вывод:</strong> разрыв объясняется в основном <strong>субпиксельной точностью</strong>, а не тем, что модель находит больше правильных соответствий. Для нашего пайплайна, где после матчера стоит ECC-доводка, это стоит держать в голове: часть преимущества плотного ядра мы можем уже забирать собственным рефайнментом.</p>
+</section>
+
+<section id="s10">
+<h2><span class="num">10</span>Слабые места, названные авторами</h2>
+
+<ul>
+  <li><strong>Кросс-модальность — признанный регресс.</strong> «Compared to RoMa, our model is slightly less robust to extreme changes in modality, such as in WxBS»; отдельно: «we found that RoMa v2 and UFM both struggle with the IR-to-RGB multi-modal subset».</li>
+  <li><strong>Спутниковые снимки — вне распределения.</strong> «SatAst is difficult, the most challenging aspects being i) <strong>satellite images are OOD for most matchers (including RoMa v2)</strong>, ii) large scale changes and iii) large in-plane rotations». Модель лидирует, но абсолютное значение низкое.</li>
+  <li><strong>Ложный overlap на бестекстурных участках.</strong> Приложение G: «RoMa v2 sometimes predicts overlaps in textureless sky regions… due to AerialMegaDepth sometimes propagating depths from the mesh to sky pixels». В переводе на наш домен: ждать ложно-уверенного overlap на воде, полях, однородных тенях.</li>
+  <li><strong>Σ⁻¹ не обучена вне ‖r‖ &lt; 8 px</strong> — см. раздел 05.</li>
+  <li><strong>Кросс-сезонность не измерялась вообще.</strong> В статье такого теста нет.</li>
+</ul>
+</section>
+
+<section id="s11">
+<h2><span class="num">11</span>Что это значит для нашего проекта</h2>
+
+<p>Четыре практических вывода, каждый с адресом в коде или в плане:</p>
+
+<ol>
+  <li><strong>Порог overlap.</strong> Авторский — 0.05, наш был 0.5. Отрицательный результат трека A по RoMa v2 требует перепроверки: <code>docs/RESEARCH_A_ROMAV2_RECHECK.md</code>.</li>
+  <li><strong>Σ⁻¹ во взвешенном RANSAC</strong> — +21.5 AUC@1° у авторов, при том что величина у нас уже есть и выбрасывается. Отдельный дешёвый эксперимент.</li>
+  <li><strong>Дообучение возможно по одной стадии.</strong> Расцепленность матчера и рефайнеров означает, что не нужно воспроизводить весь двухстадийный прогон на 600 тыс. шагов.</li>
+  <li><strong>GT для overlap через цикл-консистентность</strong> не требует ни глубины, ни поз — а у нас выравнивание кадр↔подложка вообще задано аналитически, подобием с 4 DoF. Разметка для дообучения получается бесплатно.</li>
+</ol>
+
+<p>И одна оговорка. Тезис проекта «целевое дообучение важнее силы архитектуры» опирается на три пары измерений; пара «MINIMA-RoMa 1437 инлайеров против RoMa v2 — 0» — одна из трёх, и именно она под вопросом. Две другие не затронуты.</p>
+</section>
+
+<footer>
+<p><strong>Источники.</strong> Edstedt J. et al. <em>RoMa v2: Harder Better Faster Denser Feature Matching.</em> <a href="https://arxiv.org/abs/2511.15706">arXiv:2511.15706v3</a> · <a href="https://github.com/Parskatt/RoMaV2">github.com/Parskatt/RoMaV2</a>. Все цитаты и числа — из статьи; там, где в ней данных нет, это отмечено в тексте.</p>
+<p>Парный документ: <em>Как устроен MINIMA-RoMa</em> (<code>MODEL_MINIMA_ROMA.html</code>). Проектные документы: <code>RESEARCH_A_PAPERS.md</code>, <code>RESEARCH_A_ROMAV2_RECHECK.md</code>, <code>RESEARCH_A_RESULTS.md</code>.</p>
+</footer>
+
+</article>
+</div>
+</div>
+</body>
+</html>
