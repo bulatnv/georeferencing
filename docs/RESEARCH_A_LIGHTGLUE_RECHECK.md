@@ -1,6 +1,7 @@
 # RESEARCH_A_LIGHTGLUE_RECHECK — перепроверка последней «чистой» пары: GIM-LightGlue
 
-**Дата:** 2026-08-21 · **Статус:** спецификация, прогонов не было
+**Дата:** 2026-08-21 · **Статус:** ~~спецификация, прогонов не было~~ **ИСПОЛНЕНО**
+**Отчёт об исполнении:** [RESEARCH_A_LIGHTGLUE_REPORT.md](RESEARCH_A_LIGHTGLUE_REPORT.md)
 **Исполнять:** на машине с RTX 4090 · **Оценка:** 3–4 часа вместе с патчем
 **Предшественники:** [RESEARCH_A_LOFTR_REPORT.md](RESEARCH_A_LOFTR_REPORT.md),
 [RESEARCH_A_ROMAV2_REPORT.md](RESEARCH_A_ROMAV2_REPORT.md) — два снятых экземпляра
