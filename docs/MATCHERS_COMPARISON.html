@@ -238,12 +238,15 @@ footer{border-top:1px solid var(--line);padding:28px 0 60px;color:var(--ink-3);f
     <tr><td><span class="sw" style="background:var(--s1)"></span>MINIMA-RoMa — боевое ядро</td><td class="num best">30/30</td><td class="num">26</td><td class="num">0</td><td class="num best">4.4 м</td><td class="num">24.0</td></tr>
     <tr><td><span class="sw" style="background:var(--s2)"></span>RoMa v2</td><td class="num">22/30</td><td class="num">16</td><td class="num">0</td><td class="num">6.1 м</td><td class="num">11.7</td></tr>
     <tr><td>LightGlue (текущий <code>--fast</code>)</td><td class="num">11/16</td><td class="num">11</td><td class="num">0</td><td class="num">8.8 м</td><td class="num">8.4</td></tr>
+    <tr><td>LoFTR ванильная (пороги сняты, F2)</td><td class="num">30/30</td><td class="num">22</td><td class="num">3</td><td class="num">5.7 м</td><td class="num">2.8</td></tr>
+    <tr><td>MINIMA-LoFTR (пороги сняты, F2)</td><td class="num">30/30</td><td class="num">27</td><td class="num">0</td><td class="num">4.7 м</td><td class="num">2.6</td></tr>
+    <tr><td>RoMa v1 ванильная (nogate, F)</td><td class="num">29/30</td><td class="num">25</td><td class="num">0</td><td class="num">3.6 м</td><td class="num">14.8</td></tr>
     <tr><td>GIM-LightGlue</td><td colspan="5">до сквозного прогона не дошёл: поз нет ни на контроле, ни на кросс-сезоне</td></tr>
-    <tr><td>MINIMA-LightGlue, LoFTR, SIFT, AKAZE</td><td colspan="5">измерены на прежнем наборе из 16 кейсов при непроверенных порогах; сопоставимых чисел на 30 кейсах нет</td></tr>
+    <tr><td>MINIMA-LightGlue, SIFT, AKAZE</td><td colspan="5">измерены на прежнем наборе из 16 кейсов при непроверенных порогах; сопоставимых чисел на 30 кейсах нет</td></tr>
   </tbody>
 </table>
 </div>
-<p class="cap">Строка LightGlue снята на прежнем наборе из 16 кейсов и напрямую с остальными не сравнима. Дополнительно измерено, что дефолт пакета <code>filter_threshold = 0.1</code> душит линию LightGlue на низковысотных кадрах — в том числе штатные веса, — так что 11/16 занижены.</p>
+<p class="cap">Строка LightGlue снята на прежнем наборе из 16 кейсов и напрямую с остальными не сравнима. Дополнительно измерено, что дефолт пакета <code>filter_threshold = 0.1</code> душит линию LightGlue на низковысотных кадрах — в том числе штатные веса, — так что 11/16 занижены. Строки с пометками F и F2 — честные сравнения «база против дообученной» (треки RESEARCH_F/F2): в линии RoMa вклад MINIMA — одно верное место (25 против 26), в линии LoFTR, дообученной целиком, — пять и все три ложных (22 и 3 против 27 и 0).</p>
 
 <h4>Оракульная проба: ядро без тракта</h4>
 <div class="tw">
@@ -255,6 +258,8 @@ footer{border-top:1px solid var(--line);padding:28px 0 60px;color:var(--ink-3);f
     <tr><td><span class="sw" style="background:var(--s2)"></span>RoMa v2 (порог 0.05)</td><td class="num">позы нет</td><td class="num">586 / 4.7 м</td><td class="num">позы нет</td><td class="num">335 / 2.1 м</td></tr>
     <tr><td><span class="sw" style="background:var(--s3)"></span>MINIMA-LoFTR (порог 0.05)</td><td class="num">70 / 0.6 м</td><td class="num">11 / 3.9 м</td><td class="num best">6 / 4.2 м</td><td class="num">111 / 2.4 м</td></tr>
     <tr><td>LoFTR штатный (0.2 / 0.2)</td><td class="num">13 / 0.9 м</td><td class="num">39 / 5.4 м</td><td class="num">позы нет</td><td class="num">41 / 1.0 м</td></tr>
+    <tr><td>LoFTR ванильная (пороги сняты, F2)</td><td class="num">38 / 1.0 м</td><td class="num">112 / 5.6 м</td><td class="num">позы нет</td><td class="num">94 / 1.4 м</td></tr>
+    <tr><td>RoMa v1 ванильная (F)</td><td class="num">1097 / 1.1 м</td><td class="num">1522 / 5.1 м</td><td class="num">позы нет</td><td class="num">853 / 1.7 м</td></tr>
     <tr><td>LightGlue штатный (ручки сняты)</td><td class="num">12 / 1.2 м</td><td class="num">57 / 5.2 м</td><td class="num">позы нет</td><td class="num">180 / 1.2 м</td></tr>
     <tr><td>GIM-LightGlue (ручки сняты)</td><td class="num">позы нет</td><td class="num">позы нет</td><td class="num">позы нет</td><td class="num">229 / 1.6 м</td></tr>
   </tbody>
