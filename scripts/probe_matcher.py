@@ -37,7 +37,7 @@ from poses_provenance import PROVENANCE_FIELDS, PosesError, load_poses_with_prov
 #: контекст (source/size/max_side/пара), без которого строки не сравнить: именно
 #: неразличимость строк разных режимов дважды портила замеры LoFTR.
 FIELDS = [
-    "case", "matcher", "status", "pair", "min_conf", "model_threshold", "coarse_thr",
+    "case", "matcher", "device", "status", "pair", "min_conf", "model_threshold", "coarse_thr",
     "max_side", "size_px", "footprint_m", "align_source",
     "n_sampled", "n_model_out", "n_pairs_after_filter", "pose_found",
     "n_inliers", "err_m", "rmse_px",
@@ -82,6 +82,7 @@ def probe_case(case, align, basemap, matcher, args, max_zoom,
 
     row = {f: "" for f in FIELDS}
     row.update(case=case.name, matcher=args.matcher, pair=pair,
+               device=args.device or "auto",
                min_conf=args.min_conf if args.min_conf is not None else "default",
                model_threshold=args.model_threshold or "default",
                coarse_thr=args.coarse_thr if args.coarse_thr is not None else "default",
@@ -141,6 +142,10 @@ def main() -> int:
                         help="только lightglue-семейство: прунинг точек (-1 = выкл)")
     parser.add_argument("--detection-threshold", type=float, default=None,
                         help="только lightglue-семейство: порог score SuperPoint")
+    parser.add_argument("--device", default=None,
+                        help="устройство ядра (cuda/cpu); None = авто. CPU легитимен "
+                             "и даёт те же числа с точностью до порядка float-операций, "
+                             "но медленнее; фактическое значение пишется в CSV")
     parser.add_argument("--offset-m", type=float, default=0.0,
                         help="отрицательное плечо: тот же кейс на окне, сдвинутом "
                              "на столько метров (0 = выключено). Строка пишется, "
@@ -183,6 +188,8 @@ def main() -> int:
             if args.matcher not in lg_family:
                 parser.error(f"--{name.replace('_', '-')} применим только к {lg_family}")
             kwargs[name] = value
+    if args.device:
+        kwargs["device"] = args.device
     if args.max_side:
         kwargs["max_side"] = args.max_side
     matcher = create_matcher(args.matcher, **kwargs)
@@ -206,6 +213,7 @@ def main() -> int:
             # skipped_no_pose в CSV, а не только в консоль (Ф3).
             row = {f: "" for f in FIELDS}
             row.update(case=case.name, matcher=args.matcher,
+                       device=args.device or "auto",
                        status="skipped_no_pose", pair="pos", **provenance)
             rows.append(row)
             print(f"[{case.name}] пропуск: оракульную позу построить не из чего "

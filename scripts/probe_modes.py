@@ -59,7 +59,7 @@ from aero_geoloc.pose import estimate_similarity  # noqa: E402
 from poses_provenance import PROVENANCE_FIELDS, PosesError, load_poses_with_provenance  # noqa: E402
 
 FIELDS = [
-    "case", "matcher", "pair_kind", "side_px", "side_ref_px", "ref_zoom_offset",
+    "case", "matcher", "device", "pair_kind", "side_px", "side_ref_px", "ref_zoom_offset",
     "grid_n", "s_tensor_name", "s_tensor_shape",
     "argmax_hit_frac", "argmax_hit_frac_top10", "warp_hit_frac",
     "identity_frac_6px", "n_sampled",
@@ -356,6 +356,9 @@ def main() -> int:
                              "истина становится масштабированием вокруг центра")
     parser.add_argument("--dump-field", default="",
                         help="И3: каталог для .npz с полями warp/уверенности")
+    parser.add_argument("--device", default=None,
+                        help="устройство ядра (cuda/cpu); None = авто. romav2 на "
+                             "CPU не работает (autocast('cuda') зашит в пакете)")
     parser.add_argument("--poses", default="eval_out/eval.csv")
     parser.add_argument("--pose-tolerance-m", type=float, default=150.0)
     parser.add_argument("--allow-partial-poses", action="store_true")
@@ -375,11 +378,11 @@ def main() -> int:
         parser.error(str(exc))
 
     if args.matcher == "romav2":
-        matcher = RoMaV2Matcher()
+        matcher = RoMaV2Matcher(device=args.device)
         runner = run_romav2
     else:
         matcher = RoMaMatcher(checkpoint=None if args.matcher == "roma"
-                              else "minima_roma")
+                              else "minima_roma", device=args.device)
         runner = run_roma_v1
 
     basemap = TileBasemap(cache=TileCache(args.cache))
@@ -389,8 +392,8 @@ def main() -> int:
         align = alignment_for(case, poses, tolerance_m=args.pose_tolerance_m)
         if align is None:
             rows.append({**{f: "" for f in FIELDS}, "case": case.name,
-                         "matcher": args.matcher, "pair_kind": "skipped_no_pose",
-                         **provenance})
+                         "matcher": args.matcher, "device": args.device or "auto",
+                         "pair_kind": "skipped_no_pose", **provenance})
             continue
         z_fine = case.basemap_zoom(max_zoom=max_zoom)
         mpp_q = ground_mpp(case.prior.lat, z_fine)
@@ -428,7 +431,8 @@ def main() -> int:
 
         row = {f: "" for f in FIELDS}
         row.update(
-            case=case.name, matcher=args.matcher, pair_kind="oracle",
+            case=case.name, matcher=args.matcher, device=args.device or "auto",
+            pair_kind="oracle",
             side_px=side_q, side_ref_px=side_r, ref_zoom_offset=args.ref_zoom_offset,
             grid_n=grid_h * grid_w, s_tensor_name=s_name, s_tensor_shape=str(s_shape),
             argmax_hit_frac=round(hit_frac(pred_argmax, expected, tol), 4),
