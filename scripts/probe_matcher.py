@@ -52,6 +52,8 @@ FIELDS = [
     "overlap_field_p10", "overlap_field_p50", "overlap_field_p90",
     "overlap_field_p99", "overlap_field_frac_gt005", "overlap_field_frac_gt050",
     "certainty_mean", "certainty_cover",
+    "certainty_p10", "certainty_p50", "certainty_p90", "certainty_p99",
+    "certainty_frac_gt005", "certainty_frac_gt050",
     "precision_median", "precision_ba_median", "precision_ba_shape", "sec",
     *PROVENANCE_FIELDS,
 ]

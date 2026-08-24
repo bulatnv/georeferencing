@@ -655,6 +655,17 @@ class ResizedMatcher:
 
 
 
+#: Порог уверенности пары для v1-линии RoMa (``romatch``): и штатные веса, и
+#: MINIMA. **No-op по построению**: режим сэмплирования ``romatch`` содержит
+#: "threshold", обрезающий certainty выше порога в единицу, поэтому ``conf``
+#: пар после ``sample()`` — константа 1.0 (измерено: на верных и на заведомо
+#: чужих парах одинаково, ``docs/RESEARCH_A_RESULTS.md``). Константа именована,
+#: чтобы порог не выглядел рабочей ручкой, — голый литерал 0.5 был спящей миной
+#: того же класса, что унаследованный 0.5 у v2 (``ROMAV2_MIN_OVERLAP``).
+#: Проверять при смене версии ``romatch``.
+ROMA_V1_MIN_CONF = 0.5
+
+
 class RoMaMatcher(_LearnedMatcher):
     """Плотный матчер RoMa (``romatch``) за интерфейсом :class:`Matcher` — фаза 3.
 
@@ -691,8 +702,9 @@ class RoMaMatcher(_LearnedMatcher):
     _requires = "torch и romatch"
 
     def __init__(self, *, checkpoint: str | None = "minima_roma", max_samples: int = 2048,
-                 min_conf: float = 0.5, coarse_res: int = 560, upsample_res: int = 864,
-                 cover_thresh: float = 0.5, device: str | None = None) -> None:
+                 min_conf: float = ROMA_V1_MIN_CONF, coarse_res: int = 560,
+                 upsample_res: int = 864, cover_thresh: float = 0.5,
+                 device: str | None = None) -> None:
         super().__init__(device=device)
         self.checkpoint = checkpoint
         self.max_samples = max_samples
@@ -735,9 +747,22 @@ class RoMaMatcher(_LearnedMatcher):
             # ``conf`` возвращённых пар выходит константой 1.0 — измерено, на верных
             # и на заведомо чужих парах одинаково. Информация живёт в поле целиком.
             cert = certainty.detach().float()
+            # Перцентили поля — по образцу overlap_field_* у v2: одной парой чисел
+            # видно, где живёт величина, и проверяется висящий с июля вопрос —
+            # не стоит ли cover_thresh=0.5 выше её рабочего диапазона.
+            quant = self._torch.quantile(
+                cert.reshape(-1),
+                self._torch.tensor([0.1, 0.5, 0.9, 0.99], device=cert.device),
+            )
             evidence = {
                 "certainty_mean": float(cert.mean().item()),
                 "certainty_cover": float((cert > self.cover_thresh).float().mean().item()),
+                "certainty_p10": float(quant[0].item()),
+                "certainty_p50": float(quant[1].item()),
+                "certainty_p90": float(quant[2].item()),
+                "certainty_p99": float(quant[3].item()),
+                "certainty_frac_gt005": float((cert > 0.05).float().mean().item()),
+                "certainty_frac_gt050": float((cert > 0.50).float().mean().item()),
             }
             matches, conf = self._model.sample(warp, certainty, num=self.max_samples)
             if matches.shape[0] == 0:
