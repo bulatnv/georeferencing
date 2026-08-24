@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ядра матчинга: что зарекомендовало себя</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F5F7FA; --surface:#FFFFFF; --surface-2:#EBEFF5;
+  --ink:#131922; --ink-2:#525C6B; --ink-3:#7C8695;
+  --line:#DBE1E9; --line-2:#C2CAD6;
+  --accent:#2E3644; --accent-wash:#E9EDF3;
+  --warn:#8A5A0B; --warn-wash:#FAF1DE;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
+  --shadow:0 1px 2px rgba(19,25,34,.05), 0 8px 24px rgba(19,25,34,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D1116; --surface:#151A21; --surface-2:#1B222B;
+    --ink:#E6EAF0; --ink-2:#A2ACB9; --ink-3:#76818E;
+    --line:#232B35; --line-2:#333D49;
+    --accent:#C6CEDA; --accent-wash:#1B222B;
+    --warn:#D9A63C; --warn-wash:#271F12;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D1116; --surface:#151A21; --surface-2:#1B222B;
+  --ink:#E6EAF0; --ink-2:#A2ACB9; --ink-3:#76818E;
+  --line:#232B35; --line-2:#333D49;
+  --accent:#C6CEDA; --accent-wash:#1B222B;
+  --warn:#D9A63C; --warn-wash:#271F12;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Source Serif 4",Georgia,serif;font-size:17px;line-height:1.65;
+  font-variant-numeric:oldstyle-nums}
+.wrap{max-width:1240px;margin:0 auto;padding:0 24px}
+.grid{display:grid;grid-template-columns:1fr;gap:0}
+@media (min-width:1120px){.grid{grid-template-columns:230px minmax(0,1fr);gap:56px}}
+header.mast{border-bottom:1px solid var(--line);background:var(--surface)}
+.mast-in{max-width:1240px;margin:0 auto;padding:44px 24px 36px}
+.eyebrow{font-family:"Golos Text",system-ui,sans-serif;font-size:12px;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 14px}
+h1{font-family:"Golos Text",system-ui,sans-serif;font-weight:700;
+  font-size:clamp(30px,5vw,46px);line-height:1.08;letter-spacing:-.02em;
+  margin:0 0 16px;text-wrap:balance;max-width:22ch}
+.standfirst{font-size:19px;color:var(--ink-2);max-width:64ch;margin:0}
+.meta{margin-top:22px;display:flex;flex-wrap:wrap;gap:8px 10px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;color:var(--ink-3)}
+.meta span{border:1px solid var(--line);border-radius:2px;padding:3px 8px;background:var(--bg)}
+nav.toc{display:none}
+@media (min-width:1120px){nav.toc{display:block;position:sticky;top:0;align-self:start;
+  padding:48px 0;max-height:100vh;overflow-y:auto}}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t;margin:0 0 2px}
+nav.toc a{display:block;padding:5px 0 5px 26px;position:relative;
+  font-family:"Golos Text",system-ui,sans-serif;font-size:13.5px;line-height:1.35;
+  color:var(--ink-2);text-decoration:none;border-left:2px solid transparent}
+nav.toc a::before{content:counter(t,decimal-leading-zero);position:absolute;left:6px;top:5px;
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3)}
+nav.toc a:hover{color:var(--ink);border-left-color:var(--line-2)}
+nav.toc a:focus-visible{outline:2px solid var(--ink-2);outline-offset:2px}
+article{padding:48px 0 96px;min-width:0}
+section{margin:0 0 56px;scroll-margin-top:24px}
+h2{font-family:"Golos Text",system-ui,sans-serif;font-weight:600;font-size:26px;
+  line-height:1.2;letter-spacing:-.015em;margin:0 0 18px;padding-top:14px;
+  border-top:2px solid var(--ink);text-wrap:balance;max-width:28ch}
+h2 .num{display:block;font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;
+  letter-spacing:.12em;color:var(--ink-3);margin-bottom:8px}
+h3{font-family:"Golos Text",system-ui,sans-serif;font-weight:600;font-size:18px;
+  line-height:1.3;margin:34px 0 10px;text-wrap:balance}
+h3 .sw{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:9px;
+  vertical-align:baseline}
+h4{font-family:"Golos Text",system-ui,sans-serif;font-weight:600;font-size:15px;margin:22px 0 8px}
+p{margin:0 0 16px;max-width:70ch}
+ul,ol{margin:0 0 18px;padding-left:22px;max-width:70ch}
+li{margin:0 0 8px}
+strong{font-weight:600}
+em{font-style:italic;color:var(--ink-2)}
+a{color:var(--ink);text-decoration-color:var(--line-2);text-underline-offset:2px}
+a:hover{text-decoration-color:var(--ink-2)}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.86em;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:3px;
+  padding:1px 5px;font-variant-numeric:normal}
+blockquote{margin:0 0 18px;padding:2px 0 2px 18px;border-left:2px solid var(--line-2);
+  color:var(--ink-2);font-style:italic;max-width:66ch}
+blockquote p{margin:0}
+.note{border:1px solid var(--line);border-radius:4px;background:var(--surface);
+  padding:18px 20px;margin:0 0 22px;box-shadow:var(--shadow)}
+.note.key{border-color:var(--line-2);background:var(--accent-wash)}
+.note.trap{border-color:var(--warn);background:var(--warn-wash)}
+.note .tag{display:inline-block;font-family:"Golos Text",sans-serif;font-size:11px;
+  font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;color:var(--ink-2)}
+.note.trap .tag{color:var(--warn)}
+.note p:last-child{margin-bottom:0}
+.tw{overflow-x:auto;margin:0 0 10px;border:1px solid var(--line);border-radius:4px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;font-family:"Golos Text",system-ui,sans-serif}
+th,td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--ink-2);background:var(--surface-2);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;
+  font-family:"IBM Plex Mono",monospace;font-size:13px;white-space:nowrap}
+.best{font-weight:600}
+.cap{margin:0 0 22px;font-family:"Golos Text",sans-serif;font-size:12.5px;
+  color:var(--ink-3);max-width:70ch;line-height:1.5}
+.sw{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:8px}
+figure{margin:0 0 26px}
+figure svg{display:block;width:100%;max-width:100%;height:auto;color:var(--ink-2)}
+.figbox{border:1px solid var(--line);border-radius:4px;background:var(--surface);padding:20px;overflow-x:auto}
+figcaption{margin-top:10px;font-family:"Golos Text",system-ui,sans-serif;font-size:13px;
+  line-height:1.5;color:var(--ink-3);max-width:70ch}
+svg text{font-family:"Golos Text",system-ui,sans-serif}
+svg .mono{font-family:"IBM Plex Mono",monospace}
+.lede{font-size:19px;color:var(--ink-2);max-width:66ch}
+footer{border-top:1px solid var(--line);padding:28px 0 60px;color:var(--ink-3);font-size:14px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="mast">
+  <div class="mast-in">
+    <p class="eyebrow">Сводка трека A · aero-geoloc · 21 августа 2026</p>
+    <h1>Ядра матчинга: что зарекомендовало себя</h1>
+    <p class="standfirst">Восемь ядер перебраны, три записанных результата оказались артефактами измерения и были пересняты. Здесь сведено всё, что известно про MINIMA-RoMa, RoMa v2 и MINIMA-LoFTR — устройство, обучающие данные, наши измеренные числа, пригодность к дообучению — и разобрано, какие данные нужны, чтобы дообучать.</p>
+    <div class="meta">
+      <span>30 кейсов измеримого теста</span><span>8 ядер</span><span>3 перепроверки</span><span>6 ловушек порогов</span><span>RTX 4090</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="grid">
+<nav class="toc" aria-label="Содержание">
+  <ol>
+    <li><a href="#s1">Что установлено</a></li>
+    <li><a href="#s2">Скорость против качества</a></li>
+    <li><a href="#s3">Все восемь ядер</a></li>
+    <li><a href="#s4">MINIMA-RoMa</a></li>
+    <li><a href="#s5">RoMa v2</a></li>
+    <li><a href="#s6">MINIMA-LoFTR</a></li>
+    <li><a href="#s7">Сравнение по осям</a></li>
+    <li><a href="#s8">Почему две таблицы чисел</a></li>
+    <li><a href="#s9">Шесть ловушек измерения</a></li>
+    <li><a href="#s10">Данные для дообучения</a></li>
+    <li><a href="#s11">Открытые данные</a></li>
+    <li><a href="#s12">Рекомендация</a></li>
+  </ol>
+</nav>
+
+<article>
+
+<section id="s1">
+<h2><span class="num">01</span>Что установлено</h2>
+
+<p class="lede">Главный итог августа — не выбор ядра, а то, что впервые появились числа по восьми ядрам, измеренные при корректных порогах. До этого их не было ни разу.</p>
+
+<ul>
+  <li><strong>Три записанных вывода оказались артефактами порогов чужой калибровки.</strong> «RoMa v2 — 0 поз», «MINIMA-LoFTR — ноль соответствий на кросс-сезоне», «GIM-LightGlue — 2 соответствия» — все три получены через пороги, подобранные под другие веса. Два вывода после перепроверки отозваны, один устоял.</li>
+  <li><strong>Самое быстрое ядро оказалось и самым точным по числу верных мест.</strong> MINIMA-LoFTR: 27 верных из 30 при 2.5 с на кадр против 26 из 30 при 24 с у боевого MINIMA-RoMa. Получено калибровкой порогов, без единой эпохи обучения.</li>
+  <li><strong>Ни одно из восьми ядер не дало ложного срабатывания.</strong> Инвариант «честный отказ дороже красивой точки» пережил полную замену компонента восемь раз подряд.</li>
+  <li><strong>RoMa v2 работает, но домен ему чужой.</strong> Не «не видит»: на низковысотных кадрах он выдаёт согласованные позы, повёрнутые на +105…+121° или в масштабе до 1.79 — уверенно-неверную геометрию, которую гейты пайплайна отсекают правильно.</li>
+  <li><strong>Кейс <code>Ufa2</code> по-прежнему не взят по существу.</strong> Единственное «взятие» — MINIMA-LoFTR с 6 инлайерами, то есть ровно на настроенном полу RANSAC.</li>
+</ul>
+</section>
+
+<section id="s2">
+<h2><span class="num">02</span>Скорость против качества</h2>
+
+<figure>
+<div class="figbox">
+<svg viewBox="0 0 720 400" role="img" aria-label="Диаграмма рассеяния: по горизонтали время на кадр в секундах, по вертикали число верных мест из тридцати. MINIMA-LoFTR — 2.5 секунды и 27 верных; RoMa v2 — 11.7 секунды и 16 верных; MINIMA-RoMa — 24 секунды и 26 верных.">
+  <g stroke="var(--line)" stroke-width="1">
+    <line x1="70" y1="330" x2="680" y2="330"/>
+    <line x1="70" y1="40" x2="70" y2="330"/>
+  </g>
+  <g stroke="var(--line)" stroke-width="1" opacity=".7" stroke-dasharray="2 4">
+    <line x1="70" y1="239" x2="680" y2="239"/>
+    <line x1="70" y1="149" x2="680" y2="149"/>
+    <line x1="70" y1="58" x2="680" y2="58"/>
+  </g>
+  <g font-size="11.5" fill="var(--ink-3)" text-anchor="end" class="mono">
+    <text x="60" y="334">14</text><text x="60" y="243">19</text>
+    <text x="60" y="153">24</text><text x="60" y="62">29</text>
+  </g>
+  <g font-size="11.5" fill="var(--ink-3)" text-anchor="middle" class="mono">
+    <text x="70" y="352">0</text><text x="187" y="352">5</text><text x="305" y="352">10</text>
+    <text x="422" y="352">15</text><text x="540" y="352">20</text><text x="657" y="352">25</text>
+  </g>
+  <text x="375" y="380" font-size="12.5" text-anchor="middle" fill="var(--ink-2)">секунд на кадр (медиана онлайн) →</text>
+  <text x="20" y="185" font-size="12.5" text-anchor="middle" fill="var(--ink-2)" transform="rotate(-90 20 185)">верных мест из 30 →</text>
+
+  <g stroke="var(--ink-3)" stroke-width="1.2" opacity=".5" fill="none">
+    <path d="M225,300 L143,258"/>
+  </g>
+  <polygon points="136,254 152,256 146,268" fill="var(--ink-3)" opacity=".5"/>
+  <text x="232" y="304" font-size="11.5" fill="var(--ink-3)">быстрее и точнее</text>
+
+  <circle cx="129" cy="94" r="7" fill="var(--s3)" stroke="var(--surface)" stroke-width="2"/>
+  <circle cx="345" cy="294" r="7" fill="var(--s2)" stroke="var(--surface)" stroke-width="2"/>
+  <circle cx="633" cy="113" r="7" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+
+  <text x="146" y="91" font-size="13.5" font-weight="600" fill="var(--ink)">MINIMA-LoFTR</text>
+  <text x="146" y="108" font-size="11.5" fill="var(--ink-2)" class="mono">2.5 с · 27/30 · медиана 5.3 м</text>
+
+  <text x="617" y="110" font-size="13.5" font-weight="600" fill="var(--ink)" text-anchor="end">MINIMA-RoMa</text>
+  <text x="617" y="127" font-size="11.5" fill="var(--ink-2)" text-anchor="end" class="mono">24.0 с · 26/30 · медиана 4.4 м</text>
+
+  <text x="362" y="291" font-size="13.5" font-weight="600" fill="var(--ink)">RoMa v2</text>
+  <text x="362" y="308" font-size="11.5" fill="var(--ink-2)" class="mono">11.7 с · 16/30 · медиана 6.1 м</text>
+
+  <text x="70" y="28" font-size="11" fill="var(--ink-3)">вертикальная ось начинается с 14, не с нуля</text>
+</svg>
+</div>
+<figcaption>Сквозной прогон, 30 кейсов, гейты инлайеров и эллипса отключены; «верно» — ошибка ≤ 50 м. Ложных срабатываний у всех трёх ноль. Верхний левый угол — быстро и точно; там оказалось ядро, которое месяц числилось слабейшим.</figcaption>
+</figure>
+
+<p>Читать эту картинку стоит с оговоркой: <strong>24 секунды MINIMA-RoMa — это не стоимость модели, а стоимость тракта.</strong> Смежный сервис гоняет ту же модель в fp16 на RTX 3060 и укладывает полный запрос в 1.3–3.4 с. Разница в том, сколько раз модель зовут: retrieval даёт 15 кандидатов, каждый проходит веер предповоротов. Все три точки сдвинутся влево, когда тракт будет починен, но их взаимный порядок по скорости сохранится.</p>
+</section>
+
+<section id="s3">
+<h2><span class="num">03</span>Все восемь ядер</h2>
+
+<h4>Сквозной прогон</h4>
+<div class="tw">
+<table>
+  <thead><tr><th>Ядро</th><th class="num">Поз</th><th class="num">Верных</th><th class="num">Ложных</th><th class="num">Медиана</th><th class="num">Секунд</th></tr></thead>
+  <tbody>
+    <tr><td><span class="sw" style="background:var(--s3)"></span>MINIMA-LoFTR (порог 0.05)</td><td class="num">29/30</td><td class="num best">27</td><td class="num">0</td><td class="num">5.3 м</td><td class="num best">2.5</td></tr>
+    <tr><td><span class="sw" style="background:var(--s1)"></span>MINIMA-RoMa — боевое ядро</td><td class="num best">30/30</td><td class="num">26</td><td class="num">0</td><td class="num best">4.4 м</td><td class="num">24.0</td></tr>
+    <tr><td><span class="sw" style="background:var(--s2)"></span>RoMa v2</td><td class="num">22/30</td><td class="num">16</td><td class="num">0</td><td class="num">6.1 м</td><td class="num">11.7</td></tr>
+    <tr><td>LightGlue (текущий <code>--fast</code>)</td><td class="num">11/16</td><td class="num">11</td><td class="num">0</td><td class="num">8.8 м</td><td class="num">8.4</td></tr>
+    <tr><td>GIM-LightGlue</td><td colspan="5">до сквозного прогона не дошёл: поз нет ни на контроле, ни на кросс-сезоне</td></tr>
+    <tr><td>MINIMA-LightGlue, LoFTR, SIFT, AKAZE</td><td colspan="5">измерены на прежнем наборе из 16 кейсов при непроверенных порогах; сопоставимых чисел на 30 кейсах нет</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="cap">Строка LightGlue снята на прежнем наборе из 16 кейсов и напрямую с остальными не сравнима. Дополнительно измерено, что дефолт пакета <code>filter_threshold = 0.1</code> душит линию LightGlue на низковысотных кадрах — в том числе штатные веса, — так что 11/16 занижены.</p>
+
+<h4>Оракульная проба: ядро без тракта</h4>
+<div class="tw">
+<table>
+  <thead><tr><th>Ядро</th><th class="num">DRZ_00755<br>лёгкий контроль</th><th class="num">Ufa3<br>кросс-сезон</th><th class="num">Ufa2<br>не берёт никто</th><th class="num">Volgograd3<br>большой кадр</th></tr></thead>
+  <tbody>
+    <tr><td><span class="sw" style="background:var(--s1)"></span>MINIMA-RoMa</td><td class="num best">1567 / 1.1 м</td><td class="num best">1439 / 5.2 м</td><td class="num">позы нет</td><td class="num best">606 / 0.4 м</td></tr>
+    <tr><td>MINIMA-LightGlue (ручки сняты)</td><td class="num">63 / 1.2 м</td><td class="num">334 / 4.9 м</td><td class="num">позы нет</td><td class="num">175 / 1.1 м</td></tr>
+    <tr><td><span class="sw" style="background:var(--s2)"></span>RoMa v2 (порог 0.05)</td><td class="num">позы нет</td><td class="num">586 / 4.7 м</td><td class="num">позы нет</td><td class="num">335 / 2.1 м</td></tr>
+    <tr><td><span class="sw" style="background:var(--s3)"></span>MINIMA-LoFTR (порог 0.05)</td><td class="num">70 / 0.6 м</td><td class="num">11 / 3.9 м</td><td class="num best">6 / 4.2 м</td><td class="num">111 / 2.4 м</td></tr>
+    <tr><td>LoFTR штатный (0.2 / 0.2)</td><td class="num">13 / 0.9 м</td><td class="num">39 / 5.4 м</td><td class="num">позы нет</td><td class="num">41 / 1.0 м</td></tr>
+    <tr><td>LightGlue штатный (ручки сняты)</td><td class="num">12 / 1.2 м</td><td class="num">57 / 5.2 м</td><td class="num">позы нет</td><td class="num">180 / 1.2 м</td></tr>
+    <tr><td>GIM-LightGlue (ручки сняты)</td><td class="num">позы нет</td><td class="num">позы нет</td><td class="num">позы нет</td><td class="num">229 / 1.6 м</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="cap">Инлайеры / ошибка центра. Проба даёт матчеру заведомо верное выравнивание — меряет ядро, а не тракт. На ложных окнах (сдвиг 300 м) поз нет ни у одного ядра. Строки сняты в разных режимах порогов и полностью между собой сопоставимы только внутри пар, специально уравненных по популяции.</p>
+</section>
+<section id="s4">
+<h2><span class="num">04</span>MINIMA-RoMa</h2>
+<h3><span class="sw" style="background:var(--s1)"></span>RoMa v1, дообученная MINIMA · боевое ядро с 29.07.2026</h3>
+
+<p><strong>Устройство.</strong> Два бэкбона по разным ролям: <strong>DINOv2 ViT-L/14, полностью замороженный</strong> (грубые семантические фичи, страйд 14) и обучаемый VGG19 (точные локальные фичи, страйды 1–8). Грубое сопоставление делает <strong>гауссов процесс</strong> — ядерная регрессия по эмбеддингам координат, — затем ViT-декодер из 5 блоков классифицирует по <strong>4096 якорям</strong> и добавляет логит certainty. Пять рефайнеров на страйдах {14, 8, 4, 2, 1} доводят до субпикселя.</p>
+
+<p><strong>Данные обучения.</strong> База — MegaDepth, <strong>196 наземных сцен</strong>, 560×560, батч 8. Дообучение MINIMA — MD-syn: те же 196 сцен плюс шесть синтетических модальностей, в финальную модель вошли RGB-IR, RGB-Depth, RGB-Normal. 4 эпохи, батч 12, LR 1.5·10⁻⁵ декодер / 7.5·10⁻⁷ энкодер, 4×RTX 3090.</p>
+
+<p><strong>Наши числа.</strong> 30/30 поз, 26 верных, 0 ложных, медиана 4.4 м, 24.0 с. В оракульной пробе безоговорочно первое место по числу инлайеров на всех четырёх кейсах.</p>
+
+<div class="note key">
+<span class="tag">Сильная сторона</span>
+<p><strong>Запас прочности.</strong> 1439 инлайеров на кросс-сезонном <code>Ufa3</code> против 586 у RoMa v2 и 11 у MINIMA-LoFTR — это не просто «взял кейс», это взял его с двузначным запасом. Там, где другие ядра работают на грани, это работает уверенно.</p>
+<p>Плюс низкий риск дообучения: замороженный ViT-L несёт устойчивость к смене вида и не трогается — измеренное забывание у MINIMA всего <strong>−0.9</strong> AUC@5 на MegaDepth-1500.</p>
+</div>
+
+<p><strong>Слабое.</strong> Скорость. И узкая база: 196 наземных сцен — на порядок беднее того, на чём училась RoMa v2, причём аэро-данных в MegaDepth нет вовсе.</p>
+</section>
+
+<section id="s5">
+<h2><span class="num">05</span>RoMa v2</h2>
+<h3><span class="sw" style="background:var(--s2)"></span>ноябрь 2025, текущая SOTA плотного матчинга</h3>
+
+<p><strong>Устройство и что изменилось.</strong> Бэкбон — <strong>DINOv3 ViT-L, тоже замороженный</strong> (слои 11 и 17, страйд 16). Гауссов процесс <strong>убран</strong>: авторы сообщают, что градиенты через него «were not sufficiently informative» и давали нестабильность. Вместо него — <strong>Multi-view Transformer</strong> (ViT-B, 12 блоков), где кадры впервые видят друг друга <em>до</em> сопоставления, и одноголовое внимание <code>Softmax(S)·χ</code>. Матчер отдаёт warp на страйде 4 вместо 14, поэтому рефайнеров <strong>три</strong>, а не пять. Плюс кастомное CUDA-ядро локальной корреляции, EMA весов и <strong>предсказанная ковариация ошибки Σ⁻¹</strong> на каждую пару.</p>
+
+<p><strong>Данные обучения — на порядок богаче.</strong> Десять датасетов, <strong>5069 сцен</strong>, включая аэро: AerialMegaDepth (124 сцены) и BlendedMVS (493). Матчер — 300 тыс. шагов при батче 128 (≈ 38 млн пар), рефайнеры — 300 тыс. при батче 64.</p>
+
+<p><strong>По литературе — сильнее v1 везде на нашем классе данных:</strong> AerialMegaDepth EPE 4.12 против 25.05 (−84%), SatAst AUC@10px 37.0 против 23.5, скорость 30.9 пар/с против 18.5 (1.7×). Единственный регресс — WxBS 55.4 против 60.8, и авторы называют причину: «slightly less robust to extreme changes in modality».</p>
+
+<p><strong>Наши числа.</strong> 22/30 поз, 16 верных, 0 ложных, 11.7 с. В оракуле берёт кросс-сезонный <code>Ufa3</code> (586 инлайеров, 4.7 м), но <strong>проваливает лёгкий внутрисезонный контроль</strong>.</p>
+
+<div class="note trap">
+<span class="tag">Диагноз провала</span>
+<p>Не «не видит». На низковысотных кадрах DRZ v2 выдаёт <strong>согласованные позы, повёрнутые на +105…+121° или в масштабе до 1.79</strong>. Доля пар вблизи истинного тождества — 0.2% против 4.5% у MINIMA-RoMa на той же паре.</p>
+<p>И ключевая деталь: в оракульной пробе истинное преобразование — <strong>тождество по построению</strong>, а v2 всё равно возвращает устойчивые +105°. Это не «не справилась с поворотом», это <strong>сошлась не в ту моду там, где поворота не было</strong>. Совпадает с признанием авторов: «satellite images are OOD for most matchers (including RoMa v2)… large scale changes and large in-plane rotations».</p>
+</div>
+
+<p><strong>Гипотеза механизма, которую стоит проверить до дообучения.</strong> RoMa v1 на грубом уровне классифицирует по 4096 якорям и берёт argmax — механизм существует ровно затем, чтобы при нескольких кандидатах <em>выбрать</em> моду, а не усреднить. RoMa v2 получает warp как взвешенное усреднение координатных эмбеддингов, и гарантии выбора моды больше нет. Если залипание архитектурное — дообучение его не вылечит.</p>
+
+<p><strong>Отдельно: Σ⁻¹ не переносится.</strong> Обещание статьи — +21.5 AUC@1° от ковариационно-взвешенного RANSAC. У нас проверено и дало отрицательный результат: залипы не лечит (0 из 9), собственный вклад на верных позах ≈ 0.2 м до ECC, как сигнал качества не разделяет верную и ложную пары на трудной части набора. Причина — у авторов двухвидовая эпиполярная задача, у нас жёсткое 4-DoF подобие плюс свой ECC.</p>
+</section>
+
+<section id="s6">
+<h2><span class="num">06</span>MINIMA-LoFTR</h2>
+<h3><span class="sw" style="background:var(--s3)"></span>месяц числился слабейшим · оказался лучшим по верным местам</h3>
+
+<p><strong>Устройство.</strong> Detector-free, полуплотный: свёрточный бэкбон, грубый трансформер на страйде 8, dual-softmax с температурой 0.1, затем тонкий уровень. <strong>Замороженного фундамента нет вовсе</strong> — обучаема вся сеть, весь чекпоинт 46 МБ.</p>
+
+<p><strong>Данные обучения.</strong> Те же, что у MINIMA-RoMa: MegaDepth + MD-syn. Дообучение — 30 эпох, батч 8, LR 1·10⁻⁴, вся сеть.</p>
+
+<p><strong>Наши числа.</strong> 29/30 поз, <strong>27 верных</strong>, 0 ложных, медиана 5.3 м, <strong>2.5 с</strong> — вдесятеро быстрее боевого ядра при большем числе верных мест. Единственный полный провал — <code>train_SB_0023</code>, и вина там Этажа 1 (ранг клетки 511), не ядра.</p>
+
+<div class="note trap">
+<span class="tag">Почему месяц считался слабейшим</span>
+<p>Записанное «6/16 и ноль соответствий на обоих кросс-сезонных кадрах» было артефактом <strong>двух</strong> порогов. Внешний <code>min_conf = 0.5</code> унаследован от других весов; внутренний <code>coarse_matching.thr = 0.2</code> в kornia режет <strong>первым</strong>, до mutual-NN, — то есть пара с уверенностью ниже 0.2 физически не может выйти из модели, и увидеть настоящую шкалу из выхода невозможно в принципе.</p>
+<p>Измеренная причина: <strong>дообучение MINIMA сдвинуло калибровку dual-softmax вниз в 5–12 раз.</strong> Доля пар выше 0.2 на кросс-сезоне — 0.1–0.3% против 9–13% у штатных весов. После вывода порога по популяционному правилу (0.05) ядро берёт 4/4 оракульных кейса.</p>
+</div>
+
+<div class="note">
+<span class="tag">Важный побочный вывод</span>
+<p><strong>Шкала уверенности уехала, а ранжирование улучшилось.</strong> Жёсткий фильтр 0.05 <em>уменьшает</em> число инлайеров и <em>улучшает</em> ошибку: 119→70 при 0.9→0.6 м, 56→11 при 5.2→3.9 м, 18→6 при 8.2→4.2 м. То есть confidence информативна, просто живёт на другой шкале.</p>
+<p>Это переносится на любое наше будущее дообучение: сдвиг шкалы ждать как норму, а проверять — сохранность ранжирования.</p>
+</div>
+
+<p><strong>Слабое и рискованное.</strong> Запас тонкий: 11 инлайеров на <code>Ufa3</code> и 6 на <code>Ufa2</code> против 1439 и «позы нет» у MINIMA-RoMa. Три верные позы теряются на гейте <code>инлайеры ≥ 8</code>, который к этому режиму не калиброван. И для дообучения это худший кандидат из трёх: фундамента нет, а один раунд MINIMA уже обвалил ей RGB на <strong>−23.7</strong> AUC@5 — на порядок больше, чем RoMa-линии.</p>
+</section>
+
+<section id="s7">
+<h2><span class="num">07</span>Сравнение по осям</h2>
+
+<div class="tw">
+<table>
+  <thead><tr><th>Ось</th><th><span class="sw" style="background:var(--s1)"></span>MINIMA-RoMa</th><th><span class="sw" style="background:var(--s2)"></span>RoMa v2</th><th><span class="sw" style="background:var(--s3)"></span>MINIMA-LoFTR</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Тип</strong></td><td>плотный, без детектора</td><td>плотный, без детектора</td><td>полуплотный, без детектора</td></tr>
+    <tr><td><strong>Верных мест / 30</strong></td><td class="num">26</td><td class="num">16</td><td class="num best">27</td></tr>
+    <tr><td><strong>Медиана ошибки</strong></td><td class="num best">4.4 м</td><td class="num">6.1 м</td><td class="num">5.3 м</td></tr>
+    <tr><td><strong>Ложных</strong></td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+    <tr><td><strong>Секунд на кадр</strong></td><td class="num">24.0</td><td class="num">11.7</td><td class="num best">2.5</td></tr>
+    <tr><td><strong>Запас на кросс-сезоне</strong><br><span style="font-weight:400;color:var(--ink-3)">инлайеры на Ufa3, оракул</span></td><td class="num best">1439</td><td class="num">586</td><td class="num">11</td></tr>
+    <tr><td><strong>Сцен в обучении базы</strong></td><td class="num">196</td><td class="num best">5069</td><td class="num">196</td></tr>
+    <tr><td><strong>Аэро в обучении</strong></td><td>нет</td><td class="best">AerialMegaDepth 124 + BlendedMVS 493</td><td>нет</td></tr>
+    <tr><td><strong>Заморожено</strong></td><td>DINOv2 ViT-L</td><td>DINOv3 ViT-L</td><td class="best" style="font-weight:400">ничего</td></tr>
+    <tr><td><strong>Что обучается</strong></td><td>GP + декодер + 5 рефайнеров + VGG19</td><td>Multi-view Transformer + DPT + 3 рефайнера + VGG19</td><td>вся сеть</td></tr>
+    <tr><td><strong>Забывание при дообучении MINIMA</strong></td><td class="num best">−0.9 AUC@5</td><td>—</td><td class="num">−23.7 AUC@5</td></tr>
+    <tr><td><strong>Рецепт дообучения</strong></td><td class="best">известен полностью: 4 эпохи, батч 12, LR 1.5·10⁻⁵ / 7.5·10⁻⁷</td><td>надо выводить; расцепленные стадии позволяют учить <strong>только матчер</strong></td><td>известен: 30 эпох, батч 8, LR 1·10⁻⁴</td></tr>
+    <tr><td><strong>Стоимость дообучения на 1×4090</strong></td><td>≈ сутки, батч 3–4 + накопление</td><td>сравнимо; лосс не требует контраста по батчу</td><td>дёшево, но риск максимальный</td></tr>
+    <tr><td><strong>Лицензия</strong></td><td class="best">веса Apache-2.0, код <code>romatch</code> MIT</td><td>код MIT, <strong>веса DINOv3 внутри чекпоинта — лицензия Meta</strong></td><td class="best">веса Apache-2.0, kornia Apache-2.0</td></tr>
+    <tr><td><strong>Чем ограничен</strong></td><td>скорость; узкая база</td><td>поворотно-масштабные залипания на нашем домене</td><td>тонкий запас; нет фундамента</td></tr>
+    <tr><td><strong>Роль сейчас</strong></td><td class="best">боевое точное ядро</td><td>кандидат в базу под дообучение</td><td class="best">кандидат в быстрый режим</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="cap">Числа сквозного прогона — 30 кейсов, гейты отключены. «Запас на кросс-сезоне» — оракульная проба, где выравнивание задано верным по построению: величина показывает не «взял / не взял», а насколько уверенно.</p>
+</section>
+
+<section id="s8">
+<h2><span class="num">08</span>Почему две таблицы чисел</h2>
+
+<p>Оракульная проба и сквозной прогон отвечают на разные вопросы, и путать их нельзя.</p>
+
+<ul>
+  <li><strong>Оракул</strong> даёт матчеру заведомо верное выравнивание: кадр повёрнут на −yaw из EXIF, окно подложки взято того же центра и размера. Меряется <strong>ядро</strong> — retrieval, окна и гейты не участвуют.</li>
+  <li><strong>Сквозной прогон</strong> меряет <strong>тракт целиком</strong>: Этаж 1 поднимает 15 клеток, веер предповоротов выбирает победителя, связка качества решает, верить ли.</li>
+</ul>
+
+<p>Расхождение между ними — само по себе диагноз. RoMa v2 берёт <code>Ufa3</code> в оракуле (586 инлайеров) и <strong>не берёт в тракте</strong>: в веере из 15 кандидатов победило чужое окно. Обратный пример — <code>Ufa2</code>: оракульная поза у MINIMA-LoFTR есть, сквозной — нет, и это честно.</p>
+
+<div class="note">
+<span class="tag">Следствие для оценки</span>
+<p>В передаче Этаж 1 → Этаж 2 есть известный дефект: запас окна берётся как «полклетки» и не зависит от перекрытия сетки. Пока он есть, <strong>слабый результат нового ядра на штатном тракте не является виной ядра</strong> — мерить надо обеими пробами.</p>
+</div>
+</section>
+
+<section id="s9">
+<h2><span class="num">09</span>Шесть ловушек измерения</h2>
+
+<p>Один класс ошибки, шесть экземпляров: <strong>порог, взятый у одной реализации и применённый к одноимённой, но иначе откалиброванной величине другой.</strong></p>
+
+<div class="tw">
+<table>
+  <thead><tr><th>Что перенесли</th><th>Куда</th><th>Чем обернулось</th></tr></thead>
+  <tbody>
+    <tr><td><code>MIN_INLIERS_HARD = 8</code></td><td>с разреженных ядер на плотное</td><td>два ложных срабатывания → родился <code>MIN_INLIERS_DENSE = 185</code></td></tr>
+    <tr><td><code>min_conf = 0.5</code></td><td>с RoMa v1 на RoMa v2</td><td>модель не была измерена вовсе; «0 поз» — артефакт</td></tr>
+    <tr><td><code>MIN_INLIERS_DENSE = 185</code></td><td>с MINIMA-RoMa на RoMa v2</td><td>классы перекрыты, порог не выводится</td></tr>
+    <tr><td><code>min_conf = 0.5</code></td><td>на MINIMA-LoFTR</td><td rowspan="2">«ноль соответствий на кросс-сезоне»; вывод «слабейший» отозван</td></tr>
+    <tr><td><code>coarse_matching.thr = 0.2</code> (kornia)</td><td>на MINIMA-LoFTR</td></tr>
+    <tr><td>четыре дефолта cvg/LightGlue</td><td>на GIM- и MINIMA-веса</td><td>«2 соответствия» — артефакт; вывод про GIM устоял, числа исправлены</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Новое в последнем экземпляре — <strong>порог может сидеть внутри вычисления</strong>. Прунинг точек в LightGlue удаляет их из сети безвозвратно: они не доходят до выхода, и гистограмма выходных пар не покажет их отсутствия никогда. Понижать такой порог бесполезно, его надо отключать.</p>
+
+<div class="note key">
+<span class="tag">Регламент, выведенный из этих шести</span>
+<p><strong>1.</strong> Смена весов ядра есть смена калибровки всех порогов на его выходе <strong>и внутри его вычисления</strong>. Приёмка чекпоинта обязана включать сводку распределения выходного сигнала при снятых порогах <strong>и число точек, не дошедших до выхода</strong>.</p>
+<p><strong>2.</strong> Сравнение плеч валидно только при уравненной популяции у <strong>всех</strong> плеч, включая опорное.</p>
+<p><strong>3.</strong> Вход эксперимента обязан нести провенанс наравне с весами.</p>
+</div>
+</section>
+<section id="s10">
+<h2><span class="num">10</span>Данные для дообучения</h2>
+
+<h3>Какая пара нужна на самом деле</h3>
+
+<p>Наш боевой режим — <strong>надирный кадр после warp по телеметрии против мозаики спутниковых тайлов</strong>. Обучающая пара обязана быть такой же:</p>
+
+<div class="tw">
+<table>
+  <thead><tr><th>Сторона</th><th>Что это</th><th>Почему именно так</th></tr></thead>
+  <tbody>
+    <tr><td>A — запрос</td><td>рендер из ортофотоплана по позе камеры → pitch-кроп → <strong>warp по телеметрии</strong></td><td>без warp-стадии распределение обучения не совпадёт с распределением инференса</td></tr>
+    <tr><td>B — опора</td><td>мозаика тайлов подложки, дата слоя зафиксирована</td><td><strong>никогда не второе ортофото</strong>: детальность отличается в 10–20×, и модель окажется вне распределения ровно там, где мы её усиливаем</td></tr>
+    <tr><td>GT</td><td>аналитическое подобие 4 DoF из известной позы, <strong>после коррекции сдвига геопривязки растра</strong></td><td>сцена планарна, поза виртуальной камеры известна точно — разметка выводится, а не размечается</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note trap">
+<span class="tag">Риск, который тише всех прочих</span>
+<p>Если растр смещён относительно подложки, пара имеет GT, указывающий на точку P, при содержимом тайла в P+50 м. <strong>Модель выучит систематическое смещение</strong> — и чистка по рецепту MINIMA этого не поймает, потому что геометрия <em>внутри</em> пары согласована идеально.</p>
+<p>Поэтому таблица сдвигов геопривязки по растрам — входное условие обучения, а не приятное дополнение. Меряется по векторам ошибок в уже имеющихся CSV.</p>
+</div>
+
+<h3>Наши источники</h3>
+
+<div class="tw">
+<table>
+  <thead><tr><th>Источник</th><th>Что даёт</th><th class="num">Объём</th><th>Ограничение</th></tr></thead>
+  <tbody>
+    <tr><td><strong>A. Ортофотопланы</strong> <code>obs://orto/orto/</code><br>145 растров, <strong>66 площадок</strong>, 2019–2023</td><td>рендер по любой позе; кросс-сезон, кросс-год, <strong>зима</strong>; точная GT</td><td class="num">877 ГБ</td><td>качать точечно; обе стороны из ортофото брать нельзя</td></tr>
+    <tr><td><strong>A′. Готовые кадры</strong> <code>frame-dataset/</code><br>12 съёмок, высоты 75–700 м, pitch 0–40°</td><td>те же пары без рендера — бесплатный старт</td><td class="num">150 ГБ<br>47 640 PNG</td><td><strong>только два региона</strong> (Казань, Нижний) — географически бедно</td></tr>
+    <tr><td><strong>B. Esri Wayback</strong></td><td>тайл против тайла того же места, разные даты; идеальная ко-регистрация, любая география</td><td class="num">неограничен</td><td>обе стороны спутниковые — нет разрыва «камера ↔ спутник»</td></tr>
+    <tr><td><strong>C. Наши оракульные пары</strong></td><td><strong>реальная камера</strong></td><td class="num">30 кейсов</td><td><strong>только валидация</strong>, в обучение не идут</td></tr>
+    <tr><td><strong>D. Процедурный стенд</strong> <code>testbench.py</code></td><td>контролируемые возмущения, лестница L1–L4</td><td class="num">неограничен</td><td>не реальная фактура</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Пять осей, которыми можно управлять</h3>
+
+<p>Это сильная сторона набора, и она редкая. MINIMA ради худшего приближения строила генеративный движок из шести моделей; у нас каждая ось — параметр генерации, а разметка остаётся точной:</p>
+
+<div class="tw">
+<table>
+  <thead><tr><th>Ось</th><th>Чем задаётся</th><th>Что покрывает</th></tr></thead>
+  <tbody>
+    <tr><td>сезон и год</td><td>выбор дат съёмок-источников</td><td>30 мультисезонных площадок; <strong>20 зимних растров</strong>; межгодовые пары одного сезона</td></tr>
+    <tr><td>рассогласование масштаба</td><td>зум мозаики / степень ресемплинга</td><td>от <code>scale_ratio ≈ 1</code> до разрыва в разы</td></tr>
+    <tr><td>контекст</td><td>высота рендера</td><td>75–700 м, отпечаток от десятков метров до километра</td></tr>
+    <tr><td>география</td><td>выбор площадки</td><td>66 площадок — настоящее разделение train/val</td></tr>
+    <tr><td>сенсор</td><td>камера растра</td><td>SA6000 20/21 мм (≈110 файлов), SRX1 35 мм, Leica Q2 28 мм</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note key">
+<span class="tag">Зима — главный приз</span>
+<p>20 зимних растров, 13 площадок зима+весна, одна прямая пара зима↔лето. Снежный покров — самый жёсткий appearance gap, жёстче любой пары лето↔осень.</p>
+<p>Его нет ни в MD-syn (MegaDepth — наземные туристические фото), ни в нашем наборе (кросс-сезон у нас = апрель против летней Esri), ни в обучении RoMa v2. Это одновременно лучший обучающий материал и лучший held-out — поэтому часть зимних площадок в обучение не отдаётся вовсе.</p>
+</div>
+
+<h3>Слабая сторона: глубоко, но узко</h3>
+
+<p>66 площадок, одна страна, преимущественно одно семейство камер, одна подложка. Пар можно сделать миллионы, а различных визуальных доменов мало — для сравнения, MINIMA училась на 196 сценах, RoMa v2 на 5069. И бесплатная часть (готовые кадры) покрывает всего два региона; разнообразие требует рендера, а это десятки часов генерации — планировать наравне с бюджетом обучения.</p>
+</section>
+
+<section id="s11">
+<h2><span class="num">11</span>Открытые данные: что брать снаружи</h2>
+
+<h3>Чем обучалась RoMa v2</h3>
+
+<div class="tw">
+<table>
+  <thead><tr><th>Датасет</th><th>Тип</th><th class="num">Сцен</th><th class="num">Вес</th><th>Полезность нам</th></tr></thead>
+  <tbody>
+    <tr><td><strong>AerialMegaDepth</strong></td><td>аэро, MVS</td><td class="num">124</td><td class="num">1</td><td class="best">воздух↔земля — ближайшее к нашему домену из публичного</td></tr>
+    <tr><td><strong>BlendedMVS</strong></td><td>аэро, меш</td><td class="num">493</td><td class="num">1</td><td class="best">аэро-съёмка, крупные повороты</td></tr>
+    <tr><td>MegaDepth</td><td>наземные фото, MVS</td><td class="num">169</td><td class="num">1</td><td>база сравнения; общий приор</td></tr>
+    <tr><td>ScanNet++ v2</td><td>интерьеры</td><td class="num">856</td><td class="num">1</td><td>только как replay против сужения</td></tr>
+    <tr><td>Hypersim</td><td>синтетика, интерьеры</td><td class="num">393</td><td class="num">1</td><td>то же</td></tr>
+    <tr><td>Map-Free</td><td>улицы</td><td class="num">397</td><td class="num">1</td><td>то же</td></tr>
+    <tr><td>TartanAir v2</td><td>синтетика</td><td class="num">46</td><td class="num">1</td><td>то же</td></tr>
+    <tr><td>FlyingThings3D</td><td>синтетика, flow</td><td class="num">2239</td><td class="num">0.5</td><td>то же</td></tr>
+    <tr><td>Virtual KITTI 2</td><td>синтетика, погода</td><td class="num">5</td><td class="num">0.01</td><td>погодная аугментация — ближайший прокси к сезону</td></tr>
+    <tr><td>UnrealStereo4k</td><td>синтетика</td><td class="num">8</td><td class="num">0.01</td><td>—</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="cap">Итого 5069 сцен. Лицензии по датасетам в этой сводке <strong>не проверялись</strong> — часть требует соглашения об использовании, часть некоммерческая; перед загрузкой проверять каждую отдельно.</p>
+
+<p><strong>Роль этих данных для нас — не обучение, а replay.</strong> Если дообучать RoMa v2 на нашей узкой смеси, модель, обученная на 5069 сценах, потянется к нашим шестидесяти шести. Подмешивание части родного распределения (в первую очередь AerialMegaDepth и MegaDepth) — страховка против сужения покрытия, а не источник доменного знания.</p>
+
+<h3>MD-syn: можно, но не на первом раунде</h3>
+
+<p>Датасет MINIMA <strong>доступен</strong> — HuggingFace <code>lsxi77777/MegaDepth-Syn</code>, лицензия <strong>Apache-2.0</strong>, шесть модальностей; тренировочный код MINIMA выложен в апреле 2025 и построен поверх Glue Factory, LoFTR и RoMa. Три возражения:</p>
+
+<ol>
+  <li><strong>Сужает покрытие.</strong> MD-syn выведен целиком из MegaDepth — 196 наземных сцен. Для RoMa v1 это было безобидно (она на них и училась), для v2 это откат с 5069 сцен до 196, причём выбрасываются именно аэро-данные.</li>
+  <li><strong>Код не переносится.</strong> Рецепт написан против <code>romatch</code>; у v2 расцепленный пайплайн, другой лосс, другой выход. Это порт, а не запуск.</li>
+  <li><strong>Решает проблему, которой у нас нет.</strong> Механически MD-syn — «взять пару с известным соответствием и радикально изменить вид одной стороны, сохранив метки». Генеративный движок существовал потому, что у авторов <strong>не было реальных пар «то же место, другой вид» с точными метками</strong>. У нас они есть.</li>
+</ol>
+
+<p><strong>Честный контраргумент:</strong> у MINIMA синтетика побила реальные данные — LoFTR на реальном RGB-IR дал 9.78 против 29.55 на синтетике. Но побила по двум причинам, и ни одна не про реализм: <strong>объём</strong> и <strong>точность меток</strong>. У нас лучше по обеим — метки аналитические из позы камеры, объём ограничен только временем генерации.</p>
+
+<p><strong>Где MD-syn всё-таки уместен:</strong> как общий приор инвариантности, не как доменные данные. Их же абляция показывает, что наибольший вклад для RoMa дали Depth и Normal, а не ИК — переносится инвариантность как таковая. И у RoMa v2 есть признанный регресс именно по кросс-модальности, в который MD-syn целится. Формула — <strong>в смеси и третьим раундом</strong>, с replay-плечом против сужения.</p>
+
+<h3>Чего нет ни у кого</h3>
+
+<p>Ни в MD-syn, ни в десяти датасетах RoMa v2, ни в наших 30 кейсах нет главного: <strong>надирного кадра против ортотрансформированного спутникового тайла, снятых в разные сезоны.</strong> AerialMegaDepth — это воздух↔земля, и авторы формулируют его роль именно так. BlendedMVS — аэро-меш. Слова <em>aerial</em>, <em>satellite</em>, <em>season</em>, <em>UAV</em> в статье MINIMA отсутствуют полностью.</p>
+
+<p>Это и есть пробел, который закрывают наши данные — и одновременно причина, по которой у дообучения есть шанс дать что-то, чего не даёт ни одна из готовых моделей.</p>
+
+<h3>Что качать в первую очередь</h3>
+
+<ul>
+  <li><strong>Ничего — для эксперимента о структуре задачи.</strong> Сетка высот уже отрендерена, тайлы GTKAZ/GTNN лежат локально.</li>
+  <li><strong>150 ГБ <code>frame-dataset</code> целиком</strong> — для пилота обучения и расширения eval.</li>
+  <li><strong>~70 ГБ компактных сезонных пар</strong> из 15 площадок: зима↔весна (70, 76, 78, 85, 20, 84, 86, 39, 74), весна↔осень (95, 17, 18, 83), лето↔осень (45), зима↔лето (48). Плюс тайлы под них.</li>
+  <li><strong>Отдельно — тайлы на новые площадки.</strong> Локально есть только GTKAZ/GTNN; для остальных 64 подложку надо докачивать, и слой пинить по дате.</li>
+</ul>
+</section>
+
+<section id="s12">
+<h2><span class="num">12</span>Рекомендация и что ещё не решено</h2>
+
+<p class="lede">Дообучать, вероятно, RoMa v2 — но два дешёвых эксперимента, решающих этот вопрос, до сих пор не сделаны.</p>
+
+<h3>Чего не хватает для выбора базы</h3>
+
+<p><strong>Сравнение «22/30 против 30/30» нечестное:</strong> оно сопоставляет сырую RoMa v2 с дообученной v1, то есть «без дообучения против с дообучением», а не базу с базой. Честное сравнение — <strong>ванильная RoMa v1 против RoMa v2</strong> — в проекте <strong>никогда не проводилось</strong>: ядро <code>roma</code> со штатными весами есть в реестре, но ни в одной таблице результатов не появляется.</p>
+
+<p>Два эксперимента, оба дешёвые, оба до обучения:</p>
+
+<ol>
+  <li><strong>Ванильная <code>roma</code></strong> на оракульной пробе и сквозняком — часы, ноль GPU-обучения. Снимает подмену сравнения.</li>
+  <li><strong>Природа залипаний RoMa v2</strong> — архитектура или данные. Если механизм в утрате выбора моды (§05), дообучение его не вылечит, и это надо знать до суток на 4090.</li>
+</ol>
+
+<h3>Что уже можно сказать без них</h3>
+
+<ul>
+  <li><strong>Разреженная линия отпадает по механизму.</strong> MINIMA не трогает SuperPoint, а повторяемость ключевых точек — свойство детектора; дообучением матчера она не лечится.</li>
+  <li><strong>LoFTR-линию не дообучаем</strong> — фундамента нет, забывание измерено (−23.7 против −0.9 у RoMa). Но она остаётся лучшим быстрым режимом, и получена калибровкой, а не GPU.</li>
+  <li><strong>Дообучать надо не то, что кажется.</strong> Из 30 кейсов гейт <code>инлайеры ≥ 8</code> режет 3 верные позы, Этаж 1 теряет 1, и только 3–4 — вина матчера. Гейт стоит столько же, сколько ядро, и его калибровка не требует ни одной эпохи.</li>
+  <li><strong>Скорость лечится не в модели.</strong> Та же MINIMA-RoMa в смежном сервисе на RTX 3060 укладывает полный запрос в 1.3–3.4 с. Наши 24 с — это число вызовов, а не стоимость ядра.</li>
+</ul>
+
+<div class="note trap">
+<span class="tag">Риск, который надо держать в голове с самого начала</span>
+<p>Дообучение повышает выход соответствий именно там, где сейчас честный отказ. «Уверенно-неверный» режим — то, что убивает смежный сервис: 59 м медианы на чужой съёмке при <strong>неизменном</strong> success.</p>
+<p>Инвариант «ноль ложных» пережил восемь замен ядра и является самым ценным, что есть у проекта. <strong>«Больше верных» без «ноль ложных» результатом не считается.</strong></p>
+</div>
+</section>
+
+<footer>
+<p><strong>Источники чисел.</strong> Сквозные прогоны и оракульные пробы — <code>docs/RESEARCH_A_RESULTS.md</code> и три отчёта о перепроверках (<code>RESEARCH_A_ROMAV2_REPORT.md</code>, <code>RESEARCH_A_LOFTR_REPORT.md</code>, <code>RESEARCH_A_LIGHTGLUE_REPORT.md</code>). Устройство моделей — <code>MODEL_ROMA_V2.html</code>, <code>MODEL_MINIMA_ROMA.html</code>, <code>RESEARCH_A_PAPERS.md</code>. Инвентарь данных — <code>DATA_OBS_ORTO.md</code>, <code>AUDIT_OPTICAL_NAVIGATION.md</code>. Стратегия — <code>STRATEGY_MATCHER_FINETUNE.md</code>.</p>
+<p>Первоисточники: Edstedt J. et al. <em>RoMa: Robust Dense Feature Matching</em>, CVPR 2024 (arXiv:2305.15404) · <em>RoMa v2</em> (arXiv:2511.15706) · Ren J. et al. <em>MINIMA: Modality Invariant Image Matching</em>, CVPR 2025 (arXiv:2412.19412) · Sun J. et al. <em>LoFTR</em>, CVPR 2021.</p>
+</footer>
+
+</article>
+</div>
+</div>
+</body>
+</html>
