@@ -18,11 +18,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from convert_ortholoc import (  # noqa: E402
+    balance_per_scene,
     choose_window,
     jpeg_bytes,
     load_pair,
     median_gsd,
     project_to_camera,
+    pseudo_season,
+    vegetation_weight,
     warp_from_pointmap,
     warp_to_window,
     window_covis,
@@ -121,6 +124,81 @@ def test_project_behind_camera_gets_negative_depth():
 def test_median_gsd_of_uniform_grid():
     pm = synth_pointmap(32, 32, 0.25, 32, 32)
     assert median_gsd(pm) == pytest.approx(0.25, abs=1e-6)
+
+
+# --- балансировка по сценам ----------------------------------------------------
+
+def _paths(scene, variant, n):
+    tag = "xDOP" if variant == "xDOP" else "R"
+    return [Path(f"{scene}_{tag}{i:04d}.npz") for i in range(n)]
+
+
+def test_balance_caps_big_scene_and_keeps_small():
+    files = _paths("L01", "R", 300) + _paths("L02", "R", 40)
+    got = balance_per_scene(files, cap=100, split="train")
+    scenes = [f.stem.split("_")[0] for f in got]
+    assert scenes.count("L01") == 100      # большая сцена обрезана до квоты
+    assert scenes.count("L02") == 40       # маленькая взята целиком
+
+
+def test_balance_is_stratified_by_variant_and_deterministic():
+    files = _paths("L01", "R", 240) + _paths("L01", "xDOP", 60)  # 80% / 20%
+    got1 = balance_per_scene(files, cap=100, split="train")
+    got2 = balance_per_scene(files, cap=100, split="train")
+    assert got1 == got2                    # детерминизм
+    n_x = sum("_xDOP" in f.stem for f in got1)
+    assert n_x == 20                       # доля xDOP сохранена (20 из 100)
+
+
+# --- псевдосезоны ---------------------------------------------------------------
+
+def _green_field():
+    """Синтетика: левая половина — зелёная «растительность», правая — серая дорога."""
+    img = np.zeros((32, 64, 3), np.uint8)
+    img[:, :32] = (55, 140, 45)
+    img[:, 32:] = (128, 128, 128)
+    return img
+
+
+def test_vegetation_weight_separates_green_from_gray():
+    w = vegetation_weight(_green_field())
+    # серым пикселям сигмоида даёт ~0.12 — лёгкое глобальное участие, это
+    # осознанно (резкая маска дала бы матчеру читерский контур)
+    assert w[16, 8] > 0.9 and w[16, 56] < 0.15
+
+
+def test_autumn_shifts_green_hue_but_not_road():
+    img = _green_field()
+    out = pseudo_season(img, "autumn", np.random.default_rng(0))
+    hsv_in = pytest.importorskip("cv2").cvtColor(img, 41)   # RGB2HSV
+    import cv2 as _cv2
+    hsv_out = _cv2.cvtColor(out, _cv2.COLOR_RGB2HSV)
+    assert hsv_out[16, 8, 0] < hsv_in[16, 8, 0] - 15        # зелень ушла к оранжевому
+    road_diff = np.abs(out[16, 56].astype(int) - img[16, 56].astype(int)).max()
+    assert road_diff <= 12                                  # дорога почти не тронута
+
+
+def test_winter_desaturates_and_brightens_globally():
+    import cv2 as _cv2
+    img = _green_field()
+    out = pseudo_season(img, "winter", np.random.default_rng(0))
+    hsv_in = _cv2.cvtColor(img, _cv2.COLOR_RGB2HSV).astype(int)
+    hsv_out = _cv2.cvtColor(out, _cv2.COLOR_RGB2HSV).astype(int)
+    assert hsv_out[..., 1].mean() < hsv_in[..., 1].mean() * 0.6   # насыщенность упала
+    assert hsv_out[..., 2].mean() > hsv_in[..., 2].mean()          # кадр светлее
+
+
+def test_pseudo_season_is_deterministic_and_shape_preserving():
+    img = _green_field()
+    o1 = pseudo_season(img, "spring", np.random.default_rng(5))
+    o2 = pseudo_season(img, "spring", np.random.default_rng(5))
+    assert np.array_equal(o1, o2)
+    assert o1.shape == img.shape and o1.dtype == np.uint8
+
+
+def test_unknown_season_raises():
+    with pytest.raises(ValueError):
+        pseudo_season(_green_field(), "summer", np.random.default_rng(0))
 
 
 # --- запись/чтение пары --------------------------------------------------------

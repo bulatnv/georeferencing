@@ -127,12 +127,90 @@ def median_gsd(pm: np.ndarray) -> float:
     return float(np.nanmedian(step))
 
 
+def vegetation_weight(rgb: np.ndarray) -> np.ndarray:
+    """Мягкая маска растительности 0..1 по индексу ExG = 2G − R − B.
+
+    Без семантики: чистая колориметрия. Порог мягкий (сигмоида) и маска
+    размыта — чтобы перекраска не давала резких контуров, по которым матчер
+    мог бы «читерить».
+    """
+    f = rgb.astype(np.float32)
+    exg = 2 * f[..., 1] - f[..., 0] - f[..., 2]
+    w = 1.0 / (1.0 + np.exp(-(exg - 24.0) / 12.0))
+    return cv2.blur(w, (7, 7))
+
+
+def pseudo_season(rgb: np.ndarray, season: str, rng) -> np.ndarray:
+    """Псевдосезонная фотометрия. Это аппроксимация appearance gap, НЕ сезон:
+    нет снежной геометрии, теней и листопада — честная роль этой аугментации
+    описана в спеке §2.3а; настоящий кросс-сезон остаётся за obs://orto.
+
+    - ``autumn``: зелень → жёлто-оранжевая (hue), чуть темнее;
+    - ``spring``: зелень выцветает в серо-бурую, общая приглушённость;
+    - ``winter``: сильная десатурация и высветление всего кадра (снежный
+      колорит), зелень глушится почти в серое, лёгкий холодный сдвиг.
+    """
+    k = float(rng.uniform(0.8, 1.2))                 # сила эффекта — джиттер
+    veg = vegetation_weight(rgb)[..., None]
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV).astype(np.float32)
+    h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    if season == "autumn":
+        target_h = 16.0                              # оранжево-коричневый
+        h_new = h + (target_h - h) * np.clip(0.85 * k, 0, 1)
+        s_new = np.clip(s * (1.0 + 0.1 * k), 0, 255)
+        v_new = np.clip(v * (1.0 - 0.06 * k), 0, 255)
+    elif season == "spring":
+        target_h = 32.0                              # блёкло-жёлто-зелёный
+        h_new = h + (target_h - h) * np.clip(0.6 * k, 0, 1)
+        s_new = s * (1.0 - 0.55 * min(k, 1.0))
+        v_new = np.clip(v * (1.0 - 0.10 * k), 0, 255)
+    elif season == "winter":
+        h_new = h + (105.0 - h) * 0.10 * k           # лёгкий холодный сдвиг
+        s_new = s * (1.0 - 0.92 * min(k, 1.0))       # зелень гасится почти в серое
+        v_new = np.clip(v * (1.0 - 0.45 * k) + 255 * 0.52 * k, 0, 255)
+    else:
+        raise ValueError(f"неизвестный сезон {season!r}")
+    w = veg[..., 0]
+    if season == "winter":                           # зима красит весь кадр,
+        w = np.clip(w * 0.4 + 0.6, 0, 1)             # зелень — сильнее прочего
+    hsv2 = np.stack([
+        (h * (1 - w) + h_new * w) % 180.0,
+        s * (1 - w) + s_new * w,
+        v * (1 - w) + v_new * w,
+    ], axis=-1).astype(np.uint8)
+    return cv2.cvtColor(hsv2, cv2.COLOR_HSV2RGB)
+
+
 def jpeg_bytes(rgb: np.ndarray) -> np.ndarray:
     ok, buf = cv2.imencode(".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR),
                            [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
     if not ok:
         raise RuntimeError("jpeg encode failed")
     return buf.reshape(-1)
+
+
+def balance_per_scene(files: list[Path], cap: int, split: str) -> list[Path]:
+    """Не больше ``cap`` сэмплов на сцену: детерминированная выборка,
+    стратифицированная по варианту (R/xDOP), чтобы балансировка не съедала
+    кросс-источниковую долю. Никаких фильтров по наклону/GSD — оси
+    разнообразия остаются в выборке."""
+    per: dict[str, dict[str, list[Path]]] = {}
+    for f in files:
+        scene = f.stem.split("_")[0]
+        variant = "xDOP" if "_xDOP" in f.stem else "R"
+        per.setdefault(scene, {}).setdefault(variant, []).append(f)
+    out: list[Path] = []
+    for scene in sorted(per):
+        groups = per[scene]
+        total = sum(len(v) for v in groups.values())
+        take_all = total <= cap
+        rng = np.random.default_rng(zlib.crc32(f"balance:{split}:{scene}".encode()))
+        for variant in sorted(groups):
+            grp = sorted(groups[variant])
+            n = len(grp) if take_all else max(1, round(cap * len(grp) / total))
+            idx = rng.permutation(len(grp))[:n]
+            out += [grp[i] for i in sorted(idx)]
+    return sorted(out)
 
 
 def load_pair(path: Path) -> dict:
@@ -229,6 +307,15 @@ def main() -> int:
     parser.add_argument("--scenes", default="", help="фильтр сцен через запятую")
     parser.add_argument("--max-tilt", type=float, default=0.0,
                         help="брать только сэмплы с наклоном ≤ N° (0 = все)")
+    parser.add_argument("--per-scene", type=int, default=0,
+                        help="балансировка: не больше N сэмплов на сцену "
+                             "(детерминированная выборка, стратифицированная "
+                             "по R/xDOP; 0 = все)")
+    parser.add_argument("--pseudo-seasons", default="",
+                        help="через запятую из winter,autumn,spring: на долю "
+                             "--season-frac пар добавляется запись с "
+                             "псевдосезонной фотометрией стороны A")
+    parser.add_argument("--season-frac", type=float, default=0.5)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
@@ -250,9 +337,12 @@ def main() -> int:
     if new_manifest:
         mf.write("pair,split,scene,mode,pair_kind,tilt_deg,covis_frac,bytes\n")
 
+    seasons = [s.strip() for s in args.pseudo_seasons.split(",") if s.strip()]
     n_done = n_skip = 0
     for split in [s.strip() for s in args.splits.split(",") if s.strip()]:
         files = sorted((Path(args.root) / split).glob("*.npz"))
+        if args.per_scene:
+            files = balance_per_scene(files, args.per_scene, split)
         if args.limit:
             files = files[: args.limit]
         out_dir = out_root / split
@@ -288,16 +378,35 @@ def main() -> int:
                     scale_ratio=round(extra["gsd_a"] / extra["gsd_b"], 3),
                     gen_commit=commit, gen_date=date.today().isoformat(),
                     **extra)
+                b_jpeg = jpeg_bytes(b)
+                pinhole_s = np.str_(json.dumps(pinhole, ensure_ascii=False)
+                                    if pinhole else "null")
                 np.savez_compressed(
                     dst,
-                    image_a_jpeg=jpeg_bytes(a), image_b_jpeg=jpeg_bytes(b),
+                    image_a_jpeg=jpeg_bytes(a), image_b_jpeg=b_jpeg,
                     warp_ab=warp, mask_ab=mask,
                     meta=np.str_(json.dumps(meta, ensure_ascii=False)),
-                    pinhole=np.str_(json.dumps(pinhole, ensure_ascii=False)
-                                    if pinhole else "null"))
+                    pinhole=pinhole_s)
                 mf.write(f"{dst.name},{split},{scene},{mode},{meta['pair_kind']},"
                          f"{meta['tilt_deg']},{meta['covis_frac']},{dst.stat().st_size}\n")
                 n_done += 1
+                # псевдосезонная запись: та же геометрия, перекрашенная сторона A
+                if seasons and rng.random() < args.season_frac:
+                    season = str(rng.choice(seasons))
+                    dst_s = out_dir / f"pair_{f.stem}_{mode}_{season[0]}.npz"
+                    if not dst_s.exists():
+                        a_s = pseudo_season(a, season, rng)
+                        meta_s = dict(meta, season_a=f"pseudo_{season}")
+                        np.savez_compressed(
+                            dst_s,
+                            image_a_jpeg=jpeg_bytes(a_s), image_b_jpeg=b_jpeg,
+                            warp_ab=warp, mask_ab=mask,
+                            meta=np.str_(json.dumps(meta_s, ensure_ascii=False)),
+                            pinhole=pinhole_s)
+                        mf.write(f"{dst_s.name},{split},{scene},{mode},"
+                                 f"{meta['pair_kind']},{meta['tilt_deg']},"
+                                 f"{meta['covis_frac']},{dst_s.stat().st_size}\n")
+                        n_done += 1
                 if n_done % 200 == 0:
                     mf.flush()
                     print(f"{n_done} пар...", flush=True)
