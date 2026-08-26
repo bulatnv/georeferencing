@@ -119,6 +119,32 @@ def test_project_behind_camera_gets_negative_depth():
     assert z[0] < 0
 
 
+# --- dop_scale: восстановление масштаба из dsm ---------------------------------
+
+def test_dop_scale_falls_back_to_dsm_grid():
+    """У сцены L06 нет члена scale — масштаб восстанавливается из шага
+    мировых координат сетки dsm."""
+    from convert_ortholoc import dop_scale
+    hb = wb = 16
+    jj, ii = np.meshgrid(np.arange(wb, dtype=float), np.arange(hb, dtype=float))
+    dsm = np.stack([(jj - (wb - 1) / 2) * 0.25,
+                    (ii - (hb - 1) / 2) * -0.25,
+                    np.zeros_like(jj)], axis=-1)
+    d = {"dsm": dsm}                      # dict без .files — ветка fallback
+    s = dop_scale(d)
+    assert s[0] == pytest.approx(0.25) and s[1] == pytest.approx(-0.25)
+
+
+def test_dop_scale_prefers_explicit_member():
+    from convert_ortholoc import dop_scale
+
+    class Fake(dict):
+        files = ("scale",)
+
+    d = Fake(scale=np.array([0.3, -0.3]))
+    assert dop_scale(d)[0] == pytest.approx(0.3)
+
+
 # --- median_gsd ----------------------------------------------------------------
 
 def test_median_gsd_of_uniform_grid():

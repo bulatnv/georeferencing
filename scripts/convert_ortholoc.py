@@ -120,6 +120,19 @@ def project_to_camera(pts_xyz: np.ndarray, K: np.ndarray, ext: np.ndarray):
     return u, v, z
 
 
+def dop_scale(d) -> np.ndarray:
+    """Масштаб DOP (м/пкс по x и y). У сцены L06 член ``scale`` отсутствует —
+    восстанавливаем из ``dsm``: его каналы X/Y — мировые координаты сетки DOP,
+    медианный шаг по столбцу/строке и есть масштаб (проверено на сэмплах со
+    ``scale``: расхождение < 1e-3)."""
+    if "scale" in getattr(d, "files", ()):
+        return np.asarray(d["scale"], dtype=np.float64)
+    g = d["dsm"].astype(np.float64)
+    sx = float(np.nanmedian(np.diff(g[..., 0], axis=1)))
+    sy = float(np.nanmedian(np.diff(g[..., 1], axis=0)))
+    return np.array([sx, sy])
+
+
 def median_gsd(pm: np.ndarray) -> float:
     """Медианный наземный шаг соседних пикселей кадра — эффективный GSD A."""
     dx = np.diff(pm[..., :2], axis=1)
@@ -238,12 +251,13 @@ def convert_asis(d, rng):
     dop = d["image_dop"]
     pm = d["point_map"].astype(np.float64)
     hb, wb = dop.shape[:2]
-    gt_x, gt_y = warp_from_pointmap(pm, np.asarray(d["scale"], float), wb, hb)
+    scale = dop_scale(d)
+    gt_x, gt_y = warp_from_pointmap(pm, scale, wb, hb)
     win, covis = choose_window(gt_x, gt_y, wb, hb, rng)
     x0, y0, w, h = win
     warp, mask = warp_to_window(gt_x, gt_y, win)
     b = dop[y0:y0 + h, x0:x0 + w]
-    gsd_b = float(abs(d["scale"][0]))
+    gsd_b = float(abs(scale[0]))
     return q, b, warp, mask, dict(
         gsd_a=round(median_gsd(pm), 4), gsd_b=round(gsd_b, 4),
         covis_frac=round(covis, 4), b_window=[x0, y0, w, h]), None
@@ -284,7 +298,7 @@ def convert_rect(d, rng, min_valid=0.25):
     warp, mask = warp_to_window(gx, gy, win)
     b = dop[y0:y0 + h, x0:x0 + w]
 
-    gsd_b = float(abs(d["scale"][0]))
+    gsd_b = float(abs(dop_scale(d)[0]))
     h_virt = 40000.0                                   # §1.2а: err ≈ (Δh/H)·r
     pinhole = dict(
         model="fronto_parallel", note="точно при depth=H_virt−DSM (см. спеку §1.2а); "
@@ -361,8 +375,13 @@ def main() -> int:
                 if dst.exists():
                     continue
                 rng = np.random.default_rng(zlib.crc32(f"{f.stem}:{mode}".encode()))
-                res = (convert_asis(d, rng) if mode == "asis"
-                       else convert_rect(d, rng))
+                try:
+                    res = (convert_asis(d, rng) if mode == "asis"
+                           else convert_rect(d, rng))
+                except Exception as exc:  # noqa: BLE001 - один сэмпл не валит прогон
+                    print(f"SKIP {f.stem}:{mode} — {exc}", flush=True)
+                    n_skip += 1
+                    continue
                 if res is None:
                     n_skip += 1
                     continue
