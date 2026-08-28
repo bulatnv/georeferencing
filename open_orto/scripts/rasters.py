@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,32 +37,73 @@ NEUTRAL_GRAY = 114  # чем закрашивается невалидное (§
 
 @dataclass(frozen=True)
 class Grid:
-    """North-up сетка в CRS ортоплана: центр, размер в пикселях, метры/пиксель.
+    """Сетка в CRS ортоплана: центр, размер в пикселях, метры/пиксель, поворот.
 
     ``x``/``y`` — координаты центра сетки; пиксель ``(0, 0)`` — центр левого
-    верхнего пикселя (конвенция проекта).
+    верхнего пикселя (конвенция проекта). ``rot_deg`` — курс сетки: азимут,
+    в который смотрит её «верх» (0 = север, растёт по часовой, как yaw кадра).
+    При ``rot_deg = 0`` сетка north-up.
     """
 
     x: float
     y: float
     size_px: int
     gsd: float
+    rot_deg: float = 0.0
+
+    @property
+    def axes(self):
+        """Мировые направления осей сетки: (вправо, вверх)."""
+        a = math.radians(self.rot_deg)
+        ca, sa = math.cos(a), math.sin(a)
+        return (ca, -sa), (sa, ca)
 
     @property
     def origin(self) -> tuple[float, float]:
+        """Мировые координаты центра пикселя (0, 0)."""
         half = (self.size_px - 1) / 2.0 * self.gsd
-        return self.x - half, self.y + half
+        right, up = self.axes
+        return (self.x - half * right[0] + half * up[0],
+                self.y - half * right[1] + half * up[1])
 
     def pixel_centres(self):
-        ox, oy = self.origin
-        j = np.arange(self.size_px, dtype=np.float64)
-        gx = ox + j * self.gsd
-        gy = oy - j * self.gsd
-        return np.meshgrid(gx, gy)
+        """Мировые координаты центров всех пикселей: (gx, gy), формы (n, n)."""
+        n = self.size_px
+        half = (n - 1) / 2.0
+        j, i = np.meshgrid(np.arange(n, dtype=np.float64), np.arange(n, dtype=np.float64))
+        u = (j - half) * self.gsd          # вправо по сетке, метры
+        v = (half - i) * self.gsd          # вверх по сетке, метры
+        right, up = self.axes
+        gx = self.x + u * right[0] + v * up[0]
+        gy = self.y + u * right[1] + v * up[1]
+        return gx, gy
+
+    def pixel_from_world(self, gx, gy):
+        """Мировые координаты → пиксели сетки (обратно к :meth:`pixel_centres`)."""
+        dx = np.asarray(gx, dtype=np.float64) - self.x
+        dy = np.asarray(gy, dtype=np.float64) - self.y
+        right, up = self.axes
+        u = dx * right[0] + dy * right[1]
+        v = dx * up[0] + dy * up[1]
+        half = (self.size_px - 1) / 2.0
+        return half + u / self.gsd, half - v / self.gsd
+
+    def corners_world(self):
+        """Углы сетки в мировых координатах: (0,0), (n−1,0), (n−1,n−1), (0,n−1)."""
+        n = self.size_px
+        half = (n - 1) / 2.0 * self.gsd
+        right, up = self.axes
+        out = []
+        for su, sv in ((-1, 1), (1, 1), (1, -1), (-1, -1)):
+            out.append((self.x + su * half * right[0] + sv * half * up[0],
+                        self.y + su * half * right[1] + sv * half * up[1]))
+        return np.array(out)
 
     def bounds(self):
-        half = self.size_px / 2.0 * self.gsd
-        return (self.x - half, self.y - half, self.x + half, self.y + half)
+        """Габаритный axis-aligned прямоугольник (для north-up — точный)."""
+        c = self.corners_world()
+        return (float(c[:, 0].min()), float(c[:, 1].min()),
+                float(c[:, 0].max()), float(c[:, 1].max()))
 
 
 class OrthoSource:
@@ -163,11 +205,14 @@ class BasemapSource:
         if zoom is None:
             zoom = zoom_for_ground_mpp(lat0, grid.gsd, self.provider.max_zoom)
 
-        # окно мозаики: габарит проекции сетки в пиксели тайлов + запас
+        # Окно мозаики — по ГАБАРИТУ сетки, а не по её стороне: повёрнутая
+        # сетка занимает в мире прямоугольник до √2 раз шире, и по стороне
+        # её углы вылезали за мозаику (в кропе появлялись серые треугольники).
         mpp = ground_mpp(lat0, zoom)
-        span_m = grid.size_px * grid.gsd
+        x0, y0, x1, y1 = grid.bounds()
+        span_m = max(x1 - x0, y1 - y0) + 2 * grid.gsd
         side = int(np.ceil(span_m / mpp)) + 16
-        side = min(side, 4096)
+        side = min(side, 6144)
         img_bgr, gref = fetch_basemap(lon0, lat0, zoom, side, side,
                                       provider=self.provider, cache=self.cache)
         rgb_src = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)

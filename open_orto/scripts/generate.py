@@ -45,7 +45,13 @@ from rasters import NEUTRAL_GRAY, BasemapSource, Grid, OrthoSource  # noqa: E402
 # Параметры генерации — редакция 2 плана орто↔орто (§5 задания), перенесены как есть.
 FRAME_W, FRAME_H, F_PX = 1024, 576, 735.0
 HEIGHT_RANGE = (250.0, 400.0)      # м → GSD_A 0.34–0.54, след кадра 348–558 м
-YAW_RANGE = (-25.0, 25.0)
+#: Курс кадра — произвольный (ортоплан можно вращать как угодно), а курс
+#: кропа подложки отличается от него не более чем на DELTA_YAW_MAX: именно
+#: столько остаточной невязки курса допускает боевой тракт после
+#: предповорота. Раньше подложка была жёстко north-up, и разброс взаимного
+#: поворота ограничивался диапазоном самого кадра.
+YAW_RANGE = (0.0, 360.0)
+DELTA_YAW_MAX = 25.0
 TILT_RANGE = (0.0, 10.0)
 SCALE_RANGE = (0.85, 1.20)         # GSD_A / GSD_B
 B_PX_RANGE = (768, 2048)
@@ -185,6 +191,7 @@ def plan_sample(rng, layout: str):
     """Случайный план сэмпла: высота, углы, масштаб, размер кропа B."""
     height = float(rng.uniform(*HEIGHT_RANGE))
     yaw = float(rng.uniform(*YAW_RANGE))
+    delta_yaw = float(rng.uniform(-DELTA_YAW_MAX, DELTA_YAW_MAX))
     tilt = float(rng.uniform(*TILT_RANGE))
     tilt_az = float(rng.uniform(0.0, 360.0))
     scale = float(rng.uniform(*SCALE_RANGE))     # GSD_A / GSD_B
@@ -195,20 +202,32 @@ def plan_sample(rng, layout: str):
         b_px = int(np.clip(round(FRAME_W * scale / wfrac), *B_PX_RANGE))
     else:
         b_px = int(rng.integers(B_PX_RANGE[0], B_PX_RANGE[1] + 1))
-    return dict(height=height, yaw=yaw, tilt=tilt, tilt_az=tilt_az,
+    return dict(height=height, yaw=yaw, delta_yaw=delta_yaw,
+                yaw_b=(yaw + delta_yaw) % 360.0, tilt=tilt, tilt_az=tilt_az,
                 scale=scale, gsd_a=gsd_a, gsd_b=gsd_b, b_px=b_px, layout=layout)
 
 
-def place_camera(K, R, plan, box, rng):
+def footprint_overlap(K, R, plan, cam_xy, grid_b):
+    """Доля следа кадра, попавшая в кроп B. Считается **в системе сетки B**:
+    после поворота подложки её кроп — не axis-aligned прямоугольник в мире,
+    и сравнивать габаритами было бы неверно."""
+    poly = footprint_corners(FRAME_W, FRAME_H, K, R, cam_xy, plan["height"])
+    if np.isnan(poly).any():
+        return None
+    px, py = grid_b.pixel_from_world(poly[:, 0], poly[:, 1])
+    n = grid_b.size_px - 1
+    return rect_overlap_frac(np.stack([px, py], axis=-1), (0.0, 0.0, n, n))
+
+
+def place_camera(K, R, plan, grid_b, rng):
     """Позиция камеры под заданную компоновку: (cx, cy) либо None.
 
     Центр следа смещён наклоном на ``H·tan(tilt)`` в сторону азимута —
     позиция камеры сдвигается назад на эту величину, иначе при наклоне часть
     кадров вылезает за край кропа B (§5.4 задания; баг, пойманный V-тестом).
     """
-    ax = (box[0] + box[2]) / 2.0
-    ay = (box[1] + box[3]) / 2.0
-    span = box[2] - box[0]
+    ax, ay = grid_b.x, grid_b.y
+    span = grid_b.size_px * grid_b.gsd
     off = plan["height"] * math.tan(math.radians(plan["tilt"]))
     off_x = off * math.sin(math.radians(plan["tilt_az"]))
     off_y = off * math.cos(math.radians(plan["tilt_az"]))
@@ -219,8 +238,8 @@ def place_camera(K, R, plan, box, rng):
         for _ in range(16):
             cx = ax - off_x + float(rng.uniform(-room, room))
             cy = ay - off_y + float(rng.uniform(-room, room))
-            poly = footprint_corners(FRAME_W, FRAME_H, K, R, (cx, cy), plan["height"])
-            if not np.isnan(poly).any() and rect_overlap_frac(poly, box) >= 0.9999:
+            frac = footprint_overlap(K, R, plan, (cx, cy), grid_b)
+            if frac is not None and frac >= 0.9999:
                 return cx, cy
         return None
 
@@ -230,11 +249,10 @@ def place_camera(K, R, plan, box, rng):
         mid = (lo + hi) / 2
         cx = ax - off_x + mid * math.cos(ang)
         cy = ay - off_y + mid * math.sin(ang)
-        poly = footprint_corners(FRAME_W, FRAME_H, K, R, (cx, cy), plan["height"])
-        if np.isnan(poly).any():
+        frac = footprint_overlap(K, R, plan, (cx, cy), grid_b)
+        if frac is None:
             hi = mid
             continue
-        frac = rect_overlap_frac(poly, box)
         if frac > PARTIAL_OVERLAP[1]:
             lo = mid
         elif frac < PARTIAL_OVERLAP[0]:
@@ -256,17 +274,17 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool):
     if pulled is None or pulled[2] < 0.90:
         return None, "якорь: мало данных"
     ax, ay, _ = pulled
-    box = (ax - span_b / 2, ay - span_b / 2, ax + span_b / 2, ay + span_b / 2)
+    # сетка кропа B повёрнута на свой курс: разница с курсом кадра ≤ DELTA_YAW_MAX
+    grid_b = Grid(x=ax, y=ay, size_px=b_px, gsd=gsd_b, rot_deg=plan["yaw_b"])
 
-    placed = place_camera(K, R, plan, box, rng)
+    placed = place_camera(K, R, plan, grid_b, rng)
     if placed is None:
         return None, "перекрытие не подобралось"
     cx, cy = placed
 
-    poly = footprint_corners(FRAME_W, FRAME_H, K, R, (cx, cy), plan["height"])
-    if np.isnan(poly).any():
+    area_frac = footprint_overlap(K, R, plan, (cx, cy), grid_b)
+    if area_frac is None:
         return None, "след за горизонтом"
-    area_frac = rect_overlap_frac(poly, box)
     if plan["layout"] == "inside" and area_frac < 0.999:
         return None, "след не помещается в кроп B"
     if plan["layout"] == "partial" and not (PARTIAL_OVERLAP[0] <= area_frac <= PARTIAL_OVERLAP[1]):
@@ -278,7 +296,6 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool):
     if float(a_val.mean()) < MIN_VALID_A and plan["layout"] == "inside":
         return None, f"кадр покрыт на {a_val.mean():.2f}"
 
-    grid_b = Grid(x=ax, y=ay, size_px=b_px, gsd=gsd_b)
     if same_source:
         b_rgb, b_val = ortho.read_grid(grid_b)
         comp = (0.0, 0.0)
@@ -294,9 +311,7 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool):
 
     # warp: пиксель A → земля → пиксель кропа B (компенсация уже учтена в
     # чтении B, поэтому здесь координаты берутся в сетке ортоплана)
-    ox, oy = grid_b.origin
-    wx = (gx - ox) / gsd_b
-    wy = (oy - gy) / gsd_b
+    wx, wy = grid_b.pixel_from_world(gx, gy)
     mask = (np.isfinite(wx) & np.isfinite(wy) & a_val
             & (wx >= 0) & (wx <= b_px - 1) & (wy >= 0) & (wy <= b_px - 1))
     if mask.sum() < 100:
@@ -318,7 +333,9 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool):
         pair_kind="same_source" if same_source else "orto_basemap",
         pair_layout=plan["layout"], rectified=False,
         tilt_deg=round(plan["tilt"], 2), tilt_az_deg=round(plan["tilt_az"], 1),
-        yaw_deg=round(plan["yaw"], 2), height_m=round(plan["height"], 1),
+        yaw_deg=round(plan["yaw"], 2), yaw_b_deg=round(plan["yaw_b"], 2),
+        delta_yaw_deg=round(plan["delta_yaw"], 2),
+        height_m=round(plan["height"], 1),
         fov_deg=round(fov_deg(FRAME_W, F_PX), 2),
         gsd_a=round(plan["gsd_a"], 4), gsd_b=round(gsd_b, 4),
         scale_ratio=round(plan["scale"], 3),

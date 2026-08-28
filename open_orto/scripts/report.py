@@ -47,7 +47,7 @@ def load_pair(path: Path):
 
 
 def warp_b_to_a(pair):
-    """Сторона B, натянутая на геометрию кадра A по warp."""
+    """Сторона B, натянутая на геометрию кадра A по warp (для замера остатка)."""
     warp, mask = pair["warp"], pair["mask"]
     mx = np.nan_to_num(warp[..., 0], nan=-1).astype(np.float32)
     my = np.nan_to_num(warp[..., 1], nan=-1).astype(np.float32)
@@ -55,6 +55,47 @@ def warp_b_to_a(pair):
                     borderMode=cv2.BORDER_CONSTANT, borderValue=(114, 114, 114))
     out[~mask] = 114
     return out
+
+
+def homography_a_to_b(pair):
+    """Гомография кадр A → кроп B, снятая с самой разметки.
+
+    Сцена плоская (z = 0), поэтому связь сторон **строго проективная**, и
+    четырёх точек хватило бы; берём сетку валидных точек и решаем МНК — так
+    устойчивее к субпиксельному шуму warp.
+    """
+    warp, mask = pair["warp"], pair["mask"]
+    h, w = mask.shape
+    ys, xs = np.mgrid[0:h:16, 0:w:16]
+    sel = mask[ys, xs]
+    if sel.sum() < 12:
+        return None
+    src = np.stack([xs[sel], ys[sel]], axis=-1).astype(np.float32)
+    dst = warp[ys[sel], xs[sel]].astype(np.float32)
+    good = np.isfinite(dst).all(axis=-1)
+    if good.sum() < 12:
+        return None
+    H, _ = cv2.findHomography(src[good], dst[good], 0)
+    return H
+
+
+def warp_a_to_b(pair):
+    """Кадр A, натянутый на геометрию кропа B: (rgb, маска попадания).
+
+    Накладываем **меньшее на большее** — так нагляднее: кроп подложки шире
+    кадра, и видно, куда именно кадр лёг.
+    """
+    H = homography_a_to_b(pair)
+    hb, wb = pair["image_b"].shape[:2]
+    if H is None:
+        return np.full((hb, wb, 3), 114, np.uint8), np.zeros((hb, wb), bool)
+    a = pair["image_a"]
+    on_b = cv2.warpPerspective(a, H, (wb, hb), flags=cv2.INTER_LINEAR,
+                               borderMode=cv2.BORDER_CONSTANT, borderValue=(114, 114, 114))
+    cover = cv2.warpPerspective(pair["mask"].astype(np.uint8) * 255, H, (wb, hb),
+                                flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT,
+                                borderValue=0) > 127
+    return on_b, cover
 
 
 def residual_px(pair):
@@ -70,22 +111,40 @@ def residual_px(pair):
     return math.hypot(dx, dy), peak
 
 
-def panel(pair, note: str):
-    a = pair["image_a"]
-    b = pair["image_b"]
-    mix = a.copy()
-    h, w = a.shape[:2]
-    yy, xx = np.mgrid[0:h, 0:w]
-    checker = (((yy // 64) + (xx // 64)) % 2).astype(bool)
-    mix[checker] = warp_b_to_a(pair)[checker]
-    bs = cv2.resize(b, (int(b.shape[1] * h / b.shape[0]), h))
-    img = np.hstack([a, bs, mix])
-    k = 1400 / img.shape[1]
-    img = cv2.resize(img, (1400, int(img.shape[0] * k)))
-    cv2.putText(img, note, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 4, cv2.LINE_AA)
-    cv2.putText(img, note, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
-    ok, buf = cv2.imencode(".jpg", cv2.cvtColor(img, cv2.COLOR_RGB2BGR),
-                           [cv2.IMWRITE_JPEG_QUALITY, 80])
+def panel(pair, note: str, *, max_width: int = 2000, tile: int = 96):
+    """Панель: кадр A | кроп B | шахматка в геометрии B.
+
+    Стороны кладутся в **натуральном размере** (без подгонки под общую
+    высоту) — так виден реальный масштаб: кроп подложки крупнее кадра.
+    В третьей колонке кадр наложен на подложку, а не наоборот.
+    """
+    a, b = pair["image_a"], pair["image_b"]
+    a_on_b, cover = warp_a_to_b(pair)
+    hb, wb = b.shape[:2]
+    yy, xx = np.mgrid[0:hb, 0:wb]
+    checker = (((yy // tile) + (xx // tile)) % 2).astype(bool) & cover
+    mix = b.copy()
+    mix[checker] = a_on_b[checker]
+    # контур следа кадра, чтобы было видно, куда он лёг
+    edges = cv2.morphologyEx(cover.astype(np.uint8), cv2.MORPH_GRADIENT,
+                             np.ones((5, 5), np.uint8)).astype(bool)
+    mix[edges] = (255, 220, 60)
+
+    gap = 12
+    ha, wa = a.shape[:2]
+    H = max(ha, hb)
+    W = wa + wb * 2 + gap * 2
+    canvas = np.full((H, W, 3), 32, np.uint8)
+    canvas[:ha, :wa] = a
+    canvas[:hb, wa + gap: wa + gap + wb] = b
+    canvas[:hb, wa + gap * 2 + wb:] = mix
+    if W > max_width:
+        k = max_width / W
+        canvas = cv2.resize(canvas, (max_width, int(H * k)), interpolation=cv2.INTER_AREA)
+    cv2.putText(canvas, note, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 4, cv2.LINE_AA)
+    cv2.putText(canvas, note, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+    ok, buf = cv2.imencode(".jpg", cv2.cvtColor(canvas, cv2.COLOR_RGB2BGR),
+                           [cv2.IMWRITE_JPEG_QUALITY, 82])
     import base64
     return base64.b64encode(buf).decode()
 
@@ -173,8 +232,10 @@ def main() -> int:
         pair = load_pair(root / r["file"])
         m = pair["meta"]
         note = (f"{tag} | {m['pair_layout']} | H={m['height_m']}м tilt={m['tilt_deg']}° "
-                f"yaw={m['yaw_deg']}° scale={m['scale_ratio']} covis={m['covis_frac']} "
-                f"| остаток {r['resid']:.2f} px (пик {r['peak']:.4f})")
+                f"yaw A={m['yaw_deg']}° B={m.get('yaw_b_deg', 0)}° "
+                f"(dyaw={m.get('delta_yaw_deg', 0)}°) scale={m['scale_ratio']} "
+                f"covis={m['covis_frac']} | остаток {r['resid']:.2f} px "
+                f"(пик {r['peak']:.4f})")
         gal.append(f'<figure><img src="data:image/jpeg;base64,{panel(pair, note)}"/>'
                    f'<figcaption>{note}</figcaption></figure>')
 
@@ -221,14 +282,17 @@ code{{background:#f4f3ee;padding:1px 5px;border-radius:4px;font-size:.92em}}</st
 <h2>Распределения осей</h2>
 {hist_svg(arr('height_m'), [(250,275),(275,300),(300,325),(325,350),(350,375),(375,401)], 'высота, м')}
 {hist_svg(arr('tilt_deg'), [(0,2),(2,4),(4,6),(6,8),(8,10.1)], 'наклон, °')}
-{hist_svg(arr('yaw_deg'), [(-25,-15),(-15,-5),(-5,5),(5,15),(15,25.1)], 'курс, °')}
+{hist_svg(arr('yaw_deg'), [(0,60),(60,120),(120,180),(180,240),(240,300),(300,360.1)], 'курс кадра, °')}
+{hist_svg(arr('delta_yaw_deg'), [(-25,-15),(-15,-5),(-5,5),(5,15),(15,25.1)], 'разница курсов A и B, °')}
 {hist_svg(arr('scale_ratio'), [(0.85,0.92),(0.92,0.99),(0.99,1.06),(1.06,1.13),(1.13,1.21)], 'GSD_A / GSD_B')}
 {hist_svg(arr('covis_frac'), [(0.5,0.6),(0.6,0.7),(0.7,0.8),(0.8,0.9),(0.9,1.01)], 'ко-видимость')}
 {hist_svg(arr('footprint_b_m'), [(300,450),(450,600),(600,750),(750,900),(900,1200)], 'след кропа B, м')}
 
 <h2>Галерея</h2>
-<p>Панель: <b>кадр A | кроп B | шахматка</b> (клетки чередуют кадр и сторону B,
-натянутую на его геометрию). Структуры обязаны продолжаться через границы клеток.</p>
+<p>Панель: <b>кадр A | кроп B | шахматка в геометрии B</b>. Стороны показаны в
+натуральном размере, поэтому видно реальное соотношение: кроп подложки крупнее
+кадра. В третьей колонке <b>кадр наложен на подложку</b> (меньшее на большее),
+жёлтым обведён след кадра. Структуры обязаны продолжаться через границы клеток.</p>
 {''.join(gal)}
 </body></html>"""
     dst = Path(args.out)

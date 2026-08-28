@@ -78,9 +78,20 @@ def test_grid_centres_are_pixel_centred():
     assert gy[1, 0] - gy[0, 0] == pytest.approx(-2.0)  # Y убывает вниз по строкам
 
 
-def test_grid_bounds_cover_full_pixels():
+def test_grid_bounds_span_pixel_centres():
+    """bounds — габарит по ЦЕНТРАМ угловых пикселей: это и есть диапазон,
+    в котором координата попадает внутрь сетки [0, n−1]."""
     g = Grid(x=0.0, y=0.0, size_px=4, gsd=1.0)
-    assert g.bounds() == (-2.0, -2.0, 2.0, 2.0)
+    assert g.bounds() == (-1.5, -1.5, 1.5, 1.5)
+
+
+def test_rotated_grid_bounds_grow_with_rotation():
+    """У повёрнутой сетки axis-aligned габарит больше — это габарит, не сетка."""
+    g0 = Grid(x=0.0, y=0.0, size_px=100, gsd=1.0, rot_deg=0.0)
+    g45 = Grid(x=0.0, y=0.0, size_px=100, gsd=1.0, rot_deg=45.0)
+    w0 = g0.bounds()[2] - g0.bounds()[0]
+    w45 = g45.bounds()[2] - g45.bounds()[0]
+    assert w45 == pytest.approx(w0 * np.sqrt(2), rel=1e-6)
 
 
 # --- выбор зума ------------------------------------------------------------------
@@ -112,3 +123,58 @@ def test_max_shift_keeps_true_peak_inside_radius(dx, dy):
     b = np.roll(np.roll(a, dy, axis=0), dx, axis=1)
     sx, sy, _ = phase_shift(a, b, max_shift_px=20)
     assert sx == pytest.approx(dx, abs=0.3) and sy == pytest.approx(dy, abs=0.3)
+
+
+# --- повёрнутая сетка -----------------------------------------------------------
+
+def test_rotated_grid_round_trip():
+    """Мир → пиксель → мир возвращает исходную точку при любом повороте."""
+    from rasters import Grid
+    for rot in (0.0, 25.0, 90.0, 187.0, -40.0):
+        g = Grid(x=1000.0, y=-500.0, size_px=64, gsd=0.4, rot_deg=rot)
+        gx, gy = g.pixel_centres()
+        px, py = g.pixel_from_world(gx, gy)
+        j, i = np.meshgrid(np.arange(64.0), np.arange(64.0))
+        assert np.allclose(px, j, atol=1e-9) and np.allclose(py, i, atol=1e-9)
+
+
+def test_rotated_grid_axes_point_to_azimuth():
+    """«Верх» сетки смотрит в азимут rot_deg: 90° = восток."""
+    from rasters import Grid
+    g = Grid(x=0.0, y=0.0, size_px=3, gsd=1.0, rot_deg=90.0)
+    right, up = g.axes
+    assert up[0] == pytest.approx(1.0) and abs(up[1]) < 1e-12     # вверх → +X (восток)
+    assert abs(right[0]) < 1e-12 and right[1] == pytest.approx(-1.0)
+
+
+def test_rotated_grid_preserves_scale_and_centre():
+    from rasters import Grid
+    g = Grid(x=10.0, y=20.0, size_px=9, gsd=2.0, rot_deg=33.0)
+    gx, gy = g.pixel_centres()
+    assert gx[4, 4] == pytest.approx(10.0) and gy[4, 4] == pytest.approx(20.0)
+    step = np.hypot(gx[0, 1] - gx[0, 0], gy[0, 1] - gy[0, 0])
+    assert step == pytest.approx(2.0)                             # шаг = gsd при любом rot
+
+
+def test_grid_corners_match_pixel_corners():
+    from rasters import Grid
+    g = Grid(x=5.0, y=7.0, size_px=16, gsd=0.5, rot_deg=61.0)
+    gx, gy = g.pixel_centres()
+    c = g.corners_world()
+    assert c[0] == pytest.approx([gx[0, 0], gy[0, 0]])
+    assert c[1] == pytest.approx([gx[0, -1], gy[0, -1]])
+    assert c[2] == pytest.approx([gx[-1, -1], gy[-1, -1]])
+    assert c[3] == pytest.approx([gx[-1, 0], gy[-1, 0]])
+
+
+def test_rotated_grid_bounds_drive_mosaic_size():
+    """Габарит повёрнутой сетки — то, по чему заказывается мозаика подложки:
+    по стороне её углы вылезали бы за скачанное окно (серые треугольники)."""
+    from rasters import Grid
+    g = Grid(x=0.0, y=0.0, size_px=1000, gsd=0.5, rot_deg=30.0)
+    x0, y0, x1, y1 = g.bounds()
+    span = max(x1 - x0, y1 - y0)
+    assert span > g.size_px * g.gsd            # габарит больше стороны
+    gx, gy = g.pixel_centres()
+    assert gx.min() >= x0 - 1e-9 and gx.max() <= x1 + 1e-9
+    assert gy.min() >= y0 - 1e-9 and gy.max() <= y1 + 1e-9
