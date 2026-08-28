@@ -156,7 +156,7 @@ def build_anchors(ortho: OrthoSource, step_m: float = ANCHOR_STEP_M):
 
 
 def build_cells(ortho: OrthoSource, cell_m: float = CELL_M,
-                min_cover: float = MIN_CELL_COVER):
+                min_cover: float = MIN_CELL_COVER, erosion_m: float = EROSION_M):
     """Непересекающиеся ячейки рабочей зоны: [(cx, cy, покрытие), ...].
 
     Покрытие оценивается по обзорной маске (быстро) и уточняется нативной
@@ -167,8 +167,8 @@ def build_cells(ortho: OrthoSource, cell_m: float = CELL_M,
     sx = (b.right - b.left) / mask.shape[1]
     sy = (b.top - b.bottom) / mask.shape[0]
     out = []
-    ys = np.arange(b.bottom + EROSION_M, b.top - EROSION_M - cell_m, cell_m)
-    xs = np.arange(b.left + EROSION_M, b.right - EROSION_M - cell_m, cell_m)
+    ys = np.arange(b.bottom + erosion_m, b.top - erosion_m - cell_m, cell_m)
+    xs = np.arange(b.left + erosion_m, b.right - erosion_m - cell_m, cell_m)
     for gy in ys:
         for gx in xs:
             cx, cy = gx + cell_m / 2, gy + cell_m / 2
@@ -343,6 +343,16 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool,
     K = intrinsics(FRAME_W, FRAME_H, F_PX)
     R = camera_rotation(plan["yaw"], plan["tilt"], plan["tilt_az"])
     gsd_b, b_px = plan["gsd_b"], plan["b_px"]
+    if not same_source:
+        # Подложку не апсемплим: если её самый детальный доступный зум грубее
+        # запрошенного GSD, читаем в её родном разрешении, сохраняя охват
+        # земли. Иначе интерполяция рисует детальность, которой в подложке
+        # нет, и матчер учится на вымысле.
+        floor_mpp = base.min_mpp
+        if gsd_b < floor_mpp:
+            span = b_px * gsd_b
+            gsd_b = floor_mpp
+            b_px = int(np.clip(round(span / gsd_b), *B_PX_RANGE))
     span_b = b_px * gsd_b
     ax, ay = anchor
 
@@ -417,7 +427,8 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool,
         height_m=round(plan["height"], 1),
         fov_deg=round(fov_deg(FRAME_W, F_PX), 2),
         gsd_a=round(plan["gsd_a"], 4), gsd_b=round(gsd_b, 4),
-        scale_ratio=round(plan["scale"], 3),
+        scale_ratio=round(plan["gsd_a"] / gsd_b, 3),
+        scale_planned=round(plan["scale"], 3),
         b_px=b_px, footprint_a_m=round(FRAME_W * plan["gsd_a"], 1),
         footprint_b_m=round(span_b, 1), area_frac=round(area_frac, 4),
         covis_frac=round(covis, 4), valid_a_frac=round(float(a_val.mean()), 4),
@@ -444,6 +455,8 @@ def main() -> int:
     ap.add_argument("--count", type=int, default=0,
                     help="старый режим: ровно N пар случайными якорями "
                          "(0 = сеточный режим по ячейкам)")
+    ap.add_argument("--erosion-m", type=float, default=EROSION_M,
+                    help="отступ от края съёмки, м (маленьким растрам нужен меньше)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="open_orto/dataset")
     args = ap.parse_args()
@@ -466,7 +479,7 @@ def main() -> int:
         anchors = build_anchors(ortho)
         print(f"режим счётчика: {args.count} пар, якорей {len(anchors)}")
     else:
-        cells = build_cells(ortho, args.cell_m)
+        cells = build_cells(ortho, args.cell_m, erosion_m=args.erosion_m)
         cell_km2 = (args.cell_m / 1000.0) ** 2
         print(f"ячеек {args.cell_m:.0f}×{args.cell_m:.0f} м с покрытием ≥ "
               f"{MIN_CELL_COVER:.0%}: {len(cells)} "

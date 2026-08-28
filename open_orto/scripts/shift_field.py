@@ -35,10 +35,23 @@ from rasters import BasemapSource, Grid, OrthoSource, gradient_map, phase_shift 
 #: рисунок и даёт согласованные единицы метров (замерено на 10 узлах).
 #: Грубая ступень ловит сдвиг на большом контексте, тонкая уточняет его до
 #: субпикселя в узком радиусе — и расхождение ступеней служит гейтом качества.
-NODE_COARSE_GSD = 0.30
-NODE_FINE_GSD = 0.15
-NODE_GSD = NODE_FINE_GSD   # разрешение, в котором меряется остаток
-NODE_PX = 1024             # 307 м на грубой ступени, 154 м на тонкой
+#: Разрешения ступеней задаются **относительно фактического разрешения
+#: подложки**, а не числом: 0.30/0.15 были выведены под Esri z19 (0.15 м/пкс)
+#: в Санкт-Петербурге, и на площадках, где доступен только z18 (0.38 м/пкс),
+#: тонкая ступень шла по вдвое апсемпленной подложке — субпиксельного пика
+#: там нет, и контроль остатка не проходил ни в одном узле (замерено на
+#: площадке 69faa4b8: 0 валидных из 14). Тот же класс ошибки, что «порог
+#: чужой калибровки»: параметр, снятый на одних данных, перенесён на другие.
+NODE_COARSE_FACTOR = 2.0   # грубая ступень: вдвое грубее подложки
+NODE_FINE_FACTOR = 1.0     # тонкая: родное разрешение подложки
+#: Размер узла задан **в метрах земли**, а не в пикселях. При фиксированных
+#: 1024 px и подложке 0.38 м/пкс грубая ступень требовала кроп 776 м, который
+#: на площадке 1.2 × 1.5 км почти всегда упирался в край съёмки: 21 узел из 25
+#: браковался по «мало данных ортоплана». Теперь охват постоянен, а число
+#: пикселей подстраивается под разрешение подложки.
+NODE_COARSE_M = 400.0
+NODE_FINE_M = 200.0
+NODE_PX_RANGE = (384, 1536)
 FINE_RADIUS_M = 3.0        # радиус уточнения вокруг грубого решения
 MAX_STAGE_DIFF_M = 3.0     # расхождение ступеней — гейт качества замера
 EROSION_M = 200.0      # отступ от края съёмки (§4.1)
@@ -53,15 +66,15 @@ MAX_NEIGHBOUR_DIFF_M = 5.0
 MIN_VALID_A = 0.90     # покрытие узла данными ортоплана
 
 
-def build_nodes(ortho: OrthoSource, step_m: float):
+def build_nodes(ortho: OrthoSource, step_m: float, erosion_m: float = EROSION_M):
     """Узлы сетки внутри рабочей зоны (валидные данные с эрозией)."""
     mask, _ = overview_mask(ortho, width=1500)
     b = ortho.bounds
     sx = (b.right - b.left) / mask.shape[1]
-    er_px = max(1, int(EROSION_M / sx))
+    er_px = max(1, int(erosion_m / sx))
     core = cv2.erode(mask.astype(np.uint8), np.ones((er_px, er_px), np.uint8)).astype(bool)
-    xs = np.arange(b.left + EROSION_M, b.right - EROSION_M, step_m)
-    ys = np.arange(b.bottom + EROSION_M, b.top - EROSION_M, step_m)
+    xs = np.arange(b.left + erosion_m, b.right - erosion_m, step_m)
+    ys = np.arange(b.bottom + erosion_m, b.top - erosion_m, step_m)
     nodes = []
     for gy in ys:
         for gx in xs:
@@ -72,9 +85,20 @@ def build_nodes(ortho: OrthoSource, step_m: float):
     return nodes, float(core.mean())
 
 
-def _stage(ortho, base, gx, gy, gsd, *, radius_m, shift_m=(0.0, 0.0), zoom=None):
+def node_gsds(base):
+    """Разрешения ступеней для этой подложки: (грубая, тонкая)."""
+    mpp = base.min_mpp
+    return NODE_COARSE_FACTOR * mpp, NODE_FINE_FACTOR * mpp
+
+
+def node_px(size_m: float, gsd: float) -> int:
+    """Сторона кропа узла в пикселях под заданный охват в метрах."""
+    return int(np.clip(round(size_m / gsd), *NODE_PX_RANGE))
+
+
+def _stage(ortho, base, gx, gy, gsd, *, radius_m, size_m, shift_m=(0.0, 0.0), zoom=None):
     """Одна ступень замера: (dx_m, dy_m, peak, valid_a, valid_b, zoom) либо None."""
-    grid = Grid(x=gx, y=gy, size_px=NODE_PX, gsd=gsd)
+    grid = Grid(x=gx, y=gy, size_px=node_px(size_m, gsd), gsd=gsd)
     a_rgb, a_val = ortho.read_grid(grid)
     va = float(a_val.mean())
     if va < MIN_VALID_A:
@@ -94,8 +118,9 @@ def measure_node(ortho, base, gx, gy):
     """Двухступенчатый замер в узле: грубая ступень + уточнение + контроль остатка."""
     rec = {"x": gx, "y": gy, "ok": False}
 
-    coarse, va, vb, zoom = _stage(ortho, base, gx, gy, NODE_COARSE_GSD,
-                                  radius_m=MAX_SHIFT_M)
+    coarse_gsd, fine_gsd = node_gsds(base)
+    coarse, va, vb, zoom = _stage(ortho, base, gx, gy, coarse_gsd,
+                                  radius_m=MAX_SHIFT_M, size_m=NODE_COARSE_M)
     rec.update(valid_a=va, valid_b=vb, zoom=zoom)
     if coarse is None:
         rec["reason"] = "мало данных ортоплана" if va < MIN_VALID_A else "дырявая подложка"
@@ -105,7 +130,7 @@ def measure_node(ortho, base, gx, gy):
         rec["reason"] = f"сдвиг {math.hypot(cdx, cdy):.1f} м вне потолка"
         return rec
 
-    fine, va_f, vb_f, _ = _stage(ortho, base, gx, gy, NODE_FINE_GSD,
+    fine, va_f, vb_f, _ = _stage(ortho, base, gx, gy, fine_gsd, size_m=NODE_FINE_M,
                                  radius_m=FINE_RADIUS_M, shift_m=(cdx, cdy), zoom=zoom)
     if fine is None:
         rec["reason"] = "тонкая ступень без данных"
@@ -122,7 +147,7 @@ def measure_node(ortho, base, gx, gy):
         rec["reason"] = f"сдвиг {rec['shift_m']:.1f} м вне потолка"
         return rec
 
-    resid, _, _, _ = _stage(ortho, base, gx, gy, NODE_FINE_GSD,
+    resid, _, _, _ = _stage(ortho, base, gx, gy, fine_gsd, size_m=NODE_FINE_M,
                             radius_m=FINE_RADIUS_M, shift_m=(dx_m, dy_m), zoom=zoom)
     if resid is None:
         rec["reason"] = "контроль остатка без данных"
@@ -200,7 +225,7 @@ table{{border-collapse:collapse}}td,th{{border-bottom:1px solid #ddd;padding:4px
 .num{{text-align:right;font-family:ui-monospace,monospace}}</style></head><body>
 <h1>Поле сдвигов «орто ↔ подложка»</h1>
 <p>Растр <code>{meta['raster']}</code> · шаг сетки {meta['step_m']} м ·
-узел {NODE_PX}px × {NODE_GSD} м ≈ {NODE_PX*NODE_GSD:.0f} м ·
+узел {NODE_COARSE_M:.0f}/{NODE_FINE_M:.0f} м, ступени {meta.get("coarse_gsd", "?")}/{meta.get("fine_gsd", "?")} м/пкс ·
 подложка {meta['provider']} zoom {meta.get('zoom','—')}</p>
 {stat}
 <h2>Стрелочная карта поля</h2>
@@ -219,6 +244,8 @@ def main() -> int:
     ap.add_argument("--raster", required=True)
     ap.add_argument("--step", type=float, default=300.0)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--erosion-m", type=float, default=EROSION_M,
+                    help="отступ от края съёмки, м")
     ap.add_argument("--neighbour-diff", type=float, default=MAX_NEIGHBOUR_DIFF_M,
                     help="порог согласия с соседями, м")
     ap.add_argument("--out", default="open_orto/work/shift")
@@ -228,7 +255,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     ortho = OrthoSource(args.raster)
     base = BasemapSource(ortho)
-    nodes, core_frac = build_nodes(ortho, args.step)
+    nodes, core_frac = build_nodes(ortho, args.step, erosion_m=args.erosion_m)
     if args.limit:
         nodes = nodes[: args.limit]
     print(f"рабочая зона (обзорно): {core_frac:.3f} площади | узлов: {len(nodes)}")
@@ -263,9 +290,14 @@ def main() -> int:
         all_ok=np.array([bool(r["ok"]) for r in recs if "dx" in r]),
         global_dx=gdx, global_dy=gdy,
         meta=np.str_(json.dumps({"raster": stem, "step_m": args.step,
-                                 "node_px": NODE_PX, "node_gsd": NODE_GSD,
+                                 "node_coarse_m": NODE_COARSE_M,
+                                 "node_fine_m": NODE_FINE_M,
+                                 "coarse_gsd": round(node_gsds(base)[0], 3),
+                                 "fine_gsd": round(node_gsds(base)[1], 3),
                                  "provider": "esri_world_imagery"}, ensure_ascii=False)))
+    cg, fg = node_gsds(base)
     meta = {"raster": stem, "step_m": args.step, "provider": "Esri World Imagery",
+            "coarse_gsd": round(cg, 3), "fine_gsd": round(fg, 3),
             "global_dx": gdx, "global_dy": gdy,
             "zoom": good[0].get("zoom")}
     report_html(recs, meta, out / f"shift_field_{stem}.html")

@@ -215,10 +215,13 @@ def main() -> int:
     ap.add_argument("--dataset", default="open_orto/dataset")
     ap.add_argument("--out", default="open_orto/work/report.html")
     ap.add_argument("--max-residual-checks", type=int, default=120)
+    ap.add_argument("--scene", default="", help="фильтр по площадке (stem растра)")
     args = ap.parse_args()
 
     root = Path(args.dataset)
     files = sorted(root.glob("*.npz"))
+    if args.scene:
+        files = [f for f in files if f.stem.startswith(f"pair_{args.scene[:8]}")]
     if not files:
         print("нет пар в", root)
         return 1

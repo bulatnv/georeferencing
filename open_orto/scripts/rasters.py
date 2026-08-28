@@ -28,7 +28,12 @@ _HERE = Path(__file__).resolve()
 sys.path.insert(0, str(_HERE.parent))              # соседние модули (geom)
 sys.path.insert(0, str(_HERE.parents[2]))          # корень проекта: aero_geoloc
 
-from aero_geoloc.basemap import ESRI_WORLD_IMAGERY, TileCache, fetch_basemap  # noqa: E402
+from aero_geoloc.basemap import (  # noqa: E402
+    ESRI_WORLD_IMAGERY,
+    TileCache,
+    deepest_imagery_zoom,
+    fetch_basemap,
+)
 from aero_geoloc.geo import ground_mpp  # noqa: E402
 from geom import valid_mask  # noqa: E402
 
@@ -181,14 +186,54 @@ def zoom_for_ground_mpp(lat: float, target_mpp: float, max_zoom: int = 19) -> in
     return best
 
 
+class NoImageryError(RuntimeError):
+    """У провайдера нет съёмки в этом районе ни на одном пригодном зуме."""
+
+
 class BasemapSource:
-    """Подложка (Esri): кроп, перепроецированный в метрическую сетку ортоплана."""
+    """Подложка (Esri): кроп, перепроецированный в метрическую сетку ортоплана.
+
+    Перед первым чтением выясняет, **до какого зума в этом районе есть
+    реальная съёмка**: `max_zoom` провайдера — предел пирамиды, а не гарантия
+    покрытия, и вне городов Esri отдаёт серую заглушку «Map data not yet
+    available». На такой заглушке фазовая корреляция даёт случайные пики, и
+    сдвиги привязки читались как 14–36 м (замерено на площадках Манитобы,
+    где z19 — заглушка, а съёмка есть только до z18). Если съёмки нет и на
+    минимальном зуме — :class:`NoImageryError`, а не пары по чистому листу.
+    """
 
     def __init__(self, ortho: OrthoSource, *, cache_dir: str = "tiles",
-                 provider=ESRI_WORLD_IMAGERY):
+                 provider=ESRI_WORLD_IMAGERY, min_zoom: int = 14):
         self.ortho = ortho
         self.cache = TileCache(cache_dir)
         self.provider = provider
+        self.min_zoom = min_zoom
+        self._max_zoom = None          # предел с реальной съёмкой, лениво
+        self.probes = []
+
+    @property
+    def max_zoom(self) -> int:
+        """Самый детальный зум со съёмкой в районе растра (кэшируется)."""
+        if self._max_zoom is None:
+            lon, lat = self.ortho.centre_lonlat()
+            b = self.ortho.bounds
+            radius = max(b.right - b.left, b.top - b.bottom) / 2
+            zoom, probes = deepest_imagery_zoom(
+                lon, lat, radius_m=radius, max_zoom=self.provider.max_zoom,
+                min_zoom=self.min_zoom, cache=self.cache)
+            self.probes = probes
+            if zoom is None:
+                raise NoImageryError(
+                    f"у {self.provider.name} нет съёмки в районе "
+                    f"lat={lat:.4f} lon={lon:.4f} вплоть до zoom {self.min_zoom}")
+            self._max_zoom = zoom
+        return self._max_zoom
+
+    @property
+    def min_mpp(self) -> float:
+        """Наземный размер пикселя на самом детальном доступном зуме."""
+        lat = self.ortho.centre_lonlat()[1]
+        return ground_mpp(lat, self.max_zoom)
 
     def read_grid(self, grid: Grid, *, zoom: int | None = None,
                   shift_m: tuple[float, float] = (0.0, 0.0)):
@@ -203,7 +248,7 @@ class BasemapSource:
         lat0 = float(np.nanmedian(lat))
         lon0 = float(np.nanmedian(lon))
         if zoom is None:
-            zoom = zoom_for_ground_mpp(lat0, grid.gsd, self.provider.max_zoom)
+            zoom = zoom_for_ground_mpp(lat0, grid.gsd, self.max_zoom)
 
         # Окно мозаики — по ГАБАРИТУ сетки, а не по её стороне: повёрнутая
         # сетка занимает в мире прямоугольник до √2 раз шире, и по стороне
