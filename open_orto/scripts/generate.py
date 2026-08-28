@@ -42,6 +42,9 @@ from geom import (  # noqa: E402
 )
 from rasters import NEUTRAL_GRAY, BasemapSource, Grid, OrthoSource  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from convert_ortholoc import pseudo_season  # noqa: E402
+
 # Параметры генерации — редакция 2 плана орто↔орто (§5 задания), перенесены как есть.
 FRAME_W, FRAME_H, F_PX = 1024, 576, 735.0
 #: Высоты съёмки. Редакция 4 (28.08): понижены с 250–400 м. Кадр стал ближе
@@ -57,6 +60,16 @@ HEIGHT_RANGE = (175.0, 300.0)
 YAW_RANGE = (0.0, 360.0)
 DELTA_YAW_MAX = 25.0
 TILT_RANGE = (0.0, 10.0)
+#: У пар «ортоплан сам на себя» подложки нет, значит нет и её ограничений:
+#: обе стороны из одного растра, разметка точна по построению при любом
+#: наклоне. Поэтому наклон здесь берётся вдвое больший — такие пары учат
+#: инвариантности к перспективе, а не переносу между источниками.
+SAME_SOURCE_TILT_MAX = 20.0
+#: Доля пар same_source, у которых сторона A перекрашивается (сезонная
+#: фотометрия по вегетационной маске — тот же приём, что в конвертере
+#: OrthoLoC). Геометрия при этом не трогается: разметка остаётся точной.
+SAME_SOURCE_COLOR_FRAC = 0.6
+SEASONS = ("winter", "autumn", "spring")
 SCALE_RANGE = (0.85, 1.20)         # GSD_A / GSD_B
 B_PX_RANGE = (768, 2048)
 INSIDE_QUOTA = 0.65
@@ -262,12 +275,13 @@ def jpeg_bytes(rgb: np.ndarray, q: int = 95) -> np.ndarray:
     return buf.reshape(-1)
 
 
-def plan_sample(rng, layout: str):
+def plan_sample(rng, layout: str, *, same_source: bool = False):
     """Случайный план сэмпла: высота, углы, масштаб, размер кропа B."""
     height = float(rng.uniform(*HEIGHT_RANGE))
     yaw = float(rng.uniform(*YAW_RANGE))
     delta_yaw = float(rng.uniform(-DELTA_YAW_MAX, DELTA_YAW_MAX))
-    tilt = float(rng.uniform(*TILT_RANGE))
+    tilt_hi = SAME_SOURCE_TILT_MAX if same_source else TILT_RANGE[1]
+    tilt = float(rng.uniform(TILT_RANGE[0], tilt_hi))
     tilt_az = float(rng.uniform(0.0, 360.0))
     scale = float(rng.uniform(*SCALE_RANGE))     # GSD_A / GSD_B
     gsd_a = nadir_gsd(height, F_PX)
@@ -338,7 +352,7 @@ def place_camera(K, R, plan, grid_b, rng):
 
 
 def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool,
-                compensation=None):
+                compensation=None, season=None):
     """Один сэмпл: (запись для npz, мета) либо (None, причина отказа)."""
     K = intrinsics(FRAME_W, FRAME_H, F_PX)
     R = camera_rotation(plan["yaw"], plan["tilt"], plan["tilt_az"])
@@ -348,7 +362,7 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool,
         # запрошенного GSD, читаем в её родном разрешении, сохраняя охват
         # земли. Иначе интерполяция рисует детальность, которой в подложке
         # нет, и матчер учится на вымысле.
-        floor_mpp = base.min_mpp
+        floor_mpp = base.min_mpp if base is not None else 0.0
         if gsd_b < floor_mpp:
             span = b_px * gsd_b
             gsd_b = floor_mpp
@@ -439,13 +453,116 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool,
         compensation_src=comp_src, shift_field=field.source,
         season_a=None, season_b=None, date_a=None, date_b=None,
     )
-    return dict(image_a=paint_invalid(a_rgb, a_val), image_b=paint_invalid(b_rgb, b_val),
+    image_a = paint_invalid(a_rgb, a_val)
+    if same_source and season is not None:
+        # красим ПОСЛЕ закраски невалидного, чтобы серые заплатки остались
+        # нейтральными, а не приобрели сезонный оттенок
+        image_a = pseudo_season(image_a, season, rng)
+        meta["season_a"] = f"pseudo_{season}"
+    return dict(image_a=image_a, image_b=paint_invalid(b_rgb, b_val),
                 warp=warp, mask=mask.astype(np.uint8), meta=meta), None
+
+
+def run_same_source(args, out: Path, commit: str) -> int:
+    """Пары «ортоплан сам на себя» по списку растров.
+
+    Подложка здесь не участвует: обе стороны берутся из одного растра,
+    поэтому не нужны ни сеть, ни поле сдвигов, ни гейт привязки — разметка
+    точна по построению. Зато доступен больший наклон (до
+    ``SAME_SOURCE_TILT_MAX``) и цветовая аугментация стороны A.
+    """
+    names = [ln.strip() for ln in Path(args.rasters).read_text(encoding="utf-8").splitlines()
+             if ln.strip()] if args.rasters else [Path(args.raster).stem]
+    data_dir = Path(args.data_dir)
+    per_lo, per_hi = (int(v) for v in str(args.per_cell).replace("–", "-").split("-"))         if "-" in str(args.per_cell) else (int(args.per_cell), int(args.per_cell))
+
+    manifest = out / "manifest.csv"
+    new = not manifest.exists()
+    mf = manifest.open("a", encoding="utf-8")
+    if new:
+        mf.write("pair,scene,layout,pair_kind,season,height_m,tilt_deg,yaw_deg,"
+                 "scale_ratio,b_px,area_frac,covis_frac,bytes\n")
+
+    total, skipped, reasons = 0, 0, {}
+    for ri, name in enumerate(names, 1):
+        path = data_dir / f"{name}.tif"
+        if not path.exists():
+            skipped += 1
+            continue
+        try:
+            ortho = OrthoSource(path)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [{name[:8]}] не открылся: {exc}", flush=True)
+            skipped += 1
+            continue
+        rng = np.random.default_rng(zlib.crc32(f"{name}:{args.seed}".encode()))
+        made = 0
+        try:
+            cells = build_cells(ortho, args.cell_m, erosion_m=args.erosion_m)
+            if args.max_per_raster and len(cells) * per_lo > args.max_per_raster:
+                # равномерно прореживаем ячейки, а не берём первые подряд:
+                # покрытие территории сохраняется, глубина снижается
+                keep = max(1, args.max_per_raster // max(per_lo, 1))
+                idx = rng.permutation(len(cells))[:keep]
+                cells = [cells[i] for i in sorted(idx)]
+            for cx, cy, _cover in cells:
+                quota = int(rng.integers(per_lo, per_hi + 1))
+                got, tries = 0, 0
+                while got < quota and tries < quota * 6:
+                    tries += 1
+                    layout = "inside" if rng.random() < INSIDE_QUOTA else "partial"
+                    plan = plan_sample(rng, layout, same_source=True)
+                    jitter = args.cell_m * 0.25
+                    anchor = (cx + float(rng.uniform(-jitter, jitter)),
+                              cy + float(rng.uniform(-jitter, jitter)))
+                    season = (str(rng.choice(SEASONS))
+                              if rng.random() < SAME_SOURCE_COLOR_FRAC else None)
+                    rec, why = make_sample(ortho, None, ShiftField(None), anchor, plan,
+                                           rng, same_source=True, season=season)
+                    if rec is None:
+                        reasons[why] = reasons.get(why, 0) + 1
+                        continue
+                    rec["meta"].update(gen_commit=commit, gen_date=date.today().isoformat(),
+                                       seed=int(args.seed), index=made,
+                                       cell_m=args.cell_m,
+                                       cell_xy=[round(cx, 1), round(cy, 1)])
+                    tag = "" if season is None else f"_{season[0]}"
+                    # Префикс имени = 8 символов + хеш полного имени: UUID
+                    # растров различаются в конце, и на 120 площадках даже
+                    # 12 первых символов совпали у двух пар растров — файл
+                    # одного перезаписывал файл другого.
+                    tagname = f"{name[:8]}{zlib.crc32(name.encode()) & 0xffff:04x}"
+                    dst = out / f"pair_{tagname}_{made:05d}_{layout}_ss{tag}.npz"
+                    np.savez_compressed(
+                        dst,
+                        image_a_jpeg=jpeg_bytes(rec["image_a"]),
+                        image_b_jpeg=jpeg_bytes(rec["image_b"]),
+                        warp_ab=rec["warp"], mask_ab=rec["mask"],
+                        meta=np.str_(json.dumps(rec["meta"], ensure_ascii=False)),
+                        pinhole=np.str_("null"))
+                    m = rec["meta"]
+                    mf.write(f"{dst.name},{m['scene']},{layout},same_source,"
+                             f"{season or 'none'},{m['height_m']},{m['tilt_deg']},"
+                             f"{m['yaw_deg']},{m['scale_ratio']},{m['b_px']},"
+                             f"{m['area_frac']},{m['covis_frac']},{dst.stat().st_size}\n")
+                    made += 1
+                    got += 1
+        finally:
+            ortho.close()
+        total += made
+        mf.flush()
+        if ri % 5 == 0 or made == 0:
+            print(f"  [{ri}/{len(names)}] {name[:8]}: +{made} пар (всего {total})", flush=True)
+    mf.close()
+    print(f"готово: {total} пар same_source из {len(names) - skipped} растров → {out}")
+    if reasons:
+        print("отказы:", dict(sorted(reasons.items(), key=lambda kv: -kv[1])[:6]))
+    return 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--raster", required=True)
+    ap.add_argument("--raster", default="")
     ap.add_argument("--shift-field", default=None)
     ap.add_argument("--cell-m", type=float, default=CELL_M,
                     help="сторона ячейки, м: территория режется на "
@@ -455,6 +572,14 @@ def main() -> int:
     ap.add_argument("--count", type=int, default=0,
                     help="старый режим: ровно N пар случайными якорями "
                          "(0 = сеточный режим по ячейкам)")
+    ap.add_argument("--same-source-only", action="store_true",
+                    help="только пары «ортоплан сам на себя»: подложка не "
+                         "нужна вовсе — ни сети, ни поля сдвигов, ни гейта")
+    ap.add_argument("--rasters", default="", help="файл со списком растров (по имени в строке)")
+    ap.add_argument("--max-per-raster", type=int, default=0,
+                    help="потолок пар с одного растра (0 = без потолка): при "
+                         "большом наборе площадок разнообразие важнее глубины")
+    ap.add_argument("--data-dir", default="open_orto/data", help="каталог с растрами")
     ap.add_argument("--erosion-m", type=float, default=EROSION_M,
                     help="отступ от края съёмки, м (маленьким растрам нужен меньше)")
     ap.add_argument("--seed", type=int, default=0)
@@ -469,6 +594,10 @@ def main() -> int:
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+
+    if args.same_source_only:
+        return run_same_source(args, out, commit)
+
     ortho = OrthoSource(args.raster)
     base = BasemapSource(ortho)
     field = ShiftField(args.shift_field)
