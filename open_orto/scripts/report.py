@@ -149,10 +149,43 @@ def panel(pair, note: str, *, max_width: int = 2000, tile: int = 96):
     return base64.b64encode(buf).decode()
 
 
+def auto_bins(values, n=6):
+    """Бины по фактическому диапазону данных, с «красивым» шагом.
+
+    Раньше границы были прописаны руками под конкретный диапазон параметров,
+    и после его смены (высоты 250–400 → 175–300) гистограмма показывала
+    почти пустоту: значения просто не попадали в бины. Теперь шкала следует
+    за данными, а :func:`hist_svg` вдобавок печатает, сколько значений
+    осталось вне бинов — молча потеряться они больше не могут.
+    """
+    v = np.asarray([x for x in values if np.isfinite(x)], dtype=float)
+    if v.size == 0:
+        return [(0.0, 1.0)]
+    lo, hi = float(v.min()), float(v.max())
+    if hi - lo < 1e-9:
+        pad = max(abs(lo) * 0.05, 0.5)
+        lo, hi = lo - pad, hi + pad
+    raw = (hi - lo) / n
+    mag = 10.0 ** np.floor(np.log10(raw)) if raw > 0 else 1.0
+    for mult in (1, 2, 2.5, 5, 10):
+        step = mult * mag
+        if raw <= step:
+            break
+    start = np.floor(lo / step) * step
+    edges = [start + i * step for i in range(int(np.ceil((hi - start) / step)) + 1)]
+    if len(edges) < 2:
+        edges = [start, start + step]
+    edges[-1] += step * 1e-6           # правый край включаем
+    return list(zip(edges[:-1], edges[1:]))
+
+
 def hist_svg(values, bins, label, fmt=lambda v: f"{v:g}"):
     if not len(values):
         return ""
+    if bins is None:
+        bins = auto_bins(values)
     counts = [int(((values >= lo) & (values < hi)).sum()) for lo, hi in bins]
+    outside = int(len(values) - sum(counts))
     n = max(1, len(values))
     W, Hh, PL, PB, PT = 620, 200, 40, 34, 10
     pw, ph = W - PL - 10, Hh - PB - PT
@@ -169,8 +202,11 @@ def hist_svg(values, bins, label, fmt=lambda v: f"{v:g}"):
         out.append(f'<text x="{PL+(i+0.5)*gw:.0f}" y="{Hh-16}" text-anchor="middle" '
                    f'font-size="10.5" fill="#555">{fmt(lo)}</text>')
     out.append(f'<line x1="{PL}" y1="{PT+ph}" x2="{W-10}" y2="{PT+ph}" stroke="#999"/>')
+    tail = f"{label} · n={len(values)}"
+    if outside:
+        tail += f" · ВНЕ ШКАЛЫ: {outside}"      # видимый сигнал о дефекте бинов
     out.append(f'<text x="{W/2:.0f}" y="{Hh-2}" text-anchor="middle" font-size="11" '
-               f'fill="#333">{label}</text></svg>')
+               f'fill="{"#c0392b" if outside else "#333"}">{tail}</text></svg>')
     return "".join(out)
 
 
@@ -280,13 +316,15 @@ code{{background:#f4f3ee;padding:1px 5px;border-radius:4px;font-size:.92em}}</st
 другую сторону.</p>
 
 <h2>Распределения осей</h2>
-{hist_svg(arr('height_m'), [(250,275),(275,300),(300,325),(325,350),(350,375),(375,401)], 'высота, м')}
-{hist_svg(arr('tilt_deg'), [(0,2),(2,4),(4,6),(6,8),(8,10.1)], 'наклон, °')}
-{hist_svg(arr('yaw_deg'), [(0,60),(60,120),(120,180),(180,240),(240,300),(300,360.1)], 'курс кадра, °')}
-{hist_svg(arr('delta_yaw_deg'), [(-25,-15),(-15,-5),(-5,5),(5,15),(15,25.1)], 'разница курсов A и B, °')}
-{hist_svg(arr('scale_ratio'), [(0.85,0.92),(0.92,0.99),(0.99,1.06),(1.06,1.13),(1.13,1.21)], 'GSD_A / GSD_B')}
-{hist_svg(arr('covis_frac'), [(0.5,0.6),(0.6,0.7),(0.7,0.8),(0.8,0.9),(0.9,1.01)], 'ко-видимость')}
-{hist_svg(arr('footprint_b_m'), [(300,450),(450,600),(600,750),(750,900),(900,1200)], 'след кропа B, м')}
+{hist_svg(arr('height_m'), None, 'высота съёмки, м')}
+{hist_svg(arr('tilt_deg'), None, 'наклон камеры, °')}
+{hist_svg(arr('yaw_deg'), None, 'курс кадра, °')}
+{hist_svg(arr('delta_yaw_deg'), None, 'разница курсов A и B, °')}
+{hist_svg(arr('scale_ratio'), None, 'масштаб GSD_A / GSD_B')}
+{hist_svg(arr('covis_frac'), None, 'ко-видимость')}
+{hist_svg(arr('footprint_b_m'), None, 'след кропа B, м')}
+{hist_svg(arr('footprint_a_m'), None, 'след кадра A, м')}
+{hist_svg(arr('gsd_a'), None, 'GSD кадра, м/пкс')}
 
 <h2>Галерея</h2>
 <p>Панель: <b>кадр A | кроп B | шахматка в геометрии B</b>. Стороны показаны в
