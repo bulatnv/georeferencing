@@ -68,15 +68,29 @@ MIN_VALID_B = 0.85
 ANCHOR_STEP_M = 150.0
 EROSION_M = 150.0
 
+#: Сеточный режим (редакция 5). Территория режется на **непересекающиеся
+#: ячейки**, в каждой делается рефайнмент привязки и берётся несколько пар.
+#: Так объём датасета выводится из площади съёмки, а не назначается числом:
+#: плотность = PER_CELL / площадь ячейки, и одно и то же место не попадает в
+#: корпус десятки раз. Размер ячейки выбран близким к следу кропа B (медиана
+#: ~480 м при высотах 175–300 м): меньше — пары соседних ячеек почти
+#: дублируют друг друга, больше — территория используется не полностью.
+CELL_M = 400.0
+PER_CELL = (3, 5)          # сколько пар берём с одной ячейки
+MIN_CELL_COVER = 0.85      # доля ячейки, покрытая данными ортоплана
+
 
 class ShiftField:
-    """Поле сдвигов привязки с билинейной выборкой и фолбэком на константу."""
+    """Поле сдвигов привязки: узлы этапа Р, прицельный рефайнмент по ячейке
+    и фолбэк на глобальную константу — в таком порядке предпочтения."""
 
     def __init__(self, path: str | Path | None):
         self.pts = None
         self.vec = None
         self.global_dxy = (0.0, 0.0)
         self.source = "none"
+        self.refined = 0          # сколько ячеек отрефайнено прицельно
+        self.failed = 0           # сколько ячеек осталось на глобальной константе
         if path is None:
             return
         d = np.load(path, allow_pickle=False)
@@ -85,18 +99,41 @@ class ShiftField:
         self.global_dxy = (float(d["global_dx"]), float(d["global_dy"]))
         self.source = Path(path).name
 
-    def at(self, gx: float, gy: float, radius_m: float = 700.0):
+    def at(self, gx: float, gy: float, radius_m: float = 500.0, *, min_nodes: int = 3):
         """Компенсация в точке: (dx, dy, источник). Взвешенная по расстоянию
         медиана ближних узлов, иначе — глобальная константа (§5.7 задания)."""
         if self.pts is None or len(self.pts) == 0:
             return self.global_dxy[0], self.global_dxy[1], "global"
         d = np.hypot(self.pts[:, 0] - gx, self.pts[:, 1] - gy)
         sel = d <= radius_m
-        if sel.sum() >= 3:
+        if sel.sum() >= min_nodes:
             w = 1.0 / np.maximum(d[sel], 1.0)
             dx = float(np.average(self.vec[sel, 0], weights=w))
             dy = float(np.average(self.vec[sel, 1], weights=w))
             return dx, dy, "field"
+        return self.global_dxy[0], self.global_dxy[1], "global"
+
+    def refine_cell(self, ortho, base, cx: float, cy: float, radius_m: float = 500.0):
+        """Рефайнмент привязки в центре ячейки, если узлов поля рядом мало.
+
+        Это и есть «рефайнинг на каждой площадке»: ячейка получает свою
+        компенсацию, замеренную тем же двухступенчатым методом, что и узлы
+        этапа Р. Успешный замер добавляется в поле — соседние ячейки им
+        тоже пользуются.
+        """
+        dx, dy, src = self.at(cx, cy, radius_m)
+        if src == "field":
+            return dx, dy, "field"
+        from shift_field import measure_node
+        rec = measure_node(ortho, base, cx, cy)
+        if rec.get("ok"):
+            new_pt = np.array([[cx, cy]])
+            new_vec = np.array([[rec["dx"], rec["dy"]]])
+            self.pts = new_pt if self.pts is None else np.vstack([self.pts, new_pt])
+            self.vec = new_vec if self.vec is None else np.vstack([self.vec, new_vec])
+            self.refined += 1
+            return rec["dx"], rec["dy"], "cell_refine"
+        self.failed += 1
         return self.global_dxy[0], self.global_dxy[1], "global"
 
 
@@ -115,6 +152,40 @@ def build_anchors(ortho: OrthoSource, step_m: float = ANCHOR_STEP_M):
             i = int((b.top - gy) / sy)
             if 0 <= i < core.shape[0] and 0 <= j < core.shape[1] and core[i, j]:
                 out.append((float(gx), float(gy)))
+    return out
+
+
+def build_cells(ortho: OrthoSource, cell_m: float = CELL_M,
+                min_cover: float = MIN_CELL_COVER):
+    """Непересекающиеся ячейки рабочей зоны: [(cx, cy, покрытие), ...].
+
+    Покрытие оценивается по обзорной маске (быстро) и уточняется нативной
+    пробой — обзорная маска систематически завышает его (§2.5 задания).
+    """
+    mask, _ = overview_mask(ortho, width=1500)
+    b = ortho.bounds
+    sx = (b.right - b.left) / mask.shape[1]
+    sy = (b.top - b.bottom) / mask.shape[0]
+    out = []
+    ys = np.arange(b.bottom + EROSION_M, b.top - EROSION_M - cell_m, cell_m)
+    xs = np.arange(b.left + EROSION_M, b.right - EROSION_M - cell_m, cell_m)
+    for gy in ys:
+        for gx in xs:
+            cx, cy = gx + cell_m / 2, gy + cell_m / 2
+            j0 = max(0, int((gx - b.left) / sx))
+            j1 = min(mask.shape[1], int((gx + cell_m - b.left) / sx) + 1)
+            i0 = max(0, int((b.top - gy - cell_m) / sy))
+            i1 = min(mask.shape[0], int((b.top - gy) / sy) + 1)
+            if j1 <= j0 or i1 <= i0:
+                continue
+            rough = float(mask[i0:i1, j0:j1].mean())
+            if rough < min_cover * 0.8:          # заведомо пустая — не тратим чтение
+                continue
+            probe = Grid(x=cx, y=cy, size_px=256, gsd=cell_m / 256)
+            _, val = ortho.read_grid(probe)
+            cover = float(val.mean())
+            if cover >= min_cover:
+                out.append((cx, cy, cover))
     return out
 
 
@@ -266,7 +337,8 @@ def place_camera(K, R, plan, grid_b, rng):
     return None
 
 
-def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool):
+def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool,
+                compensation=None):
     """Один сэмпл: (запись для npz, мета) либо (None, причина отказа)."""
     K = intrinsics(FRAME_W, FRAME_H, F_PX)
     R = camera_rotation(plan["yaw"], plan["tilt"], plan["tilt_az"])
@@ -306,7 +378,10 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool):
         comp_src = "same_source"
         zoom = None
     else:
-        comp_dx, comp_dy, comp_src = field.at(ax, ay)
+        if compensation is not None:
+            comp_dx, comp_dy, comp_src = compensation
+        else:
+            comp_dx, comp_dy, comp_src = field.at(ax, ay)
         comp = (comp_dx, comp_dy)
         b_rgb, b_val, info = base.read_grid(grid_b, shift_m=comp)
         zoom = info["zoom"]
@@ -361,7 +436,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--raster", required=True)
     ap.add_argument("--shift-field", default=None)
-    ap.add_argument("--count", type=int, default=100)
+    ap.add_argument("--cell-m", type=float, default=CELL_M,
+                    help="сторона ячейки, м: территория режется на "
+                         "непересекающиеся ячейки, объём выводится из площади")
+    ap.add_argument("--per-cell", default=f"{PER_CELL[0]}-{PER_CELL[1]}",
+                    help="сколько пар брать с ячейки, например 3-5")
+    ap.add_argument("--count", type=int, default=0,
+                    help="старый режим: ровно N пар случайными якорями "
+                         "(0 = сеточный режим по ячейкам)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="open_orto/dataset")
     args = ap.parse_args()
@@ -377,8 +459,22 @@ def main() -> int:
     ortho = OrthoSource(args.raster)
     base = BasemapSource(ortho)
     field = ShiftField(args.shift_field)
-    anchors = build_anchors(ortho)
-    print(f"якорей: {len(anchors)} | поле сдвигов: {field.source} "
+    per_lo, per_hi = (int(v) for v in str(args.per_cell).replace("–", "-").split("-"))         if "-" in str(args.per_cell) else (int(args.per_cell), int(args.per_cell))
+    cells = []
+    anchors = []
+    if args.count:
+        anchors = build_anchors(ortho)
+        print(f"режим счётчика: {args.count} пар, якорей {len(anchors)}")
+    else:
+        cells = build_cells(ortho, args.cell_m)
+        cell_km2 = (args.cell_m / 1000.0) ** 2
+        print(f"ячеек {args.cell_m:.0f}×{args.cell_m:.0f} м с покрытием ≥ "
+              f"{MIN_CELL_COVER:.0%}: {len(cells)} "
+              f"({len(cells) * cell_km2:.2f} км² полезной площади)")
+        print(f"пар с ячейки: {per_lo}–{per_hi} → плотность "
+              f"{(per_lo + per_hi) / 2 / cell_km2:.0f} пар/км², "
+              f"ожидаемо ~{int(len(cells) * (per_lo + per_hi) / 2)} пар")
+    print(f"поле сдвигов: {field.source} "
           f"(константа {field.global_dxy[0]:.2f}, {field.global_dxy[1]:.2f} м)")
 
     rng = np.random.default_rng(args.seed)
@@ -390,19 +486,58 @@ def main() -> int:
                  "b_px,area_frac,covis_frac,compensation_src,bytes\n")
 
     made, tries, reasons = 0, 0, {}
-    while made < args.count and tries < args.count * 12:
+    plan_queue = []          # (якорь, компенсация) — что генерировать дальше
+    if args.count:
+        plan_queue = [(None, None)] * (args.count * 12)
+    else:
+        for ci, (cx, cy, cover) in enumerate(cells):
+            comp = field.refine_cell(ortho, base, cx, cy)
+            k = int(rng.integers(per_lo, per_hi + 1))
+            plan_queue += [((cx, cy), comp)] * (k * 4)   # запас попыток на ячейку
+            if (ci + 1) % 10 == 0:
+                print(f"  рефайнмент ячеек: {ci+1}/{len(cells)} "
+                      f"(прицельно {field.refined}, на константе {field.failed})",
+                      flush=True)
+    per_cell_target = {}
+    if not args.count:
+        for cx, cy, _ in cells:
+            per_cell_target[(cx, cy)] = int(rng.integers(per_lo, per_hi + 1))
+        total_target = sum(per_cell_target.values())
+        print(f"квоты ячеек проставлены: цель {total_target} пар")
+    per_cell_done = {k: 0 for k in per_cell_target}
+
+    for anchor_hint, comp in plan_queue:
+        if args.count and made >= args.count:
+            break
+        if not args.count and all(per_cell_done[k] >= per_cell_target[k]
+                                  for k in per_cell_target):
+            break
         tries += 1
+        if anchor_hint is not None and per_cell_done[anchor_hint] >= per_cell_target[anchor_hint]:
+            continue
         layout = "inside" if rng.random() < INSIDE_QUOTA else "partial"
         same_source = rng.random() < SAME_SOURCE_QUOTA
         plan = plan_sample(rng, layout)
-        ax, ay = anchors[int(rng.integers(len(anchors)))]
+        if anchor_hint is None:
+            ax, ay = anchors[int(rng.integers(len(anchors)))]
+        else:
+            # якорь — центр ячейки с джиттером до четверти её стороны,
+            # чтобы пары одной ячейки не были кадрами одной и той же точки
+            jitter = args.cell_m * 0.25
+            ax = anchor_hint[0] + float(rng.uniform(-jitter, jitter))
+            ay = anchor_hint[1] + float(rng.uniform(-jitter, jitter))
         rec, why = make_sample(ortho, base, field, (ax, ay), plan, rng,
-                               same_source=same_source)
+                               same_source=same_source, compensation=comp)
         if rec is None:
             reasons[why] = reasons.get(why, 0) + 1
             continue
+        if anchor_hint is not None:
+            per_cell_done[anchor_hint] += 1
         rec["meta"].update(gen_commit=commit, gen_date=date.today().isoformat(),
-                           seed=int(args.seed), index=made)
+                           seed=int(args.seed), index=made,
+                           cell_m=None if args.count else args.cell_m,
+                           cell_xy=None if anchor_hint is None else
+                           [round(anchor_hint[0], 1), round(anchor_hint[1], 1)])
         name = f"pair_{ortho.path.stem[:8]}_{made:05d}_{layout}" \
                f"{'_ss' if same_source else ''}.npz"
         dst = out / name
@@ -423,6 +558,13 @@ def main() -> int:
             print(f"  {made}/{args.count} (попыток {tries})", flush=True)
     mf.close()
     print(f"готово: {made} пар за {tries} попыток → {out}")
+    if not args.count:
+        used = sum(1 for k, v in per_cell_done.items() if v > 0)
+        cell_km2 = (args.cell_m / 1000.0) ** 2
+        print(f"ячеек задействовано: {used}/{len(cells)} | "
+              f"плотность: {made / max(used * cell_km2, 1e-9):.0f} пар/км² "
+              f"полезной площади | рефайнмент: прицельно {field.refined}, "
+              f"на глобальной константе {field.failed}")
     if reasons:
         print("отказы:", dict(sorted(reasons.items(), key=lambda kv: -kv[1])))
     ortho.close()

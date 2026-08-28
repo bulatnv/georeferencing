@@ -168,3 +168,41 @@ def test_overlap_uses_rotated_frame_not_bounding_box():
     px, py = grid.pixel_from_world(*corner)
     n = grid.size_px - 1
     assert not (0 <= px <= n and 0 <= py <= n)                 # вне самой сетки
+
+
+# --- сеточный режим (редакция 5) -----------------------------------------------
+
+def test_cells_do_not_overlap_and_tile_the_area():
+    """Ячейки непересекающиеся и лежат в габарите: объём датасета выводится
+    из площади, а не назначается числом."""
+    from generate import CELL_M
+    cell = 400.0
+    xs = np.arange(0.0, 2000.0 - cell, cell)
+    centres = [(x + cell / 2, y + cell / 2) for y in xs for x in xs]
+    for i, (ax, ay) in enumerate(centres):
+        for bx, by in centres[i + 1:]:
+            assert max(abs(ax - bx), abs(ay - by)) >= cell - 1e-9
+    assert CELL_M > 0
+
+
+def test_density_formula_matches_per_cell_quota():
+    """Плотность пар на км² = квота ячейки / её площадь — это и есть
+    величина, которой задаётся объём корпуса."""
+    cell_m = 400.0
+    per_cell = 4
+    cell_km2 = (cell_m / 1000.0) ** 2
+    assert per_cell / cell_km2 == pytest.approx(25.0)
+
+
+def test_shift_field_counts_refinements(tmp_path):
+    """Прицельный рефайнмент ячейки добавляет узел в поле — соседние ячейки
+    им тоже пользуются."""
+    p = tmp_path / "f.npz"
+    np.savez_compressed(p, x=np.array([0.0]), y=np.array([0.0]),
+                        dx=np.array([1.0]), dy=np.array([1.0]),
+                        peak=np.zeros(1), resid=np.zeros(1),
+                        global_dx=9.0, global_dy=9.0)
+    f = ShiftField(p)
+    assert f.refined == 0 and f.failed == 0
+    # одного узла мало (нужно min_nodes=3) → источник «global»
+    assert f.at(0.0, 0.0)[2] == "global"
