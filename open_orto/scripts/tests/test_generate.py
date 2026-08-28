@@ -54,9 +54,9 @@ def test_inside_layout_keeps_footprint_within_crop(tilt, az, yaw):
 
 def test_inside_refuses_when_frame_does_not_fit():
     """Честный отказ, если кадр крупнее кропа — а не «как-нибудь впишем»."""
-    plan = _plan("inside", height=400.0)          # след ≈ 558 м
+    plan = _plan("inside", height=300.0)          # след ≈ 418 м
     R = camera_rotation(0, 0, 0)
-    assert place_camera(K, R, plan, _grid(300.0), np.random.default_rng(0)) is None
+    assert place_camera(K, R, plan, _grid(220.0), np.random.default_rng(0)) is None
 
 
 def test_tilt_shift_is_compensated_in_placement():
@@ -91,7 +91,7 @@ def test_plan_ranges_match_spec():
     rng = np.random.default_rng(0)
     for _ in range(200):
         p = plan_sample(rng, "inside")
-        assert 250.0 <= p["height"] <= 400.0
+        assert 175.0 <= p["height"] <= 300.0
         assert 0.85 <= p["scale"] <= 1.20
         assert 768 <= p["b_px"] <= 2048
         # курс кадра теперь произвольный (0–360°), ограничена лишь РАЗНИЦА
