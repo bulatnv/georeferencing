@@ -45,10 +45,16 @@ def main() -> int:
     scene_i = header.index("scene")
     rows = [ln.split(",") for ln in lines[1:] if ln.strip()]
 
+    kind_i = header.index("pair_kind")
     keep, moved, unknown = [], [], 0
     for r in rows:
         v = verdicts.get(r[scene_i])
-        if v is None:
+        if r[kind_i] == "same_source":
+            # контрольная ось от привязки к подложке не зависит: обе стороны
+            # из одного растра, разметка точна по построению. Вердикт
+            # площадки к этим парам неприменим
+            keep.append((r, "same_source"))
+        elif v is None:
             unknown += 1
             keep.append((r, "не проверялась"))
         elif v in QUARANTINE:

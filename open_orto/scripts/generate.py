@@ -130,7 +130,8 @@ class ShiftField:
             return dx, dy, "field"
         return self.global_dxy[0], self.global_dxy[1], "global"
 
-    def refine_cell(self, ortho, base, cx: float, cy: float, radius_m: float = 500.0):
+    def refine_cell(self, ortho, base, cx: float, cy: float, radius_m: float = 500.0,
+                    always: bool = False):
         """Рефайнмент привязки в центре ячейки, если узлов поля рядом мало.
 
         Это и есть «рефайнинг на каждой площадке»: ячейка получает свою
@@ -139,7 +140,7 @@ class ShiftField:
         тоже пользуются.
         """
         dx, dy, src = self.at(cx, cy, radius_m)
-        if src == "field":
+        if src == "field" and not always:
             return dx, dy, "field"
         from shift_field import measure_node
         rec = measure_node(ortho, base, cx, cy)
@@ -603,6 +604,10 @@ def main() -> int:
     ap.add_argument("--data-dir", default="open_orto/data", help="каталог с растрами")
     ap.add_argument("--erosion-m", type=float, default=EROSION_M,
                     help="отступ от края съёмки, м (маленьким растрам нужен меньше)")
+    ap.add_argument("--refine-always", action="store_true",
+                    help="мерить привязку в каждой ячейке, а не брать "
+                         "интерполяцию поля: узлов на площадку выходит 8-9, и "
+                         "между ними интерполяция промахивается на метры")
     ap.add_argument("--require-refine", dest="require_refine", action="store_true",
                     default=None,
                     help="ячейку без прицельного замера привязки пропускать, а "
@@ -682,7 +687,7 @@ def main() -> int:
     else:
         skipped_cells = []
         for ci, (cx, cy, cover) in enumerate(cells):
-            comp = field.refine_cell(ortho, base, cx, cy)
+            comp = field.refine_cell(ortho, base, cx, cy, always=args.refine_always)
             if args.require_refine and comp[2] == "global":
                 skipped_cells.append((cx, cy))
                 continue
