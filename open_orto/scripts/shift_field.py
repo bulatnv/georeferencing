@@ -55,7 +55,13 @@ NODE_PX_RANGE = (384, 1536)
 FINE_RADIUS_M = 3.0        # радиус уточнения вокруг грубого решения
 MAX_STAGE_DIFF_M = 3.0     # расхождение ступеней — гейт качества замера
 EROSION_M = 200.0      # отступ от края съёмки (§4.1)
-MAX_SHIFT_M = 20.0     # потолок для пар с подложкой (§4.5)
+#: Потолок сдвига привязки. Двадцать метров были выведены на первых
+#: площадках; на отказных замер показал, что часть узлов отбрасывается именно
+#: этим порогом (валидных 19 % против 23 % при потолке 60 м), то есть
+#: расхождение орто с подложкой там больше, но систематическое. Порог остаётся
+#: ограничением, а не подсказкой: решение вне радиуса не «подтягивается», оно
+#: не рассматривается — просто радиус теперь соответствует наблюдаемым сдвигам.
+MAX_SHIFT_M = 45.0
 MAX_RESID_M = 1.0      # контроль остатка (§4.4)
 #: Согласие с соседями. Порог 3 м из задания выведен на парах «орто ↔ орто»,
 #: где обе стороны в одной сетке; у пар с подложкой абсолютные сдвиги больше и
@@ -64,6 +70,37 @@ MAX_RESID_M = 1.0      # контроль остатка (§4.4)
 #: проекта «смена условий = смена калибровки порога», а не подтянуто по вкусу.
 MAX_NEIGHBOUR_DIFF_M = 5.0
 MIN_VALID_A = 0.90     # покрытие узла данными ортоплана
+
+
+def fit_to_area(ortho: OrthoSource, erosion_m: float = EROSION_M):
+    """Подгонка окна узла и эрозии под размер рабочей зоны: (coarse, fine, erosion).
+
+    Константы 400/200 м и эрозия 150 м выведены на площадках в единицы км².
+    На площадке в 0.7 км² рабочая зона после эрозии втрое меньше габарита, и
+    окно в 400 м туда просто не помещается: замер отклоняется как «мало данных
+    ортоплана», хотя данные есть — их меньше, чем просит окно. Замерено на
+    отказных площадках: окно 200/100 м поднимает долю валидных узлов с 19 %
+    до 55 %.
+
+    Уменьшать окно без нужды нельзя: чем меньше кроп, тем меньше в нём
+    фактуры и тем легче фазовой корреляции найти ложный пик. Поэтому окно
+    сужается только там, где иначе не помещается.
+    """
+    mask, _ = overview_mask(ortho, width=1500)
+    b = ortho.bounds
+    sx = (b.right - b.left) / mask.shape[1]
+    er = erosion_m
+    for _ in range(3):
+        er_px = max(1, int(er / sx))
+        core = cv2.erode(mask.astype(np.uint8), np.ones((er_px, er_px), np.uint8)).astype(bool)
+        area = float(core.mean()) * (b.right - b.left) * (b.top - b.bottom)
+        if area > 4 * NODE_FINE_M ** 2 or er <= 50.0:
+            break
+        er = max(50.0, er / 2)          # рваная площадка: отступ от края уменьшаем
+    side = area ** 0.5 if area > 0 else 0.0
+    coarse = float(min(NODE_COARSE_M, max(150.0, side / 2)))
+    fine = float(min(NODE_FINE_M, max(75.0, coarse / 2)))
+    return coarse, fine, er
 
 
 def step_for_nodes(ortho: OrthoSource, target: int, erosion_m: float = EROSION_M,
@@ -136,13 +173,19 @@ def _stage(ortho, base, gx, gy, gsd, *, radius_m, size_m, shift_m=(0.0, 0.0), zo
     return (dx_px * gsd, -dy_px * gsd, peak), va, vb, info["zoom"]
 
 
-def measure_node(ortho, base, gx, gy):
-    """Двухступенчатый замер в узле: грубая ступень + уточнение + контроль остатка."""
+def measure_node(ortho, base, gx, gy, *, coarse_m=None, fine_m=None):
+    """Двухступенчатый замер в узле: грубая ступень + уточнение + контроль остатка.
+
+    Размеры окна ступеней задаются вызывающим (`fit_to_area`), иначе берутся
+    штатные: на мелких площадках штатные не помещаются в рабочую зону.
+    """
+    coarse_m = NODE_COARSE_M if coarse_m is None else coarse_m
+    fine_m = NODE_FINE_M if fine_m is None else fine_m
     rec = {"x": gx, "y": gy, "ok": False}
 
     coarse_gsd, fine_gsd = node_gsds(base)
     coarse, va, vb, zoom = _stage(ortho, base, gx, gy, coarse_gsd,
-                                  radius_m=MAX_SHIFT_M, size_m=NODE_COARSE_M)
+                                  radius_m=MAX_SHIFT_M, size_m=coarse_m)
     rec.update(valid_a=va, valid_b=vb, zoom=zoom)
     if coarse is None:
         rec["reason"] = "мало данных ортоплана" if va < MIN_VALID_A else "дырявая подложка"
@@ -152,7 +195,7 @@ def measure_node(ortho, base, gx, gy):
         rec["reason"] = f"сдвиг {math.hypot(cdx, cdy):.1f} м вне потолка"
         return rec
 
-    fine, va_f, vb_f, _ = _stage(ortho, base, gx, gy, fine_gsd, size_m=NODE_FINE_M,
+    fine, va_f, vb_f, _ = _stage(ortho, base, gx, gy, fine_gsd, size_m=fine_m,
                                  radius_m=FINE_RADIUS_M, shift_m=(cdx, cdy), zoom=zoom)
     if fine is None:
         rec["reason"] = "тонкая ступень без данных"
@@ -169,7 +212,7 @@ def measure_node(ortho, base, gx, gy):
         rec["reason"] = f"сдвиг {rec['shift_m']:.1f} м вне потолка"
         return rec
 
-    resid, _, _, _ = _stage(ortho, base, gx, gy, fine_gsd, size_m=NODE_FINE_M,
+    resid, _, _, _ = _stage(ortho, base, gx, gy, fine_gsd, size_m=fine_m,
                             radius_m=FINE_RADIUS_M, shift_m=(dx_m, dy_m), zoom=zoom)
     if resid is None:
         rec["reason"] = "контроль остатка без данных"
@@ -283,8 +326,12 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     ortho = OrthoSource(args.raster)
     base = BasemapSource(ortho)
-    step = args.step or step_for_nodes(ortho, args.target_nodes, args.erosion_m)
-    nodes, core_frac = build_nodes(ortho, step, erosion_m=args.erosion_m)
+    coarse_m, fine_m, erosion_m = fit_to_area(ortho, args.erosion_m)
+    if (coarse_m, fine_m, erosion_m) != (NODE_COARSE_M, NODE_FINE_M, args.erosion_m):
+        print(f"окно узла подогнано под площадку: {coarse_m:.0f}/{fine_m:.0f} м, "
+              f"отступ от края {erosion_m:.0f} м")
+    step = args.step or step_for_nodes(ortho, args.target_nodes, erosion_m)
+    nodes, core_frac = build_nodes(ortho, step, erosion_m=erosion_m)
     if args.limit:
         nodes = nodes[: args.limit]
     print(f"рабочая зона (обзорно): {core_frac:.3f} площади | "
@@ -292,7 +339,8 @@ def main() -> int:
 
     recs = []
     for i, (gx, gy) in enumerate(nodes, 1):
-        recs.append(measure_node(ortho, base, gx, gy))
+        recs.append(measure_node(ortho, base, gx, gy,
+                                 coarse_m=coarse_m, fine_m=fine_m))
         if i % 10 == 0 or i == len(nodes):
             ok = sum(1 for r in recs if r["ok"])
             print(f"  {i}/{len(nodes)} узлов, валидных {ok}", flush=True)
@@ -320,8 +368,8 @@ def main() -> int:
         all_ok=np.array([bool(r["ok"]) for r in recs if "dx" in r]),
         global_dx=gdx, global_dy=gdy,
         meta=np.str_(json.dumps({"raster": stem, "step_m": step,
-                                 "node_coarse_m": NODE_COARSE_M,
-                                 "node_fine_m": NODE_FINE_M,
+                                 "node_coarse_m": coarse_m,
+                                 "node_fine_m": fine_m,
                                  "coarse_gsd": round(node_gsds(base)[0], 3),
                                  "fine_gsd": round(node_gsds(base)[1], 3),
                                  "provider": "esri_world_imagery"}, ensure_ascii=False)))
