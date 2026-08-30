@@ -476,7 +476,8 @@ def run_same_source(args, out: Path, commit: str) -> int:
     data_dir = Path(args.data_dir)
     per_lo, per_hi = (int(v) for v in str(args.per_cell).replace("–", "-").split("-"))         if "-" in str(args.per_cell) else (int(args.per_cell), int(args.per_cell))
 
-    manifest = out / "manifest.csv"
+    manifest = Path(args.manifest) if args.manifest else out / "manifest.csv"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
     new = not manifest.exists()
     mf = manifest.open("a", encoding="utf-8")
     if new:
@@ -584,6 +585,10 @@ def main() -> int:
                     help="отступ от края съёмки, м (маленьким растрам нужен меньше)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="open_orto/dataset")
+    ap.add_argument("--manifest", default="",
+                    help="путь к манифесту (по умолчанию <out>/manifest.csv); "
+                         "параллельным процессам нужен свой, иначе строки "
+                         "перемешаются на дописывании")
     args = ap.parse_args()
 
     try:
