@@ -22,6 +22,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
+import zipfile
+from concurrent.futures import ProcessPoolExecutor
 import subprocess
 import sys
 import time
@@ -136,7 +139,7 @@ def main() -> int:
             continue
         fh = log.open("w", encoding="utf-8")
         procs.append((i, subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT,
-                                          env={**__import__("os").environ,
+                                          env={**os.environ,
                                                "PYTHONIOENCODING": "utf-8"}), fh))
     if args.dry_run:
         return 0
@@ -156,27 +159,67 @@ def main() -> int:
     return 1 if bad else 0
 
 
+def _crc_ok(path: str):
+    """None, если контейнер цел; иначе имя повреждённого члена."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            return z.testzip()
+    except Exception as exc:  # noqa: BLE001
+        return f"open: {exc}"
+
+
+def verify(out: Path, names, workers: int = 8):
+    """Проверка CRC записанных пар; битые удаляются, их имена возвращаются.
+
+    На прогоне 2195 пар один контейнер оказался с битым CRC — запись
+    оборвалась незаметно для генератора. Пара, которая не читается, хуже
+    отсутствующей: она свалит обучение на середине эпохи, и виновника будут
+    искать в загрузчике. Дешевле проверить сразу, пока известно, какие
+    файлы новые.
+    """
+    paths = [str(out / n) for n in names]
+    bad = []
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        for name, err in zip(paths, ex.map(_crc_ok, paths, chunksize=8)):
+            if err:
+                bad.append(Path(name))
+    for b in bad:
+        b.unlink(missing_ok=True)
+    print(f"проверка целостности: {len(paths)} пар, битых {len(bad)}"
+          + (" (удалены)" if bad else ""))
+    return {b.name for b in bad}
+
+
 def merge(out: Path, work: Path, jobs: int) -> None:
-    """Слияние частичных манифестов в общий (заголовок пишем один раз)."""
+    """Слияние частичных манифестов в общий (заголовок пишем один раз).
+
+    Строки сначала собираются, затем проверяется целостность их файлов и
+    только потом дописываются: в манифесте не должно быть того, что не
+    читается.
+    """
     mf = out / "manifest.csv"
     head = ("pair,scene,layout,pair_kind,season,height_m,tilt_deg,yaw_deg,"
             "scale_ratio,b_px,area_frac,covis_frac,bytes\n")
+    rows = []
+    for i in range(jobs):
+        part = work / f"manifest_{i}.csv"
+        if not part.exists():
+            continue
+        rows += [ln for ln in part.read_text(encoding="utf-8").splitlines()[1:] if ln.strip()]
+        # os.replace, а не rename: следы прошлых прогонов не должны ронять
+        # слияние уже после того, как часть строк переписана
+        part.replace(part.with_suffix(".csv.merged"))
+
+    dropped = verify(out, [ln.split(",", 1)[0] for ln in rows])
+    rows = [ln for ln in rows if ln.split(",", 1)[0] not in dropped]
+
     new = not mf.exists()
-    added = 0
     with mf.open("a", encoding="utf-8") as dst:
         if new:
             dst.write(head)
-        for i in range(jobs):
-            part = work / f"manifest_{i}.csv"
-            if not part.exists():
-                continue
-            lines = part.read_text(encoding="utf-8").splitlines()
-            for ln in lines[1:]:
-                if ln.strip():
-                    dst.write(ln + "\n")
-                    added += 1
-            part.rename(part.with_suffix(".csv.merged"))
-    print(f"манифест: +{added} строк → {mf}")
+        for ln in rows:
+            dst.write(ln + "\n")
+    print(f"манифест: +{len(rows)} строк → {mf}")
 
 
 if __name__ == "__main__":

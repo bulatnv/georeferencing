@@ -543,7 +543,10 @@ def run_same_source(args, out: Path, commit: str) -> int:
                         pinhole=np.str_("null"))
                     m = rec["meta"]
                     mf.write(f"{dst.name},{m['scene']},{layout},same_source,"
-                             f"{season or 'none'},{m['height_m']},{m['tilt_deg']},"
+                             # тот же вид, что в meta.season_a: «pseudo_» — не
+                             # шум, а признак, что сезон нарисован фотометрией,
+                             # а не снят в этот сезон
+                             f"{m.get('season_a') or 'none'},{m['height_m']},{m['tilt_deg']},"
                              f"{m['yaw_deg']},{m['scale_ratio']},{m['b_px']},"
                              f"{m['area_frac']},{m['covis_frac']},{dst.stat().st_size}\n")
                     made += 1
