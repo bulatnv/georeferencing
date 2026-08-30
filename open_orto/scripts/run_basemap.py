@@ -106,6 +106,15 @@ def main() -> int:
     ap.add_argument("--timeout-min", type=float, default=25.0,
                     help="потолок времени на шаг: сеть иногда виснет, и одна "
                          "площадка не должна держать воркер часами")
+    ap.add_argument("--scenes", default="",
+                    help="файл со списком площадок: обработать именно их, а не "
+                         "выборку по скану (для повторов и экспериментов)")
+    ap.add_argument("--refine-always", action="store_true",
+                    help="прокидывается в генератор: мерить привязку в каждой "
+                         "ячейке, а не брать интерполяцию поля")
+    ap.add_argument("--require-refine", action="store_true",
+                    help="прокидывается в генератор: ячейку без прицельного "
+                         "замера пропускать")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     from cpu_affinity import pin_to_performance
@@ -124,8 +133,14 @@ def main() -> int:
     if rejects.exists():
         done |= {ln.split(",")[0] for ln in rejects.read_text(encoding="utf-8").splitlines()[1:]}
 
-    cand = [(n, k) for n, k in load_candidates(Path(args.scan), args.min_km2, args.max_res)
-            if n not in done]
+    all_cand = load_candidates(Path(args.scan), args.min_km2, args.max_res)
+    if args.scenes:
+        want = [ln.strip() for ln in Path(args.scenes).read_text(encoding="utf-8").split()
+                if ln.strip()]
+        km2 = dict(all_cand)
+        cand = [(n, km2.get(n, 0.0)) for n in want]
+    else:
+        cand = [(n, k) for n, k in all_cand if n not in done]
     if args.limit:
         cand = cand[:args.limit]
     print(f"к обработке площадок: {len(cand)} "
@@ -181,7 +196,9 @@ def main() -> int:
                               "--cell-m", str(args.cell_m), "--per-cell", args.per_cell,
                               "--max-per-raster", str(args.max_per_raster),
                               "--erosion-m", str(args.erosion_m), "--seed", str(args.seed),
-                              "--out", str(out), "--manifest", str(mani)],
+                              "--out", str(out), "--manifest", str(mani)]
+                             + (["--refine-always"] if args.refine_always else [])
+                             + (["--require-refine"] if args.require_refine else []),
                              log, timeout=args.timeout_min * 60)
                     if rc != 0:
                         reason = f"генерация: код {rc}"
