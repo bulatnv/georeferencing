@@ -53,7 +53,9 @@ def main() -> int:
     plan, bad, clash = [], [], []
     for r in take:
         f = src / r["pair"]
-        new_name = f"{f.stem}_{args.suffix}.npz"
+        # пустой суффикс — для площадок, которых в корпусе ещё не было:
+        # переименовывать нечего, а коллизию всё равно ловит проверка ниже
+        new_name = f"{f.stem}_{args.suffix}.npz" if args.suffix else f.name
         if new_name in known or (dst / new_name).exists():
             clash.append(new_name)
             continue
