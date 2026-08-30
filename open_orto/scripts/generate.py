@@ -40,7 +40,13 @@ from geom import (  # noqa: E402
     rect_overlap_frac,
     valid_mask,
 )
-from rasters import NEUTRAL_GRAY, BasemapSource, Grid, OrthoSource  # noqa: E402
+from rasters import (  # noqa: E402
+    NEUTRAL_GRAY,
+    BasemapSource,
+    Grid,
+    OrthoSource,
+    to_rgb,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 from convert_ortholoc import pseudo_season  # noqa: E402
@@ -267,7 +273,7 @@ def render_frame(ortho: OrthoSource, cam_xy, height_m: float, R, K):
     out_h = max(1, int(round(win.height / scale)))
     arr = ortho.ds.read(out_shape=(ortho.ds.count, out_h, out_w), window=win,
                         resampling=Resampling.average if scale > 1.5 else Resampling.bilinear)
-    src = np.transpose(arr[:3], (1, 2, 0))
+    src = to_rgb(arr)
     map_x = ((sx - x0) * out_w / win.width).astype(np.float32)
     map_y = ((sy - y0) * out_h / win.height).astype(np.float32)
     rgb = cv2.remap(src, map_x, map_y, cv2.INTER_LINEAR,

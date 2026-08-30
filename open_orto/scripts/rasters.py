@@ -164,7 +164,7 @@ class OrthoSource:
         out_h = max(1, int(round(win.height / scale)))
         arr = self.ds.read(out_shape=(self.ds.count, out_h, out_w), window=win,
                            resampling=Resampling.average if scale > 1.5 else Resampling.bilinear)
-        rgb_src = np.transpose(arr[:3], (1, 2, 0))
+        rgb_src = to_rgb(arr)
         sx = out_w / win.width
         sy = out_h / win.height
         map_x = ((px - x0c) * sx).astype(np.float32)
@@ -174,6 +174,22 @@ class OrthoSource:
         inside = ((map_x >= 0) & (map_x <= out_w - 1)
                   & (map_y >= 0) & (map_y <= out_h - 1))
         return rgb, valid_mask(rgb) & inside
+
+
+def to_rgb(arr: np.ndarray) -> np.ndarray:
+    """(каналы, H, W) от rasterio → (H, W, 3) uint8-совместимый массив.
+
+    Число каналов у источника — его частное дело, выше по стеку картинка
+    всегда трёхканальная: маска валидности берёт размах по оси каналов, и на
+    одноканальном растре она обваливалась несовпадением форм. Панхром
+    разворачивается в три одинаковых канала (а не дополняется нулями, иначе
+    кадр стал бы синим), у четырёхканальных берутся первые три.
+    """
+    if arr.shape[0] == 1:
+        out = np.repeat(np.transpose(arr[:1], (1, 2, 0)), 3, axis=2)
+    else:
+        out = np.transpose(arr[:3], (1, 2, 0))
+    return np.ascontiguousarray(out)
 
 
 def zoom_for_ground_mpp(lat: float, target_mpp: float, max_zoom: int = 19) -> int:
