@@ -141,8 +141,12 @@ def panel(pair, note: str, *, max_width: int = 2000, tile: int = 96):
     if W > max_width:
         k = max_width / W
         canvas = cv2.resize(canvas, (max_width, int(H * k)), interpolation=cv2.INTER_AREA)
-    cv2.putText(canvas, note, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 4, cv2.LINE_AA)
-    cv2.putText(canvas, note, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+    # плашка под подписью: на светлой застройке белый текст с обводкой сливался
+    (tw, th), _ = cv2.getTextSize(note, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+    band = canvas[0:th + 14, 0:min(tw + 20, canvas.shape[1])]
+    band[:] = (band * 0.35).astype(np.uint8)
+    cv2.putText(canvas, note, (10, th + 6), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                (255, 255, 255), 1, cv2.LINE_AA)
     ok, buf = cv2.imencode(".jpg", cv2.cvtColor(canvas, cv2.COLOR_RGB2BGR),
                            [cv2.IMWRITE_JPEG_QUALITY, 82])
     import base64
