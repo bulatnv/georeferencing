@@ -178,3 +178,26 @@ def test_rotated_grid_bounds_drive_mosaic_size():
     gx, gy = g.pixel_centres()
     assert gx.min() >= x0 - 1e-9 and gx.max() <= x1 + 1e-9
     assert gy.min() >= y0 - 1e-9 and gy.max() <= y1 + 1e-9
+
+
+def test_psr_separates_real_match_from_noise():
+    """«Пик над фоном» отличает найденное соответствие от его отсутствия.
+
+    Абсолютная высота пика этого не умеет: она зависит от контраста фактуры,
+    а не от того, нашлось ли совпадение. Здесь один и тот же измеритель
+    получает сначала сдвинутую копию картинки (соответствие есть), потом два
+    независимых шума (соответствия нет) — PSR должен различить эти случаи
+    на порядок, тогда как высота пика различает их слабо.
+    """
+    from rasters import phase_shift
+    rng = np.random.default_rng(7)
+    a = rng.normal(size=(128, 128))
+    b = np.roll(np.roll(a, 5, axis=1), -3, axis=0)      # сдвиг (5, -3)
+    dx, dy, peak_ok, psr_ok = phase_shift(a, b, with_psr=True)
+    assert dx == pytest.approx(5.0, abs=0.05)
+    assert dy == pytest.approx(-3.0, abs=0.05)
+
+    c = rng.normal(size=(128, 128))                     # независимый шум
+    _, _, peak_bad, psr_bad = phase_shift(a, c, with_psr=True)
+    assert psr_ok > 10 * psr_bad
+    assert psr_bad < 20.0

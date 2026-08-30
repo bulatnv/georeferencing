@@ -91,6 +91,10 @@ EROSION_M = 150.0
 CELL_M = 400.0
 PER_CELL = (3, 5)          # сколько пар берём с одной ячейки
 MIN_CELL_COVER = 0.85      # доля ячейки, покрытая данными ортоплана
+#: Порог расхождения замера ячейки с медианой соседей, м. Та же величина, что
+#: у фильтра узлов этапа Р (`shift_field.MAX_NEIGHBOUR_DIFF_M`): смещение
+#: привязки по территории плавное, скачок означает ложный пик, а не рельеф.
+NEIGHBOUR_DIFF_M = 5.0
 
 
 class ShiftField:
@@ -139,6 +143,19 @@ class ShiftField:
             return dx, dy, "field"
         from shift_field import measure_node
         rec = measure_node(ortho, base, cx, cy)
+        if rec.get("ok") and self.pts is not None and len(self.pts):
+            # проверка соседями, как в этапе Р: одиночный замер на смене
+            # фактуры (орто зимой против летней подложки) даёт ложный пик, и
+            # он тихо уезжает в разметку всех пар ячейки. Замеренный на
+            # пилоте выброс −16.4 м при соседях −2.4…−4.4 стоил парам
+            # ячейки остатка 24–54 px.
+            d = np.hypot(self.pts[:, 0] - cx, self.pts[:, 1] - cy)
+            near = d <= radius_m * 2
+            if near.sum() >= 3:
+                med = np.median(self.vec[near], axis=0)
+                if math.hypot(rec["dx"] - med[0], rec["dy"] - med[1]) > NEIGHBOUR_DIFF_M:
+                    self.failed += 1
+                    return self.global_dxy[0], self.global_dxy[1], "global"
         if rec.get("ok"):
             new_pt = np.array([[cx, cy]])
             new_vec = np.array([[rec["dx"], rec["dy"]]])
@@ -586,6 +603,13 @@ def main() -> int:
     ap.add_argument("--data-dir", default="open_orto/data", help="каталог с растрами")
     ap.add_argument("--erosion-m", type=float, default=EROSION_M,
                     help="отступ от края съёмки, м (маленьким растрам нужен меньше)")
+    ap.add_argument("--require-refine", dest="require_refine", action="store_true",
+                    default=None,
+                    help="ячейку без прицельного замера привязки пропускать, а "
+                         "не брать глобальную константу (по умолчанию включено, "
+                         "когда поля сдвигов нет: там константа — ноль)")
+    ap.add_argument("--allow-global", dest="require_refine", action="store_false",
+                    help="разрешить ячейки на глобальной константе")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="open_orto/dataset")
     ap.add_argument("--manifest", default="",
@@ -609,6 +633,12 @@ def main() -> int:
     ortho = OrthoSource(args.raster)
     base = BasemapSource(ortho)
     field = ShiftField(args.shift_field)
+    if args.require_refine is None:
+        # без поля сдвигов глобальная константа равна нулю, то есть означает
+        # «компенсации нет вовсе». Пара с непокрытой систематической ошибкой
+        # привязки — уверенно-неверная разметка, худший вид брака: обучение
+        # примет её за истину. Поэтому по умолчанию такие ячейки пропускаем.
+        args.require_refine = args.shift_field is None
     per_lo, per_hi = (int(v) for v in str(args.per_cell).replace("–", "-").split("-"))         if "-" in str(args.per_cell) else (int(args.per_cell), int(args.per_cell))
     cells = []
     anchors = []
@@ -617,6 +647,13 @@ def main() -> int:
         print(f"режим счётчика: {args.count} пар, якорей {len(anchors)}")
     else:
         cells = build_cells(ortho, args.cell_m, erosion_m=args.erosion_m)
+        if args.max_per_raster and len(cells) * per_lo > args.max_per_raster:
+            # то же прореживание, что в same_source: на сотнях площадок
+            # разнообразие территорий важнее глубины по одной, и ячейки
+            # прореживаются равномерно, а не берутся первые подряд
+            keep = max(1, args.max_per_raster // max(per_lo, 1))
+            idx = np.random.default_rng(args.seed).permutation(len(cells))[:keep]
+            cells = [cells[i] for i in sorted(idx)]
         cell_km2 = (args.cell_m / 1000.0) ** 2
         print(f"ячеек {args.cell_m:.0f}×{args.cell_m:.0f} м с покрытием ≥ "
               f"{MIN_CELL_COVER:.0%}: {len(cells)} "
@@ -628,7 +665,8 @@ def main() -> int:
           f"(константа {field.global_dxy[0]:.2f}, {field.global_dxy[1]:.2f} м)")
 
     rng = np.random.default_rng(args.seed)
-    manifest = (out / "manifest.csv")
+    manifest = Path(args.manifest) if args.manifest else out / "manifest.csv"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
     new = not manifest.exists()
     mf = manifest.open("a", encoding="utf-8")
     if new:
@@ -640,8 +678,12 @@ def main() -> int:
     if args.count:
         plan_queue = [(None, None)] * (args.count * 12)
     else:
+        skipped_cells = []
         for ci, (cx, cy, cover) in enumerate(cells):
             comp = field.refine_cell(ortho, base, cx, cy)
+            if args.require_refine and comp[2] == "global":
+                skipped_cells.append((cx, cy))
+                continue
             k = int(rng.integers(per_lo, per_hi + 1))
             plan_queue += [((cx, cy), comp)] * (k * 4)   # запас попыток на ячейку
             if (ci + 1) % 10 == 0:
@@ -650,8 +692,13 @@ def main() -> int:
                       flush=True)
     per_cell_target = {}
     if not args.count:
+        if skipped_cells:
+            print(f"ячеек без прицельного замера привязки: {len(skipped_cells)} "
+                  f"из {len(cells)} — пропущены")
+        planned = {xy for xy, _ in plan_queue}
         for cx, cy, _ in cells:
-            per_cell_target[(cx, cy)] = int(rng.integers(per_lo, per_hi + 1))
+            if (cx, cy) in planned:
+                per_cell_target[(cx, cy)] = int(rng.integers(per_lo, per_hi + 1))
         total_target = sum(per_cell_target.values())
         print(f"квоты ячеек проставлены: цель {total_target} пар")
     per_cell_done = {k: 0 for k in per_cell_target}
@@ -688,7 +735,12 @@ def main() -> int:
                            cell_m=None if args.count else args.cell_m,
                            cell_xy=None if anchor_hint is None else
                            [round(anchor_hint[0], 1), round(anchor_hint[1], 1)])
-        name = f"pair_{ortho.path.stem[:8]}_{made:05d}_{layout}" \
+        # то же правило, что в same_source: 8 символов имени растра плюс
+        # хеш полного — на сотнях площадок префиксы UUID совпадают, и
+        # файл одной площадки перезаписывал файл другой
+        stem = ortho.path.stem
+        tagname = f"{stem[:8]}{zlib.crc32(stem.encode()) & 0xffff:04x}"
+        name = f"pair_{tagname}_{made:05d}_{layout}" \
                f"{'_ss' if same_source else ''}.npz"
         dst = out / name
         np.savez_compressed(

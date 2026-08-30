@@ -297,7 +297,29 @@ def _parabolic(prev: float, mid: float, nxt: float) -> float:
     return float(np.clip(0.5 * (prev - nxt) / denom, -0.5, 0.5))
 
 
-def phase_shift(a: np.ndarray, b: np.ndarray, *, max_shift_px: float | None = None):
+def peak_to_sidelobe(corr: np.ndarray, iy: int, ix: int, exclude_px: int = 3) -> float:
+    """Насколько пик возвышается над фоном корреляции, в сигмах фона.
+
+    Абсолютная высота пика плохой гейт: она зависит от контраста фактуры, а
+    не от того, нашлось ли соответствие. На смене фактуры (орто зимой против
+    летней подложки) корреляция вырождается в шум, но её максимум всё равно
+    имеет высоту порядка обычной — и замер молча выдаёт мусор вместо отказа.
+    Отношение «пик над фоном» этот случай различает: у настоящего совпадения
+    пик стоит одиноко, у шума — теряется среди соседей.
+    """
+    h, w = corr.shape
+    yy = np.minimum(np.abs(np.arange(h) - iy), h - np.abs(np.arange(h) - iy))
+    xx = np.minimum(np.abs(np.arange(w) - ix), w - np.abs(np.arange(w) - ix))
+    far = (yy[:, None] > exclude_px) | (xx[None, :] > exclude_px)
+    bg = corr[far]
+    sd = float(bg.std())
+    if sd < 1e-12:
+        return 0.0
+    return float((corr[iy, ix] - bg.mean()) / sd)
+
+
+def phase_shift(a: np.ndarray, b: np.ndarray, *, max_shift_px: float | None = None,
+                with_psr: bool = False):
     """Сдвиг ``b`` относительно ``a`` в пикселях: (dx, dy, peak).
 
     ``max_shift_px`` — радиус, в котором ищется пик. Это **ограничение, а не
@@ -341,4 +363,6 @@ def phase_shift(a: np.ndarray, b: np.ndarray, *, max_shift_px: float | None = No
         dx -= w
     if dy > h / 2:
         dy -= h
+    if with_psr:
+        return float(dx), float(dy), peak, peak_to_sidelobe(corr, iy, ix)
     return float(dx), float(dy), peak
