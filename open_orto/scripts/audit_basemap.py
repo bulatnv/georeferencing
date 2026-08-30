@@ -122,6 +122,8 @@ def main() -> int:
     ap.add_argument("--limit-scenes", type=int, default=0)
     ap.add_argument("--out", default="open_orto/work/audit_basemap.csv")
     args = ap.parse_args()
+    from cpu_affinity import pin_to_performance
+    pin_to_performance(verbose=False)
 
     root = Path(args.dataset)
     by_scene: dict[str, list[Path]] = defaultdict(list)

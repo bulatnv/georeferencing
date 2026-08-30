@@ -107,6 +107,8 @@ def main() -> int:
                          "площадка не должна держать воркер часами")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    from cpu_affinity import pin_to_performance
+    pin_to_performance(verbose=True)
 
     out, work = Path(args.out), Path(args.work)
     out.mkdir(parents=True, exist_ok=True)
@@ -160,7 +162,12 @@ def main() -> int:
                               "--erosion-m", str(args.erosion_m)],
                              log, timeout=args.timeout_min * 60)
                     if rc != 0:
-                        reason = f"привязка: код {rc}"
+                        # код 1 у shift_field.py — это его честный отказ «ни
+                        # одного валидного узла», а не сбой; в отказном списке
+                        # они не должны выглядеть одинаково
+                        reason = ("привязка не построена: нет валидных узлов"
+                                  if rc == 1 and not field.exists()
+                                  else f"привязка: сбой, код {rc}")
                 nodes = field_nodes(field)
                 if reason is None and nodes < MIN_VALID_NODES:
                     reason = f"узлов привязки {nodes} меньше {MIN_VALID_NODES}"

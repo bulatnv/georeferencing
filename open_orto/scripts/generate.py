@@ -617,6 +617,8 @@ def main() -> int:
                          "параллельным процессам нужен свой, иначе строки "
                          "перемешаются на дописывании")
     args = ap.parse_args()
+    from cpu_affinity import pin_to_performance
+    pin_to_performance(verbose=False)
 
     try:
         commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,

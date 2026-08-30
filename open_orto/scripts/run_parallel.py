@@ -96,6 +96,8 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    from cpu_affinity import pin_to_performance
+    pin_to_performance(verbose=True)
 
     out = Path(args.out)
     work = Path(args.work)

@@ -250,6 +250,8 @@ def main() -> int:
                     help="порог согласия с соседями, м")
     ap.add_argument("--out", default="open_orto/work/shift")
     args = ap.parse_args()
+    from cpu_affinity import pin_to_performance
+    pin_to_performance(verbose=False)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

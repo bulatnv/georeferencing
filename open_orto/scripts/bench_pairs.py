@@ -104,6 +104,8 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--out", default="open_orto/work/bench_pairs.csv")
     args = ap.parse_args()
+    from cpu_affinity import pin_to_performance
+    pin_to_performance(verbose=False)
 
     files = sorted(Path(args.dataset).glob("*.npz"))
     if args.limit:
