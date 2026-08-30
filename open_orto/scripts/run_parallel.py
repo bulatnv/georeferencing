@@ -122,6 +122,10 @@ def main() -> int:
         part = work / f"part_{i}.txt"
         part.write_text("\n".join(names) + "\n", encoding="utf-8")
         mani = work / f"manifest_{i}.csv"
+        # генератор дописывает манифест, а не перезаписывает: остаток
+        # прошлого прогона иначе влился бы в общий второй раз
+        if mani.exists():
+            mani.replace(mani.with_suffix(".csv.stale"))
         log = work / f"log_{i}.txt"
         cmd = [sys.executable, "open_orto/scripts/generate.py",
                "--same-source-only",
@@ -211,7 +215,11 @@ def merge(out: Path, work: Path, jobs: int) -> None:
         part.replace(part.with_suffix(".csv.merged"))
 
     dropped = verify(out, [ln.split(",", 1)[0] for ln in rows])
-    rows = [ln for ln in rows if ln.split(",", 1)[0] not in dropped]
+    known = set()
+    if mf.exists():
+        known = {ln.split(",", 1)[0] for ln in mf.read_text(encoding="utf-8").splitlines()[1:]}
+    rows = [ln for ln in rows
+            if ln.split(",", 1)[0] not in dropped and ln.split(",", 1)[0] not in known]
 
     new = not mf.exists()
     with mf.open("a", encoding="utf-8") as dst:
