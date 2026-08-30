@@ -66,6 +66,28 @@ MAX_NEIGHBOUR_DIFF_M = 5.0
 MIN_VALID_A = 0.90     # покрытие узла данными ортоплана
 
 
+def step_for_nodes(ortho: OrthoSource, target: int, erosion_m: float = EROSION_M,
+                   step_range: tuple[float, float] = (100.0, 1200.0)) -> float:
+    """Шаг сетки, дающий около `target` узлов **в рабочей зоне**.
+
+    Считать шаг по паспортной площади растра нельзя: узлы ставятся только
+    там, где есть данные, а после эрозии края рабочая зона бывает втрое —
+    вдесятеро меньше габарита (замерено: медиана 15 узлов там, где по
+    площади ожидалось 60). Из-за этого площадки с нормальной долей валидных
+    замеров (0.22) не набирали пяти узлов и уходили в отказ — не потому, что
+    привязка не строится, а потому что её негде было мерить.
+    """
+    mask, _ = overview_mask(ortho, width=1500)
+    b = ortho.bounds
+    sx = (b.right - b.left) / mask.shape[1]
+    er_px = max(1, int(erosion_m / sx))
+    core = cv2.erode(mask.astype(np.uint8), np.ones((er_px, er_px), np.uint8)).astype(bool)
+    area_m2 = float(core.mean()) * (b.right - b.left) * (b.top - b.bottom)
+    if area_m2 <= 0 or target <= 0:
+        return step_range[0]
+    return float(np.clip((area_m2 / target) ** 0.5, *step_range))
+
+
 def build_nodes(ortho: OrthoSource, step_m: float, erosion_m: float = EROSION_M):
     """Узлы сетки внутри рабочей зоны (валидные данные с эрозией)."""
     mask, _ = overview_mask(ortho, width=1500)
@@ -242,7 +264,11 @@ table{{border-collapse:collapse}}td,th{{border-bottom:1px solid #ddd;padding:4px
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--raster", required=True)
-    ap.add_argument("--step", type=float, default=300.0)
+    ap.add_argument("--step", type=float, default=0.0,
+                    help="шаг сетки узлов, м (0 — подобрать под --target-nodes "
+                         "по площади рабочей зоны)")
+    ap.add_argument("--target-nodes", type=int, default=60,
+                    help="сколько узлов заказывать, когда шаг не задан явно")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--erosion-m", type=float, default=EROSION_M,
                     help="отступ от края съёмки, м")
@@ -257,10 +283,12 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     ortho = OrthoSource(args.raster)
     base = BasemapSource(ortho)
-    nodes, core_frac = build_nodes(ortho, args.step, erosion_m=args.erosion_m)
+    step = args.step or step_for_nodes(ortho, args.target_nodes, args.erosion_m)
+    nodes, core_frac = build_nodes(ortho, step, erosion_m=args.erosion_m)
     if args.limit:
         nodes = nodes[: args.limit]
-    print(f"рабочая зона (обзорно): {core_frac:.3f} площади | узлов: {len(nodes)}")
+    print(f"рабочая зона (обзорно): {core_frac:.3f} площади | "
+          f"шаг {step:.0f} м | узлов: {len(nodes)}")
 
     recs = []
     for i, (gx, gy) in enumerate(nodes, 1):
@@ -291,14 +319,14 @@ def main() -> int:
         all_dy=np.array([r["dy"] for r in recs if "dx" in r]),
         all_ok=np.array([bool(r["ok"]) for r in recs if "dx" in r]),
         global_dx=gdx, global_dy=gdy,
-        meta=np.str_(json.dumps({"raster": stem, "step_m": args.step,
+        meta=np.str_(json.dumps({"raster": stem, "step_m": step,
                                  "node_coarse_m": NODE_COARSE_M,
                                  "node_fine_m": NODE_FINE_M,
                                  "coarse_gsd": round(node_gsds(base)[0], 3),
                                  "fine_gsd": round(node_gsds(base)[1], 3),
                                  "provider": "esri_world_imagery"}, ensure_ascii=False)))
     cg, fg = node_gsds(base)
-    meta = {"raster": stem, "step_m": args.step, "provider": "Esri World Imagery",
+    meta = {"raster": stem, "step_m": step, "provider": "Esri World Imagery",
             "coarse_gsd": round(cg, 3), "fine_gsd": round(fg, 3),
             "global_dx": gdx, "global_dy": gdy,
             "zoom": good[0].get("zoom")}

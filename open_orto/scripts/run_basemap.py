@@ -95,8 +95,9 @@ def main() -> int:
     ap.add_argument("--max-res", type=float, default=0.1)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--step", type=float, default=0.0,
-                    help="шаг сетки узлов привязки, м (0 — считать из площади "
-                         "площадки под TARGET_NODES узлов)")
+                    help="шаг сетки узлов привязки, м (0 — подобрать под "
+                         "--target-nodes по рабочей зоне площадки)")
+    ap.add_argument("--target-nodes", type=int, default=TARGET_NODES)
     ap.add_argument("--cell-m", type=float, default=400.0)
     ap.add_argument("--per-cell", default="2")
     ap.add_argument("--max-per-raster", type=int, default=12)
@@ -156,9 +157,12 @@ def main() -> int:
                 reason = "файла нет"
             else:
                 if not field.exists():
-                    step = args.step or step_for_area(km2)
+                    # шаг сетки подбирает сам этап привязки: он видит
+                    # рабочую зону после эрозии, а паспортная площадь растра
+                    # её сильно завышает
                     rc = run([sys.executable, "open_orto/scripts/shift_field.py",
-                              "--raster", str(src), "--step", str(round(step)),
+                              "--raster", str(src), "--step", str(args.step),
+                              "--target-nodes", str(args.target_nodes),
                               "--erosion-m", str(args.erosion_m)],
                              log, timeout=args.timeout_min * 60)
                     if rc != 0:
