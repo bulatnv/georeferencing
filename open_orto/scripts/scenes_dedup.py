@@ -24,7 +24,7 @@ import csv
 import html
 import math
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -93,6 +93,45 @@ def content_ncc(a: Path, b: Path, side: int = 256) -> float:
 
 #: Выше этого порога содержимое считается тождественным (копия файла).
 COPY_NCC = 0.97
+
+
+def modality_index(path="openaerialmap_dataset/scene_modality.csv",
+                   fallback="open_orto/work/modality.csv"):
+    """Вид содержимого площадки: photo / pan / relief.
+
+    Берётся **проверенная глазами** разметка: автоматика различает цветное
+    фото и серую картинку, но отличить панхром от карты рельефа с теневой
+    отмывкой она не может — у отмывки текстура не хуже фотографической.
+    """
+    f = Path(path)
+    if f.exists():
+        return {r["scene"]: r["modality"] for r in csv.DictReader(f.open(encoding="utf-8"))}
+    g = Path(fallback)
+    if not g.exists():
+        return {}
+    out = {}
+    for r in csv.DictReader(g.open(encoding="utf-8")):
+        v = r["вердикт"]
+        out[r["scene"]] = "photo" if v == "фото" else "gray?"
+    return out
+
+
+def relation(a: str, b: str, ncc: float, mod: dict) -> str:
+    """Чем связаны две площадки одной группы.
+
+    Три разных случая, и путать их нельзя. Копия — просто удвоенный вес
+    территории. Повторный вылет — редкий кросс-датный материал. Разная
+    модальность (фото против карты высот, цвет против панхрома) — вообще
+    другой материал: пары из него учат не тому же самому.
+    """
+    ma, mb = mod.get(a, ""), mod.get(b, "")
+    if "relief" in (ma, mb) and ma != mb:
+        return "modality: фото ↔ рельеф"
+    if ma == "relief" and mb == "relief":
+        return "copy" if ncc >= COPY_NCC else "revisit: две карты рельефа"
+    if ma != mb and {ma, mb} <= {"photo", "pan"}:
+        return "modality: цвет ↔ панхром"
+    return "copy" if ncc >= COPY_NCC else "revisit: другая дата"
 
 
 def group(pairs, all_scenes):
@@ -167,8 +206,10 @@ def main() -> int:
     dup_pairs = find_pairs(scan)
     print("сверяю содержимое кандидатов...", flush=True)
     data = Path(args.data_dir)
+    mod = modality_index()
     ncc = {(a, b): content_ncc(data / f"{a}.tif", data / f"{b}.tif")
            for a, b, _ in dup_pairs}
+    rel = {k: relation(k[0], k[1], v, mod) for k, v in ncc.items()}
     groups = group(dup_pairs, sorted(used))
     multi = {k: v for k, v in groups.items() if len(v) > 1}
     print(f"пар-кандидатов: {len(dup_pairs)} | групп с дублями: {len(multi)}")
@@ -178,9 +219,13 @@ def main() -> int:
     n_copy = sum(1 for v in ncc.values() if v >= COPY_NCC)
     print(f"из них копий: {n_copy}, повторных вылетов (другая дата): "
           f"{len(dup_pairs) - n_copy}")
+    print(f"{'площадка A':14} {'площадка B':14} {'сходство':>9}  что это")
     for (a, b), v in sorted(ncc.items(), key=lambda kv: -kv[1]):
-        kind = "копия" if v >= COPY_NCC else "повторный вылет"
-        print(f"  {a[:12]} ↔ {b[:12]}  сходство {v:5.3f}  {kind}")
+        print(f"  {a[:12]:12} {b[:12]:12} {v:9.3f}  {rel[(a, b)]}"
+              f"   [{mod.get(a, '?')} / {mod.get(b, '?')}]")
+    print()
+    for k, n in Counter(rel.values()).most_common():
+        print(f"  {n:3}× {k}")
 
     if args.dry_run:
         return 0
@@ -189,9 +234,11 @@ def main() -> int:
     gid = {}
     for i, (root, members) in enumerate(sorted(groups.items(), key=lambda kv: -len(kv[1]))):
         # вид группы: копия хотя бы по одной связи — «copy», иначе «revisit»
-        inner = [v for (a, b), v in ncc.items() if a in members and b in members]
+        inner_rel = [r for (a, b), r in rel.items() if a in members and b in members]
+        # приоритет: разная модальность важнее прочего — это другой материал
         kind = ("" if len(members) == 1
-                else "copy" if any(v >= COPY_NCC for v in inner) else "revisit")
+                else "modality" if any(r.startswith("modality") for r in inner_rel)
+                else "copy" if any(r == "copy" for r in inner_rel) else "revisit")
         for s in members:
             gid[s] = (f"g{i:04d}", len(members), kind)
     head = list(man[0].keys())
@@ -223,8 +270,10 @@ def main() -> int:
             g = gid[members[0]][0]
             kind = gid[members[0]][2]
             inner = [v for (a, b), v in ncc.items() if a in members and b in members]
-            label = ("копия файла" if kind == "copy"
-                     else "повторный вылет: та же территория, другая дата")
+            label = {"copy": "копия файла",
+                     "modality": "другая модальность: фото против рельефа либо панхрома",
+                     "revisit": "повторный вылет: та же территория, другая дата",
+                     }.get(kind, kind)
             sim = f"сходство обзоров {min(inner):.2f}–{max(inner):.2f}" if inner else ""
             parts.append(f"<h2>Группа {g} — {len(members)} площадки · {label}</h2>"
                          f"<p class=dim>{sim}</p><div class=row>")
@@ -234,7 +283,7 @@ def main() -> int:
                 parts.append(
                     f'<figure><img src="data:image/jpeg;base64,{img}"/>'
                     f'<figcaption><code>{html.escape(s[:20])}</code><br>'
-                    f'{r.get("km2", 0):.2f} км² · {r.get("res", 0):.3f} м/пкс · '
+                    f'{mod.get(s, "?")} · {r.get("km2", 0):.2f} км² · {r.get("res", 0):.3f} м/пкс · '
                     f'{r.get("w", 0)}×{r.get("h", 0)} px<br>'
                     f'{pairs_by_scene[s]} пар в корпусе</figcaption></figure>')
             parts.append("</div>")

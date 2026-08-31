@@ -46,6 +46,14 @@ SIGMA_APPROX = 8.0
 #: данные: она остаётся контролем забывания и якорем геометрии.
 WEIGHTS = {"exact": 0.15, "registered": 1.0, "approx": 0.3}
 
+#: Пары с площадок, где «ортофото» на самом деле карта рельефа (визуализация
+#: теневой отмывкой). Геометрия у них верна, но содержание — не фотоснимок:
+#: матчер учился бы сопоставлять отмывку с настоящей съёмкой, а это другая
+#: задача. Вес ноль вместо удаления: материал редкий и как отдельная
+#: кросс-модальная ось может пригодиться.
+RELIEF_WEIGHT = 0.0
+RELIEF_SLICE = "relief_xmodal"
+
 
 def classify(row) -> str:
     if row["pair_kind"] == "same_source":
@@ -63,10 +71,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--manifest", default="openaerialmap_dataset/manifest.csv")
     ap.add_argument("--audit", default="open_orto/work/audit_all.csv")
+    ap.add_argument("--modality", default="openaerialmap_dataset/scene_modality.csv")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     man = list(csv.DictReader(Path(args.manifest).open(encoding="utf-8")))
+    modality = {}
+    mp = Path(args.modality)
+    if mp.exists():
+        modality = {r["scene"]: r["modality"] for r in csv.DictReader(mp.open(encoding="utf-8"))}
     sigma_by_scene = {}
     ap_path = Path(args.audit)
     if ap_path.exists():
@@ -86,12 +99,15 @@ def main() -> int:
             sigma = sigma_by_scene.get(r["scene"], SIGMA_REGISTERED)
         else:
             sigma = SIGMA_APPROX
+        mod = modality.get(r["scene"], "photo")
+        r["modality"] = mod
         r["gt_class"] = cls
         r["gt_sigma_px"] = f"{sigma:.3f}"
-        r["weight"] = f"{WEIGHTS[cls]:.2f}"
-        r["slice"] = r.get("slice", "")
+        w = RELIEF_WEIGHT if mod == "relief" else WEIGHTS[cls]
+        r["weight"] = f"{w:.2f}"
+        r["slice"] = RELIEF_SLICE if mod == "relief" else r.get("slice", "")
         tally[cls] += 1
-        weight_sum[cls] += WEIGHTS[cls]
+        weight_sum[cls] += w
 
     total_w = sum(weight_sum.values())
     print(f"{'класс':12} {'пар':>6} {'доля сейчас':>12} {'вес':>5} {'доля в смеси':>13}")
@@ -104,6 +120,15 @@ def main() -> int:
           f"(было {100*tally['exact']/len(man):.0f}% по числу пар)")
 
     # из чего состоит approx — полезно знать, прежде чем понижать вес
+    rel = [r for r in man if r["modality"] == "relief"]
+    if rel:
+        print(f"площадки-карты рельефа: {len({r['scene'] for r in rel})}, "
+              f"их пар {len(rel)} — вес {RELIEF_WEIGHT}, помечены `{RELIEF_SLICE}`")
+    pan = [r for r in man if r["modality"] == "pan"]
+    if pan:
+        print(f"панхромные площадки: {len({r['scene'] for r in pan})}, их пар {len(pan)} "
+              f"— остаются в смеси: это снимки, просто без цвета")
+
     approx = [r for r in man if r["gt_class"] == "approx"]
     print(f"состав approx ({len(approx)}): "
           f"компенсация global — {sum(1 for r in approx if r['compensation_src'] == 'global')}, "
