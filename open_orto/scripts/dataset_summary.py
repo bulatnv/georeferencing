@@ -192,6 +192,8 @@ def readme(root: Path, rows, control) -> str:
         "- `MATCHERS_REPORT.html` и `MATCHERS_METRICS.md` — как на этом корпусе",
         "  работают пять матчеров (LoFTR, MINIMA-LoFTR, RoMa v1, MINIMA-RoMa,",
         "  RoMa v2): отправная точка, от которой считается выигрыш дообучения;",
+        "- `PAIR_ANATOMY.html` — разбор одной пары: что лежит внутри `.npz`,",
+        "  как выглядит каждый массив и как прочитать пару в коде;",
         "- `SUMMARY.html` — распределения параметров и примеры пар;",
         "- `manifest.csv` — полная опись: одна строка на пару.",
     ]
