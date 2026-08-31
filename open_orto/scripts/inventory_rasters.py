@@ -36,8 +36,8 @@ REJECT_LOGS = [
     "open_orto/work/basemap_N/rejected.csv",
 ]
 
-FIELDS = ["name", "статус", "причина", "пар_ss", "пар_base", "пар_карантин",
-          "вердикт_аудита", "km2", "res", "bands", "crs", "lon", "lat"]
+FIELDS = ["name", "статус", "причина", "пар_ss", "пар_base", "пар_xdate",
+          "пар_карантин", "вердикт_аудита", "km2", "res", "bands", "crs", "lon", "lat"]
 
 
 def load(p):
@@ -73,6 +73,8 @@ def main() -> int:
     ap.add_argument("--data-dir", default="E:/open_ortophoto_data")
     ap.add_argument("--scans", nargs="*", default=["open_orto/work/rasters_scan.csv",
                                                    "open_orto/work/rasters_scan_new.csv"])
+    ap.add_argument("--delivery", default="openaerialmap_dataset",
+                    help="каталог поставки: по его манифесту считаются пары")
     ap.add_argument("--out-csv", default="openaerialmap_dataset/rasters_inventory.csv")
     ap.add_argument("--out-md", default="openaerialmap_dataset/RASTERS.md")
     args = ap.parse_args()
@@ -80,13 +82,15 @@ def main() -> int:
     files = sorted(p.stem for p in Path(args.data_dir).glob("*.tif"))
     paper = passport_index(args.scans)
 
+    # считаем по манифесту поставки, а не по рабочим корпусам: опись должна
+    # описывать то, что отдаётся, включая появившиеся позже кросс-датные пары
     pairs = defaultdict(Counter)
-    for corpus, path in (("ss", "open_orto/dataset_ss"),
-                         ("base", "open_orto/dataset_base"),
-                         ("base", "open_orto/dataset"),
-                         ("quar", "open_orto/dataset_base_quarantine")):
-        for r in load(Path(path) / "manifest.csv"):
-            pairs[r["scene"]][corpus] += 1
+    for r in load(Path(args.delivery) / "manifest.csv"):
+        bucket = {"ss": "ss", "base": "base", "pilot": "base",
+                  "xdate": "xdate"}.get(r.get("corpus", ""), "base")
+        pairs[r["scene"]][bucket] += 1
+    for r in load("open_orto/dataset_base_quarantine/manifest.csv"):
+        pairs[r["scene"]]["quar"] += 1
 
     audit = {r["scene"]: r["вердикт"] for r in load("open_orto/work/audit_all.csv")}
     rejects = {}
@@ -129,7 +133,8 @@ def main() -> int:
 
         tally[status] += 1
         rows.append(dict(name=name, статус=status, причина=reason,
-                         пар_ss=n_ss, пар_base=n_base, пар_карантин=n_quar,
+                         пар_ss=n_ss, пар_base=n_base,
+                         пар_xdate=pairs[name]["xdate"], пар_карантин=n_quar,
                          вердикт_аудита=audit.get(name, ""),
                          km2=p["km2"] if p else "", res=p["res"] if p else "",
                          bands=p["bands"] if p else "", crs=p["crs"] if p else "",
@@ -145,7 +150,8 @@ def main() -> int:
 
     # ——— отчёт
     used = [r for r in rows if r["статус"].startswith("использован")]
-    total_pairs = sum(int(r["пар_ss"]) + int(r["пар_base"]) for r in rows)
+    total_pairs = sum(int(r["пар_ss"]) + int(r["пар_base"]) + int(r["пар_xdate"])
+                      for r in rows)
     md = [
         "# Опись исходных ортофотопланов",
         "",
@@ -222,7 +228,7 @@ def main() -> int:
         "| колонка | смысл |",
         "|---|---|",
         "| `статус`, `причина` | судьба растра и почему |",
-        "| `пар_ss`, `пар_base` | сколько пар каждого вида он дал |",
+        "| `пар_ss`, `пар_base`, `пар_xdate` | сколько пар каждого вида он дал |",
         "| `пар_карантин` | сколько его пар забраковано аудитом |",
         "| `вердикт_аудита` | что сказал независимый арбитр о его привязке |",
         "| `km2`, `res`, `bands`, `crs` | паспорт растра |",

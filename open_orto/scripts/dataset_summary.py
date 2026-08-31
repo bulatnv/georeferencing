@@ -29,6 +29,7 @@ CORPUS_TITLE = {
     "base": "Орто ↔ спутниковая подложка",
     "ss": "Ортоплан сам на себя (same_source)",
     "pilot": "Пилотные площадки (орто ↔ подложка)",
+    "xdate": "Кросс-датные: два вылета одной территории",
 }
 CORPUS_NOTE = {
     "base": "боевой тип: сторона A — вид виртуального борта, отрендеренный из "
@@ -38,6 +39,9 @@ CORPUS_NOTE = {
           "инвариантности к ракурсу, наклону и сезонной перекраске",
     "pilot": "первые пары с подложкой, собранные до сеточного режима; аудит "
              "подтвердил разметку на всех трёх площадках",
+    "xdate": "обе стороны — ортофото, но снятые в разные даты. Единственный в "
+             "корпусе честный кросс-дат: разрыв вчетверо больше, чем даёт "
+             "синтетическая перекраска",
 }
 
 
@@ -82,6 +86,20 @@ def pick(rows, total):
         while sum(1 for r in picked if r["corpus"] == corpus) < per_corpus and rest:
             picked.append(rest.pop(len(rest) // 2))
     return picked[:total]
+
+
+def splits_table(rows) -> str:
+    """Строки таблицы сплитов для README — по данным манифеста, не по памяти."""
+    out = []
+    for sp, note in (("train", "обучение"), ("val", "выбор чекпоинта"),
+                     ("heldout", "приёмка, расходуется один раз")):
+        sub = [r for r in rows if r.get("split") == sp]
+        if not sub:
+            continue
+        out.append(f"| `{sp}` | {len(sub)} | "
+                   f"{sum(1 for r in sub if r['pair_kind'] == 'orto_basemap')} | "
+                   f"{len({r['scene'] for r in sub})} | {note} |")
+    return chr(10).join(out)
 
 
 def readme(root: Path, rows, control) -> str:
@@ -132,6 +150,31 @@ def readme(root: Path, rows, control) -> str:
         "",
         f"Высота съёмки {h.min():.0f}–{h.max():.0f} м (медиана {np.median(h):.0f}), "
         f"наклон камеры 0–{t.max():.0f}° (медиана {np.median(t):.1f}°).",
+        "",
+        "## Сплиты",
+        "",
+        "Колонка `split`. Деление по **географическим кластерам**, а не по",
+        "площадкам: соседние вылеты снимают смежную территорию, и площадка из",
+        "обучения могла оказаться в трёхстах метрах от площадки приёмки.",
+        "",
+        "| сплит | пар | боевых | площадок | назначение |",
+        "|---|---|---|---|---|",
+        splits_table(rows),
+        "",
+        "Размер `heldout` выбран по различимости: при 749 боевых парах парное",
+        "сравнение двух чекпоинтов ловит прибавку от 0.025 по доле успеха.",
+        "Что считать результатом, записано в `ACCEPTANCE.md` **до** обучения.",
+        "",
+        "## Вес пары в смеси",
+        "",
+        "Колонки `gt_class`, `gt_sigma_px`, `weight`. Классы: `exact` —",
+        "аналитическая разметка `same_source`; `registered` — привязка",
+        "подтверждена арбитром и измерена по месту; `approx` — константа",
+        "площадки либо неподтверждённая площадка. Вес опускает долю",
+        "`same_source` в смеси с половины до 14 % **без удаления данных**.",
+        "",
+        "Отдельно: пары с площадок, которые оказались картами рельефа, а не",
+        "снимками, получили вес 0 и пометку `relief_xmodal` в колонке `slice`.",
         "",
         "## Точность разметки — разная у частей, и это важно",
         "",
@@ -298,6 +341,79 @@ def main() -> int:
             if cnt:
                 parts.append(f"<p><b>{label}:</b> " + ", ".join(
                     f"{html.escape(str(v))} — {n}" for v, n in cnt.most_common()) + "</p>")
+
+    # ——— разделы редакции v2
+    parts.append("""<h2>Сплиты и группировка</h2>
+<p>Деление идёт <b>по географическим кластерам</b>, а не по площадкам:
+соседние вылеты снимают смежную территорию, и площадка из обучения могла
+оказаться в трёхстах метрах от площадки приёмки. Размер held-out выбран не
+процентом, а различимостью — чтобы парное сравнение двух чекпоинтов ловило
+интересную прибавку, а не тонуло в шуме доли.</p>
+<table><tr><th>сплит<th>пар<th>боевых<th>площадок<th>кластеров<th>назначение</tr>""")
+    for sp, note in (("train", "обучение"), ("val", "выбор чекпоинта"),
+                     ("heldout", "приёмка, расходуется один раз")):
+        sub = [r for r in rows if r.get("split") == sp]
+        if not sub:
+            continue
+        parts.append(f"<tr><td><code>{sp}</code><td>{len(sub)}"
+                     f"<td>{sum(1 for r in sub if r['pair_kind'] == 'orto_basemap')}"
+                     f"<td>{len({r['scene'] for r in sub})}"
+                     f"<td>{len({r['geo_cluster'] for r in sub if r.get('geo_cluster')})}"
+                     f"<td>{note}</tr>")
+    parts.append("</table>")
+
+    dup = [r for r in rows if r.get("dup_kind")]
+    if dup:
+        by_kind = Counter(r["dup_kind"] for r in dup)
+        names = {"copy": "копия файла под другим идентификатором",
+                 "revisit": "повторный вылет той же территории",
+                 "modality": "другая модальность: фото против карты рельефа"}
+        parts.append("""<h3>Площадки-двойники</h3>
+<p>Один и тот же ортоплан приходил под разными идентификаторами. Пары не
+удалялись — их достаточно не разлучать сплитом; но случаи разные:</p><ul>""")
+        for k, n in by_kind.most_common():
+            parts.append(f"<li><b>{html.escape(names.get(k, k))}</b> — {n} пар</li>")
+        parts.append("</ul>")
+
+    parts.append("""<h2>Качество разметки и веса смеси</h2>
+<p>Загрузчику нужно знать, чему можно доверять: у части пар разметка выведена
+аналитически, у части измерена и подтверждена арбитром, у части опирается на
+константу площадки.</p>
+<table><tr><th>класс<th>пар<th>вес<th>доля в смеси<th>что это</tr>""")
+    wsum = Counter()
+    for r in rows:
+        wsum[r.get("gt_class", "")] += float(r.get("weight") or 0)
+    total_w = sum(wsum.values()) or 1
+    cls_note = {"registered": "привязка подтверждена, компенсация измерена по месту",
+                "approx": "константа площадки либо площадка не подтверждена",
+                "exact": "same_source: разметка аналитическая"}
+    for cls in ("registered", "approx", "exact"):
+        sub = [r for r in rows if r.get("gt_class") == cls]
+        if not sub:
+            continue
+        w = sub[0].get("weight", "")
+        parts.append(f"<tr><td><code>{cls}</code><td>{len(sub)}<td>{w}"
+                     f"<td>{100*wsum[cls]/total_w:.0f} %"
+                     f"<td>{html.escape(cls_note.get(cls, ''))}</tr>")
+    parts.append("</table>")
+    ss_share = 100 * wsum.get("exact", 0) / total_w
+    parts.append(f"""<p class=note>Доля <code>same_source</code> в смеси —
+<b>{ss_share:.0f} %</b> вместо {100*sum(1 for r in rows if r['pair_kind']=='same_source')/len(rows):.0f} %
+по числу пар. Данные не удалялись: ось остаётся контролем забывания, но
+перестаёт съедать половину шагов на нулевом градиенте — линия RoMa решает её
+полностью.</p>""")
+
+    mod = Counter(r.get("modality", "") for r in rows)
+    if mod.get("relief"):
+        parts.append(f"""<h3>Модальность площадок</h3>
+<p>Не всё «ортофото» оказалось фотоснимком: часть растров — карты рельефа,
+сохранённые обычной картинкой. Их пары остались в поставке, но с весом ноль и
+пометкой <code>relief_xmodal</code>: геометрия верна, а содержание — не съёмка,
+и матчер учился бы сопоставлять теневую отмывку с фотографией.</p>
+<table><tr><th>модальность<th>пар</tr>
+<tr><td>фотоснимок<td>{mod.get('photo', 0)}</tr>
+<tr><td>карта рельефа (вес 0)<td>{mod.get('relief', 0)}</tr>
+<tr><td>панхром (в смеси)<td>{mod.get('pan', 0)}</tr></table>""")
 
     print("галерея...", flush=True)
     picked = pick(rows, args.examples)
