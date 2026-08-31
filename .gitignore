@@ -49,6 +49,7 @@ openaerialmap_dataset/*.npz
 openaerialmap_dataset/SUMMARY.html
 openaerialmap_dataset/MATCHERS_REPORT.html
 openaerialmap_dataset/PAIR_ANATOMY.html
+openaerialmap_dataset/DUPLICATES.html
 # опись поставки нужна в истории, несмотря на общее правило *.csv выше
 !openaerialmap_dataset/manifest.csv
 !openaerialmap_dataset/rasters_inventory.csv
