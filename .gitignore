@@ -49,3 +49,4 @@ openaerialmap_dataset/*.npz
 openaerialmap_dataset/SUMMARY.html
 # опись поставки нужна в истории, несмотря на общее правило *.csv выше
 !openaerialmap_dataset/manifest.csv
+!openaerialmap_dataset/rasters_inventory.csv
