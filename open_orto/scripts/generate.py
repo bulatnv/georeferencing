@@ -455,9 +455,15 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool,
 
     warp = np.stack([wx, wy], axis=-1).astype(np.float16)
     warp[~mask] = np.nan
+    # вид пары определяется тем, откуда взята сторона B: подложка, тот же
+    # растр или второй вылет той же территории в другую дату
+    from rasters import OrthoAsBase
+    cross_date = isinstance(base, OrthoAsBase) and not same_source
+    kind = ("same_source" if same_source
+            else "cross_date" if cross_date else "orto_basemap")
     meta = dict(
-        source="orto_basemap", scene=ortho.path.stem,
-        pair_kind="same_source" if same_source else "orto_basemap",
+        source=kind, scene=ortho.path.stem,
+        pair_kind=kind,
         pair_layout=plan["layout"], rectified=False,
         tilt_deg=round(plan["tilt"], 2), tilt_az_deg=round(plan["tilt_az"], 1),
         yaw_deg=round(plan["yaw"], 2), yaw_b_deg=round(plan["yaw_b"], 2),
@@ -472,7 +478,9 @@ def make_sample(ortho, base, field, anchor, plan, rng, *, same_source: bool,
         covis_frac=round(covis, 4), valid_a_frac=round(float(a_val.mean()), 4),
         valid_b_frac=round(float(b_val.mean()), 4),
         anchor_xy=[round(ax, 1), round(ay, 1)],
-        basemap_provider=None if same_source else "esri_world_imagery",
+        basemap_provider=(None if same_source else
+                          f"ortho:{Path(base.path).stem}" if cross_date
+                          else "esri_world_imagery"),
         basemap_zoom=zoom, compensation_m=[round(comp[0], 2), round(comp[1], 2)],
         compensation_src=comp_src, shift_field=field.source,
         season_a=None, season_b=None, date_a=None, date_b=None,
@@ -592,6 +600,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--raster", default="")
     ap.add_argument("--shift-field", default=None)
+    ap.add_argument("--cross-raster", default="",
+                    help="сторона B — другой ортоплан той же территории "
+                         "(кросс-датная пара: две даты, точная геометрия)")
     ap.add_argument("--cell-m", type=float, default=CELL_M,
                     help="сторона ячейки, м: территория режется на "
                          "непересекающиеся ячейки, объём выводится из площади")
@@ -644,7 +655,12 @@ def main() -> int:
         return run_same_source(args, out, commit)
 
     ortho = OrthoSource(args.raster)
-    base = BasemapSource(ortho)
+    if args.cross_raster:
+        from rasters import OrthoAsBase
+        base = OrthoAsBase(OrthoSource(args.cross_raster))
+        print(f"кросс-датный режим: сторона B — {Path(args.cross_raster).stem[:16]}")
+    else:
+        base = BasemapSource(ortho)
     field = ShiftField(args.shift_field)
     if args.require_refine is None:
         # без поля сдвигов глобальная константа равна нулю, то есть означает

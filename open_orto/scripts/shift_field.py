@@ -310,6 +310,9 @@ def main() -> int:
     ap.add_argument("--step", type=float, default=0.0,
                     help="шаг сетки узлов, м (0 — подобрать под --target-nodes "
                          "по площади рабочей зоны)")
+    ap.add_argument("--base-raster", default="",
+                    help="второй ортоплан в роли стороны B: замер привязки "
+                         "между двумя вылетами одной территории")
     ap.add_argument("--target-nodes", type=int, default=60,
                     help="сколько узлов заказывать, когда шаг не задан явно")
     ap.add_argument("--limit", type=int, default=0)
@@ -325,7 +328,13 @@ def main() -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     ortho = OrthoSource(args.raster)
-    base = BasemapSource(ortho)
+    if args.base_raster:
+        from rasters import OrthoAsBase
+        base = OrthoAsBase(OrthoSource(args.base_raster))
+        print(f"сторона B — ортоплан {Path(args.base_raster).stem[:16]}, "
+              f"{base.min_mpp:.3f} м/пкс")
+    else:
+        base = BasemapSource(ortho)
     coarse_m, fine_m, erosion_m = fit_to_area(ortho, args.erosion_m)
     if (coarse_m, fine_m, erosion_m) != (NODE_COARSE_M, NODE_FINE_M, args.erosion_m):
         print(f"окно узла подогнано под площадку: {coarse_m:.0f}/{fine_m:.0f} м, "

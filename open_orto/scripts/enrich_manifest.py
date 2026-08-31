@@ -34,11 +34,18 @@ CONFIRMING = {
     "разметка подтверждена",
     "подтверждена (гейт пересмотрен)",
     "подтверждена (повтор; прицельный замер)",
+    # кросс-датные пары: обе стороны — ортофото, привязка между вылетами
+    # измерена и подтверждена арбитром. Их разметка точнее большинства боевых
+    # пар (контроль остатка 0.94 px против 2.4–6.5 у пар с подложкой)
+    "кросс-датная (аудит подтвердил)",
 }
 
 #: Ошибка разметки по классам, px. Для `registered` берётся измеренное на
 #: площадке расхождение с арбитром, а это значение — запасное.
 SIGMA_EXACT = 0.02
+#: У кросс-датных пар обе стороны ортофото: расхождение измерено арбитром
+#: по их собственным площадкам, запасное значение — измеренный контроль.
+SIGMA_CROSS_DATE = 1.0
 SIGMA_REGISTERED = 4.13
 SIGMA_APPROX = 8.0
 
@@ -72,6 +79,9 @@ def main() -> int:
     ap.add_argument("--manifest", default="openaerialmap_dataset/manifest.csv")
     ap.add_argument("--audit", default="open_orto/work/audit_all.csv")
     ap.add_argument("--modality", default="openaerialmap_dataset/scene_modality.csv")
+    ap.add_argument("--audit-xdate", default="open_orto/work/audit_xdate.csv",
+                    help="аудит кросс-датных пар: у них своё расхождение, "
+                         "измеренное на них же, а не на парах с подложкой")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -90,13 +100,28 @@ def main() -> int:
                 except ValueError:
                     pass
 
+    sigma_xdate = {}
+    xp = Path(args.audit_xdate)
+    if xp.exists():
+        for r in csv.DictReader(xp.open(encoding="utf-8")):
+            if r.get("gt_diff_med"):
+                try:
+                    sigma_xdate[r["scene"]] = float(r["gt_diff_med"])
+                except ValueError:
+                    pass
+
     tally, weight_sum = Counter(), Counter()
     for r in man:
         cls = classify(r)
         if cls == "exact":
             sigma = SIGMA_EXACT
         elif cls == "registered":
-            sigma = sigma_by_scene.get(r["scene"], SIGMA_REGISTERED)
+            if r["pair_kind"] == "cross_date":
+                # у площадки может быть измерено расхождение и на парах с
+                # подложкой — но к кросс-датным парам оно не относится
+                sigma = sigma_xdate.get(r["scene"], SIGMA_CROSS_DATE)
+            else:
+                sigma = sigma_by_scene.get(r["scene"], SIGMA_REGISTERED)
         else:
             sigma = SIGMA_APPROX
         mod = modality.get(r["scene"], "photo")

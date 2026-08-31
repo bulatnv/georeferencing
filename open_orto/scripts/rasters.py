@@ -192,6 +192,40 @@ def to_rgb(arr: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(out)
 
 
+class OrthoAsBase:
+    """Второй ортоплан в роли стороны B — интерфейс тот же, что у подложки.
+
+    Нужен для кросс-датных пар: одна и та же территория, снятая в разные даты
+    двумя вылетами. Всё, что выше по стеку (замер привязки, генератор, гейты),
+    работает с «подложкой» через `read_grid(grid, zoom, shift_m)` и `min_mpp` —
+    поэтому достаточно подменить источник, не трогая логику.
+
+    Отличие от настоящей подложки: зум не при чём, разрешение фиксировано
+    разрешением растра, а сдвиг привязки между двумя вылетами обычно меньше,
+    чем между вылетом и спутниковой мозаикой, — но не ноль, и мерить его надо
+    так же.
+    """
+
+    def __init__(self, ortho: "OrthoSource"):
+        self.ortho = ortho
+        self.path = ortho.path
+
+    @property
+    def min_mpp(self) -> float:
+        return float(self.ortho.res_x)
+
+    def read_grid(self, grid: Grid, *, zoom: int | None = None,
+                  shift_m: tuple[float, float] = (0.0, 0.0)):
+        """Окно второго ортоплана в сетке, со сдвигом привязки."""
+        shifted = Grid(x=grid.x + shift_m[0], y=grid.y + shift_m[1],
+                       size_px=grid.size_px, gsd=grid.gsd, rot_deg=grid.rot_deg)
+        rgb, valid = self.ortho.read_grid(shifted)
+        return rgb, valid, {"zoom": None, "source": "ortho", "path": str(self.path)}
+
+    def close(self):
+        self.ortho.close()
+
+
 def zoom_for_ground_mpp(lat: float, target_mpp: float, max_zoom: int = 19) -> int:
     """Зум, чей наземный MPP ближе всего к целевому (не грубее вдвое)."""
     best, best_err = max_zoom, float("inf")
