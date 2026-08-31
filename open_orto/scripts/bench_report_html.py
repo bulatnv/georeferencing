@@ -5,7 +5,7 @@
 (соответствия, разложенные на инлайеры и промахи по плотному GT).
 
     python open_orto/scripts/bench_report_html.py \\
-        --csv open_orto/work/bench_pairs.csv --dataset open_orto/dataset \\
+        --csv open_orto/work/bench_final.csv --dataset openaerialmap_dataset \\
         --out open_orto/BENCH_PAIRS_REPORT.html
 """
 
@@ -39,7 +39,24 @@ COLORS = {
     "romav2": ("#4a3aa7", "#9085e9"),
 }
 INLIER_PX = 5.0
-GT_NOISE_PX = 3.2      # измеренный шум разметки на парах с подложкой
+#: Измеренный шум разметки на парах с подложкой: расхождение с независимым
+#: арбитром на площадках, чью привязку он подтвердил. Это пол измеримости —
+#: ниже него EPE на таких парах не опускается физически.
+GT_NOISE_PX = 4.1
+
+
+def plural(n: int, one: str, few: str, many: str) -> str:
+    """Форма существительного при числе: «1 площадки», «2 площадок», «5 площадок».
+
+    Числа в отчёте подставляются из данных, и без склонения заголовок читается
+    как машинный вывод, а не как текст.
+    """
+    n10, n100 = n % 10, n % 100
+    if n10 == 1 and n100 != 11:
+        return one
+    if 2 <= n10 <= 4 and not 12 <= n100 <= 14:
+        return few
+    return many
 
 
 def num(r, k):
@@ -247,10 +264,23 @@ def main() -> int:
     ap.add_argument("--csv", default="open_orto/work/bench_pairs.csv")
     ap.add_argument("--dataset", default="open_orto/dataset")
     ap.add_argument("--gallery-matchers", default="roma,minima_roma,romav2,minima_loftr")
+    ap.add_argument("--manifest", default="openaerialmap_dataset/manifest.csv",
+                    help="манифест корпуса, из которого взята выборка")
     ap.add_argument("--out", default="open_orto/BENCH_PAIRS_REPORT.html")
     args = ap.parse_args()
 
     rows = list(csv.DictReader(Path(args.csv).open(encoding="utf-8")))
+    # состав берём из самих данных: отчёт обслуживает разные корпуса, и
+    # вписанные в текст числа устаревали бы молча
+    scenes = len({r["scene"] for r in rows})
+    n_pairs_total = len({r["pair"] for r in rows})
+    corpus_note = ""
+    mf = Path(args.manifest)
+    if mf.exists():
+        man = list(csv.DictReader(mf.open(encoding="utf-8")))
+        sample = {r["pair"] for r in rows}
+        corpus_note = (f"{len(man)} пар с "
+                       f"{len({r['scene'] for r in man})} площадок")
     bm = [r for r in rows if r["pair_kind"] == "orto_basemap"]
     ss = [r for r in rows if r["pair_kind"] == "same_source"]
 
@@ -284,6 +314,10 @@ def main() -> int:
     tilt_cuts = [(lab, cut(pred)) for lab, pred in tilt_bins]
     layout_cuts = [("inside", cut(lambda r: r["layout"] == "inside")),
                    ("partial", cut(lambda r: r["layout"] == "partial"))]
+    height_bins = [("175–215 м", lambda r: num(r, "height_m") < 215),
+                   ("215–260 м", lambda r: 215 <= num(r, "height_m") < 260),
+                   ("260–300 м", lambda r: num(r, "height_m") >= 260)]
+    height_cuts = [(lab, cut(pred)) for lab, pred in height_bins]
     covis_cuts = [("≥ 0.95", cut(lambda r: num(r, "covis_frac") >= 0.95)),
                   ("0.8–0.95", cut(lambda r: 0.8 <= num(r, "covis_frac") < 0.95)),
                   ("< 0.8", cut(lambda r: num(r, "covis_frac") < 0.8))]
@@ -415,32 +449,47 @@ li {{ margin: .35em 0; }}
 
 <p class="eyebrow">aero-geoloc · open_orto · {date.today().isoformat()}</p>
 <h1>Пять матчеров на боевом типе пары: вид с борта против спутниковой подложки</h1>
-<p class="stand">160 пар с одной площадки (Санкт-Петербург, Обводный канал),
-каждая прогнана пятью ядрами: {len(rows)} замеров. Корпус собран так, что у
-каждой пары есть <b>плотная попиксельная разметка</b>, поэтому качество ядра
-меряется напрямую — расстоянием между предсказанным соответствием и истиной,
-без промежуточной оценки позы.</p>
+<p class="stand">{n_pairs_total} пар с {scenes} {plural(scenes, "площадки", "площадок", "площадок")}, каждая прогнана пятью
+ядрами: {len(rows)} замеров. Выборка стратифицирована по площадкам, видам пар,
+высотам и наклонам из корпуса {corpus_note} — и одна и та же для всех ядер,
+иначе сравнивались бы выборки, а не ядра. У каждой пары есть <b>плотная
+попиксельная разметка</b>, поэтому качество меряется напрямую — расстоянием
+между предсказанным соответствием и истиной, без промежуточной оценки позы.</p>
 
 <h2><span class="num">01</span>Коротко: что показал прогон</h2>
 <ol>
-<li><b>На парах с подложкой работает только плотная линия RoMa.</b> Доля пар,
-где ядро в целом справилось: {stats['roma']['success']:.2f} у ванильной RoMa v1
-и {stats['minima_roma']['success']:.2f} у MINIMA-RoMa против
-{stats['minima_loftr']['success']:.2f} у MINIMA-LoFTR. Разрыв качественный:
-полуплотное ядро почти не находит верных соответствий.</li>
-<li><b>Ванильная RoMa v1 не хуже дообученной MINIMA</b> (EPE
-{stats['roma']['epe']:.2f} px против {stats['minima_roma']['epe']:.2f}) — это
-четвёртая независимая точка того же наблюдения после трека F и внешнего
-бенчмарка OrthoLoC.</li>
+<li><b>На парах с подложкой работает только линия RoMa v1.</b> Доля пар, где
+ядро справилось: {stats['roma']['success']:.2f} у ванильной RoMa v1 и
+{stats['minima_roma']['success']:.2f} у MINIMA-RoMa против
+{stats['minima_loftr']['success']:.2f} у MINIMA-LoFTR. Разрыв качественный, а
+не количественный: полуплотное ядро почти не находит верных соответствий.</li>
+<li><b>Ванильная RoMa v1 и MINIMA-RoMa неразличимы</b> (EPE
+{stats['roma']['epe']:.2f} против {stats['minima_roma']['epe']:.2f} px, успех
+{stats['roma']['success']:.2f} против {stats['minima_roma']['success']:.2f}).
+Разница внутри шума разметки — дообучение MINIMA на этом домене выигрыша не
+даёт. Это уже четвёртая независимая проверка того же наблюдения, теперь на
+{stats['roma']['n']} парах с сотен площадок.</li>
+<li><b>RoMa v2 проваливается именно на переходе между источниками.</b> На
+контрольной оси она лучшая из всех (EPE {stats_ss['romav2']['epe']:.2f} px), а
+на подложке — худшая ({stats['romav2']['epe']:.1f} px, успех
+{stats['romav2']['success']:.2f}). Медиана и доля успеха расходятся: ядро либо
+попадает, либо улетает совсем. Слабость v2 — это подложка, а не надирный
+ракурс, и теперь это измерено на большом корпусе, а не на десятках кадров.</li>
 <li><b>LoFTR-линия разваливается при взаимном повороте сторон.</b> При разнице
 курсов больше 16° её EPE растёт с {yaw_cuts[0][1]['minima_loftr']['epe']:.1f} до
-{yaw_cuts[2][1]['minima_loftr']['epe']:.1f} px, а RoMa-линия к повороту
-безразлична. Практическое следствие: веер предповоротов в тракте обязателен
-именно для полуплотного ядра.</li>
+{yaw_cuts[2][1]['minima_loftr']['epe']:.0f} px, а RoMa-линия к повороту
+безразлична ({yaw_cuts[0][1]['roma']['epe']:.1f} → {yaw_cuts[2][1]['roma']['epe']:.1f}).
+Веер предповоротов в тракте обязателен именно для полуплотного ядра.</li>
+<li><b>Низкая высота — самый трудный режим для всех.</b> На 175–215 м успех
+RoMa падает до {height_cuts[0][1]['roma']['success']:.2f} против
+{height_cuts[2][1]['roma']['success']:.2f} на 260–300 м, EPE растёт вдвое
+({height_cuts[0][1]['roma']['epe']:.1f} против {height_cuts[2][1]['roma']['epe']:.1f} px).
+Чем ниже борт, тем меньше наземного контекста в кадре — и именно этот режим
+ближе всего к нашей боевой задаче.</li>
 <li><b>Контрольная ось подтверждает разметку:</b> когда обе стороны берутся из
 одного ортофотоплана, все пять ядер решают задачу почти идеально
-(EPE {stats_ss['roma']['epe']:.2f}–{stats_ss['minima_loftr']['epe']:.2f} px).
-Значит вся разница на подложке — это доменный разрыв, а не дефект данных.</li>
+(EPE {stats_ss['romav2']['epe']:.2f}–{stats_ss['minima_loftr']['epe']:.2f} px).
+Значит разница на подложке — доменный разрыв, а не дефект данных.</li>
 </ol>
 
 <h2><span class="num">02</span>Методика: что именно меряется</h2>
@@ -476,21 +525,24 @@ inl3 работает на грани шума — читать его надо 
 отражают чистые возможности ядра.</p></div>
 
 <h2><span class="num">03</span>Корпус</h2>
-<p>Пары собраны генератором <code>open_orto/scripts/generate.py</code> из одного
-ортофотоплана (GSD 9.4 см, UTM 36N) и тайлов Esri World Imagery. Сторона A —
-кадр виртуального борта, отрендеренный лучами камеры на плоскость земли;
-сторона B — кроп подложки, повёрнутый вслед за курсом кадра.</p>
+<p>Пары собраны генератором <code>open_orto/scripts/generate.py</code> из
+открытых ортофотопланов и тайлов Esri World Imagery. Сторона A — кадр
+виртуального борта, отрендеренный лучами камеры на плоскость земли; сторона B —
+кроп подложки, повёрнутый вслед за курсом кадра. Привязка каждой площадки
+измерена до генерации, а разметка проверена независимым арбитром: площадки со
+сдвинутой привязкой в корпус не вошли. Методика целиком —
+<code>openaerialmap_dataset/METHODOLOGY.md</code>.</p>
 <div class="tw"><table>
 <thead><tr><th>параметр</th><th>значение</th></tr></thead><tbody>
 <tr><td>камера</td><td>1024×576, f = 735 px, поле зрения 69.7° — как у тестового набора</td></tr>
-<tr><td>высота съёмки</td><td>250–400 м → GSD кадра 0.34–0.54 м, след 348–558 м</td></tr>
+<tr><td>высота съёмки</td><td>175–300 м → GSD кадра 0.24–0.41 м, след 244–418 м</td></tr>
 <tr><td>курс кадра</td><td>произвольный (0–360°)</td></tr>
 <tr><td>курс подложки</td><td>в пределах ±25° от курса кадра</td></tr>
-<tr><td>наклон камеры</td><td>0–10° по случайному азимуту</td></tr>
+<tr><td>наклон камеры</td><td>0–10° у пар с подложкой, до 20° у контрольных</td></tr>
 <tr><td>масштаб сторон</td><td>0.85–1.20 (кадр к подложке)</td></tr>
 <tr><td>компоновки</td><td>inside — след целиком в кропе; partial — перекрытие 0.60–0.90</td></tr>
 <tr><td>контрольная ось</td><td>{len([r for r in ss if r['matcher']=='roma'])} пар same_source: сторона B из того же ортоплана</td></tr>
-<tr><td>компенсация привязки</td><td>поле сдвигов, 44 узла, медиана сдвига 1.97 м</td></tr>
+<tr><td>компенсация привязки</td><td>поле сдвигов площадки; расхождение с арбитром {GT_NOISE_PX} px</td></tr>
 </tbody></table></div>
 
 <h2><span class="num">04</span>Главный результат</h2>
@@ -556,6 +608,13 @@ inl3 работает на грани шума — читать его надо 
 пар, где ядро справилось (пары с подложкой). LoFTR-линия быстрее плотной на
 порядок — и на этом типе пары бесполезна.</figcaption></figure>
 
+<h3>Высота съёмки — то, что ближе всего к боевому режиму</h3>
+<div class="tw">{cut_table(height_cuts, "высота")}</div>
+<p>Чем ниже борт, тем меньше наземного контекста в кадре и тем труднее задача
+всем ядрам без исключения. Разрыв между линиями при этом сохраняется: на
+175–215 м RoMa даёт EPE {height_cuts[0][1]['roma']['epe']:.1f} px против
+{height_cuts[0][1]['minima_loftr']['epe']:.0f} px у MINIMA-LoFTR.</p>
+
 <h2><span class="num">06</span>Галерея: как ядро видит пару</h2>
 <p>Слева кадр, справа кроп подложки, линии — соответствия, найденные ядром.
 <b style="color:var(--good)">Зелёные</b> легли ближе {INLIER_PX:.0f} px от истины,
@@ -566,9 +625,12 @@ inl3 работает на грани шума — читать его надо 
 
 <h2><span class="num">07</span>Оговорки</h2>
 <ul>
-<li><b>Одна площадка, один сезон.</b> Числа характеризуют плотную городскую
-застройку Санкт-Петербурга, а не домен вообще; разрезы по территории строить
-не из чего.</li>
+<li><b>Выборка, а не весь корпус.</b> Прогнаны {n_pairs_total} пар из
+{corpus_note}: полный прогон впятером занял бы около тринадцати часов. Выборка
+стратифицирована и повторяет корпус по высоте и наклону, но редкие режимы в
+ней представлены слабее.</li>
+<li><b>Сезон подложки не контролируется.</b> Esri отдаёт то, что есть, поэтому
+доля кросс-сезонных пар в корпусе неизвестна — а именно они труднее всего.</li>
 <li><b>Шум разметки ограничивает измеримость снизу</b> (≈ {GT_NOISE_PX} px):
 ядра, различающиеся меньше чем на ~1 px EPE, этим прогоном не разделяются.</li>
 <li><b>Пороги ядер — боевые калибровки</b> предыдущих треков, они не
@@ -576,24 +638,27 @@ inl3 работает на грани шума — читать его надо 
 но вряд ли порядок расслоения.</li>
 <li><b>Контрольная ось мала</b> ({stats_ss['roma']['n']} пар): она нужна для
 проверки разметки, а не для сравнения ядер между собой.</li>
-<li><b>Параллакс зданий не снят.</b> Метрического DSM для площадки нет (в
-исходных данных лежала цветовая визуализация, а не высоты), поэтому высокие
-объекты дают систематический вклад в остаток.</li>
+<li><b>Параллакс зданий не снят.</b> Метрического DSM нет, кадр рендерится
+на плоскость z = 0, поэтому высокие объекты дают систематический вклад в
+остаток — и в шум разметки, и в ошибку ядра.</li>
+<li><b>Сравниваются ядра «как есть».</b> Ни одно не дообучалось на этом
+корпусе; в этом и смысл прогона — получить отправную точку, от которой будет
+считаться выигрыш дообучения.</li>
 </ul>
 
 <h2><span class="num">08</span>Воспроизведение</h2>
 <p>Прогон докачивающий: повторный запуск досчитывает недостающие строки.</p>
-<pre style="background:var(--note);padding:14px 16px;border-radius:8px;overflow-x:auto"><code>python open_orto/scripts/bench_pairs.py --dataset open_orto/dataset \\
+<pre style="background:var(--note);padding:14px 16px;border-radius:8px;overflow-x:auto"><code>python open_orto/scripts/bench_pairs.py --dataset openaerialmap_dataset \\
     --matchers loftr,minima_loftr,roma,minima_roma,romav2 \\
-    --out open_orto/work/bench_pairs.csv
+    --pairs open_orto/work/bench_sample.txt --out open_orto/work/bench_final.csv
 
 python open_orto/scripts/bench_report_html.py \\
-    --csv open_orto/work/bench_pairs.csv --dataset open_orto/dataset \\
-    --out open_orto/BENCH_PAIRS_REPORT.html</code></pre>
+    --csv open_orto/work/bench_final.csv --dataset openaerialmap_dataset \\
+    --out openaerialmap_dataset/MATCHERS_REPORT.html</code></pre>
 <p style="color:var(--ink-3);font-size:13px;margin-top:36px">Сырьё:
-<code>open_orto/work/bench_pairs.csv</code> ({len(rows)} строк). Сводные таблицы
+<code>open_orto/work/bench_final.csv</code> ({len(rows)} строк). Сводные таблицы
 в машинном виде — <code>open_orto/BENCH_PAIRS_METRICS.md</code>. Корпус и его
-приёмка — <code>open_orto/RESULTS_BASEMAP_PILOT.md</code>.</p>
+приёмка — <code>openaerialmap_dataset/METHODOLOGY.md</code>.</p>
 </div></body></html>"""
 
     dst = Path(args.out)

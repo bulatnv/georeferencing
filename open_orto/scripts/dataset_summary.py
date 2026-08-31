@@ -189,6 +189,9 @@ def readme(root: Path, rows, control) -> str:
         "  какие пороги пришлось пересмотреть по ходу;",
         "- `RASTERS.md` и `rasters_inventory.csv` — опись исходных ортопланов:",
         "  какие пошли в дело, какие нет и по какой причине;",
+        "- `MATCHERS_REPORT.html` и `MATCHERS_METRICS.md` — как на этом корпусе",
+        "  работают пять матчеров (LoFTR, MINIMA-LoFTR, RoMa v1, MINIMA-RoMa,",
+        "  RoMa v2): отправная точка, от которой считается выигрыш дообучения;",
         "- `SUMMARY.html` — распределения параметров и примеры пар;",
         "- `manifest.csv` — полная опись: одна строка на пару.",
     ]

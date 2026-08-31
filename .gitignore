@@ -47,6 +47,7 @@ open_orto/dataset/
 # по ним видно, из чего датасет собран, даже когда данных под рукой нет.
 openaerialmap_dataset/*.npz
 openaerialmap_dataset/SUMMARY.html
+openaerialmap_dataset/MATCHERS_REPORT.html
 # опись поставки нужна в истории, несмотря на общее правило *.csv выше
 !openaerialmap_dataset/manifest.csv
 !openaerialmap_dataset/rasters_inventory.csv
