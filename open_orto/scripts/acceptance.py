@@ -83,7 +83,9 @@ def main() -> int:
     man = list(csv.DictReader(Path(args.manifest).open(encoding="utf-8")))
     ho = [r for r in man if r["split"] == "heldout"]
     ho_scenes = {r["scene"] for r in ho}
-    combat = [r for r in ho if r["pair_kind"] != "same_source"]
+    # боевые — строго orto_basemap, как и в базе: иначе печать разошлась бы
+    # с таблицей на число кросс-датных пар
+    combat = [r for r in ho if r["pair_kind"] == "orto_basemap"]
 
     # фактическое расхождение с арбитром — на площадках именно этого сплита
     diffs = []
