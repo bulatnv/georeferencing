@@ -1,0 +1,117 @@
+{
+ "date": "2026-08-31",
+ "split": "heldout",
+ "combat_pairs": 749,
+ "gt_median_px": 3.65,
+ "gt_scenes": 93,
+ "ceilings": {
+  "sigma_px": 3.1,
+  "epe": 3.65,
+  "inl1": 0.0507,
+  "inl3": 0.3739,
+  "inl5": 0.7277,
+  "inl10": 0.9945
+ },
+ "decisive_metrics": [
+  "inl5",
+  "success"
+ ],
+ "do_not_use": [
+  "inl3"
+ ],
+ "discriminable_success": 0.0251,
+ "baseline": {
+  "roma": {
+   "n": 749,
+   "epe": 5.72,
+   "inl3": 0.2097,
+   "inl5": 0.4276,
+   "inl10": 0.7551,
+   "success": 0.4312,
+   "sec": 0.56
+  },
+  "minima_roma": {
+   "n": 749,
+   "epe": 5.84,
+   "inl3": 0.2105,
+   "inl5": 0.4307,
+   "inl10": 0.7418,
+   "success": 0.4406,
+   "sec": 0.56
+  },
+  "minima_loftr": {
+   "n": 749,
+   "epe": 13.45,
+   "inl3": 0.0732,
+   "inl5": 0.1667,
+   "inl10": 0.4044,
+   "success": 0.0881,
+   "sec": 0.03
+  },
+  "loftr": {
+   "n": 749,
+   "epe": 17.68,
+   "inl3": 0.0531,
+   "inl5": 0.1295,
+   "inl10": 0.3242,
+   "success": 0.1121,
+   "sec": 0.03
+  },
+  "romav2": {
+   "n": 749,
+   "epe": 22.52,
+   "inl3": 0.0318,
+   "inl5": 0.082,
+   "inl10": 0.2336,
+   "success": 0.2323,
+   "sec": 0.39
+  }
+ },
+ "control_same_source": {
+  "roma": {
+   "n": 731,
+   "epe": 0.48,
+   "inl3": 1.0,
+   "inl5": 1.0,
+   "inl10": 1.0,
+   "success": 1.0,
+   "sec": 0.57
+  },
+  "minima_roma": {
+   "n": 731,
+   "epe": 0.48,
+   "inl3": 1.0,
+   "inl5": 1.0,
+   "inl10": 1.0,
+   "success": 0.9973,
+   "sec": 0.57
+  },
+  "minima_loftr": {
+   "n": 731,
+   "epe": 1.55,
+   "inl3": 0.8603,
+   "inl5": 0.9628,
+   "inl10": 0.9893,
+   "success": 0.9658,
+   "sec": 0.03
+  },
+  "loftr": {
+   "n": 731,
+   "epe": 1.16,
+   "inl3": 0.9539,
+   "inl5": 0.9911,
+   "inl10": 0.9986,
+   "success": 0.9056,
+   "sec": 0.03
+  },
+  "romav2": {
+   "n": 731,
+   "epe": 0.48,
+   "inl3": 1.0,
+   "inl5": 1.0,
+   "inl10": 1.0,
+   "success": 1.0,
+   "sec": 0.4
+  }
+ }
+}
