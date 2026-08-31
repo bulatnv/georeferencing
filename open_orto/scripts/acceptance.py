@@ -104,9 +104,12 @@ def main() -> int:
     rows = list(csv.DictReader(Path(args.bench).open(encoding="utf-8")))
     by = defaultdict(list)
     for r in rows:
-        by[(r["matcher"], r["pair_kind"] == "same_source")].append(r)
-    base = {m: stat(by[(m, False)]) for m in MATCHERS}
-    ctrl = {m: stat(by[(m, True)]) for m in MATCHERS}
+        # боевые — строго orto_basemap: кросс-датные пары в базу не входят,
+        # у них другой источник стороны B и своя точность разметки
+        by[(r["matcher"], r["pair_kind"])].append(r)
+    base = {m: stat(by[(m, "orto_basemap")]) for m in MATCHERS}
+    ctrl = {m: stat(by[(m, "same_source")]) for m in MATCHERS}
+    xdate = {m: stat(by[(m, "cross_date")]) for m in MATCHERS}
     ref = base.get("roma") or {}
     p = ref.get("success", 0.39)
     n = ref.get("n", len(combat))
@@ -150,6 +153,13 @@ def main() -> int:
     md += table(ctrl, ["epe", "inl3", "inl5", "success"],
                 ["EPE, px", "inl3", "inl5", "успех"],
                 ["{:.2f}", "{:.2f}", "{:.2f}", "{:.2f}"])
+    if xdate.get("roma", {}).get("n"):
+        md += ["", f"Кросс-датные пары `heldout` (n = {xdate['roma']['n']}) — "
+               "отдельная ось: обе стороны ортофото, но снятые в разные даты. "
+               "В базу не входят, меряются справочно:", ""]
+        md += table(xdate, ["epe", "inl3", "inl5", "success"],
+                    ["EPE, px", "inl3", "inl5", "успех"],
+                    ["{:.2f}", "{:.2f}", "{:.2f}", "{:.2f}"])
 
     md += [
         "",
@@ -227,6 +237,8 @@ def main() -> int:
                          for k, v in base[m].items()} for m in MATCHERS if base[m]},
         "control_same_source": {m: {k: (round(v, 4) if isinstance(v, float) else v)
                                     for k, v in ctrl[m].items()} for m in MATCHERS if ctrl[m]},
+        "cross_date": {m: {k: (round(v, 4) if isinstance(v, float) else v)
+                           for k, v in xdate[m].items()} for m in MATCHERS if xdate[m]},
     }, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"\nприёмка: {args.out_md}\nбаза: {args.out_json}")
     return 0
