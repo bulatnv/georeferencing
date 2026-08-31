@@ -102,12 +102,25 @@ def main() -> int:
     ap.add_argument("--dataset", default="open_orto/dataset")
     ap.add_argument("--matchers", default="loftr,minima_loftr,roma,minima_roma,romav2")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--pairs", default="",
+                    help="файл со списком имён пар: прогонять ровно их. Все "
+                         "ядра должны видеть одну и ту же выборку, иначе "
+                         "сравнение сравнивает выборки, а не ядра")
     ap.add_argument("--out", default="open_orto/work/bench_pairs.csv")
     args = ap.parse_args()
     from cpu_affinity import pin_to_performance
     pin_to_performance(verbose=False)
 
-    files = sorted(Path(args.dataset).glob("*.npz"))
+    root = Path(args.dataset)
+    if args.pairs:
+        want = [ln.strip() for ln in Path(args.pairs).read_text(encoding="utf-8").split()
+                if ln.strip()]
+        files = [root / n for n in want if (root / n).exists()]
+        missing = len(want) - len(files)
+        if missing:
+            print(f"из списка не найдено файлов: {missing}")
+    else:
+        files = sorted(root.glob("*.npz"))
     if args.limit:
         files = files[: args.limit]
     matchers = [m.strip() for m in args.matchers.split(",") if m.strip()]
