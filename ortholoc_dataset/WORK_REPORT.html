@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Корпус OrthoLoC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+:root{
+  --ground:#f4f6f4; --surface:#ffffff; --sunk:#eceff0;
+  --ink:#16211d; --body:#25322d; --muted:#5b6b64; --faint:#8a978f;
+  --line:#d8ded9; --line-soft:#e6eae6;
+  --accent:#2e6f5e; --accent-soft:#dfeae5;
+  --warn:#b4762a; --bad:#a8443a; --cool:#2c5a7a;
+  --display:"Fira Sans Condensed","Fira Sans",-apple-system,Segoe UI,sans-serif;
+  --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#101513; --surface:#161d1a; --sunk:#1b2320;
+    --ink:#e4ebe7; --body:#cfd9d4; --muted:#93a29b; --faint:#74837c;
+    --line:#26302c; --line-soft:#1f2825;
+    --accent:#6fbfa3; --accent-soft:#1d2f29;
+    --warn:#d29a4e; --bad:#d1705f; --cool:#6ea3c8;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#101513; --surface:#161d1a; --sunk:#1b2320;
+  --ink:#e4ebe7; --body:#cfd9d4; --muted:#93a29b; --faint:#74837c;
+  --line:#26302c; --line-soft:#1f2825;
+  --accent:#6fbfa3; --accent-soft:#1d2f29;
+  --warn:#d29a4e; --bad:#d1705f; --cool:#6ea3c8;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--body);
+  font-family:var(--serif); font-size:17px; line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px; margin:0 auto; padding:0 24px 96px}
+p{margin:0 0 1em; max-width:74ch}
+ul{margin:0 0 1em; padding-left:1.1em; max-width:74ch}
+li{margin-bottom:.35em}
+a{color:var(--accent)}
+strong{color:var(--ink); font-weight:600}
+code{font-family:var(--mono); font-size:.86em; background:var(--sunk);
+  padding:.1em .35em; border-radius:3px; color:var(--ink)}
+.num{font-family:var(--mono); font-variant-numeric:tabular-nums}
+
+header{padding:72px 0 40px; border-bottom:2px solid var(--ink)}
+.eyebrow{font-family:var(--mono); font-size:12px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--accent); margin:0 0 18px}
+h1{font-family:var(--display); font-weight:700; font-size:clamp(36px,5.2vw,56px);
+  line-height:1.04; letter-spacing:-.01em; color:var(--ink); margin:0 0 20px;
+  text-wrap:balance; max-width:22ch}
+.lead{font-size:20px; line-height:1.55; color:var(--body); max-width:66ch; margin:0 0 26px}
+.facts{display:flex; flex-wrap:wrap; gap:10px 26px; font-family:var(--mono);
+  font-size:12.5px; color:var(--muted); letter-spacing:.02em}
+.facts b{color:var(--ink); font-weight:500}
+
+.tiles{display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin:40px 0 8px}
+.tile{background:var(--surface); border:1px solid var(--line); padding:20px 18px 18px}
+.tile .k{font-family:var(--display); font-weight:600; font-size:34px;
+  line-height:1; color:var(--ink); font-variant-numeric:tabular-nums}
+.tile .k span{font-size:16px; color:var(--muted); font-weight:500; margin-left:3px}
+.tile .t{font-family:var(--mono); font-size:11.5px; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--faint); margin-top:9px}
+.tile .d{font-size:14.5px; color:var(--muted); line-height:1.45; margin-top:7px}
+
+section{padding-top:56px}
+.sec-head{display:flex; gap:18px; align-items:baseline;
+  border-top:1px solid var(--line); padding-top:18px; margin-bottom:22px}
+.sec-num{font-family:var(--mono); font-size:12.5px; color:var(--accent);
+  letter-spacing:.08em; padding-top:6px; flex:none; width:34px}
+h2{font-family:var(--display); font-weight:600; font-size:29px; line-height:1.12;
+  color:var(--ink); margin:0; letter-spacing:-.01em; text-wrap:balance}
+.sec-sub{font-family:var(--mono); font-size:12.5px; color:var(--faint);
+  margin-left:auto; text-align:right; letter-spacing:.03em}
+h3{font-family:var(--display); font-weight:600; font-size:19px; color:var(--ink);
+  margin:34px 0 12px; letter-spacing:.005em}
+
+.funnel{border:1px solid var(--line); background:var(--surface); padding:22px 22px 8px; margin:24px 0}
+.frow{display:grid; grid-template-columns:150px 1fr 86px; gap:16px;
+  align-items:center; margin-bottom:14px}
+.frow .lab{font-family:var(--mono); font-size:12px; color:var(--muted);
+  text-align:right; line-height:1.35}
+.bar{height:26px; background:var(--sunk); position:relative}
+.bar i{display:block; height:100%; background:var(--accent); opacity:.85}
+.bar i.drop{background:var(--warn)}
+.bar i.hold{background:var(--cool)}
+.frow .val{font-family:var(--mono); font-size:14px; color:var(--ink);
+  font-variant-numeric:tabular-nums; font-weight:500}
+.fnote{font-size:14.5px; color:var(--muted); border-top:1px solid var(--line-soft);
+  padding-top:14px; margin:6px 0 14px; max-width:none}
+
+.tw{overflow-x:auto; margin:22px 0; border:1px solid var(--line); background:var(--surface)}
+table{border-collapse:collapse; width:100%; font-size:15px}
+th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line-soft);
+  vertical-align:top}
+thead th{font-family:var(--mono); font-size:11.5px; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--faint); font-weight:500;
+  background:var(--sunk); border-bottom:1px solid var(--line); white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.n{font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+tr.lead-row td{background:var(--accent-soft)}
+tr.lead-row td.n,tr.lead-row td strong{color:var(--ink)}
+.metre{display:inline-block; width:74px; height:7px; background:var(--sunk);
+  vertical-align:middle; margin-left:9px}
+.metre i{display:block; height:100%; background:var(--accent)}
+.pill{font-family:var(--mono); font-size:11px; letter-spacing:.05em;
+  text-transform:uppercase; padding:2px 7px; border:1px solid currentColor;
+  border-radius:2px; white-space:nowrap}
+.pill.ok{color:var(--accent)} .pill.cut{color:var(--warn)} .pill.err{color:var(--bad)}
+
+.callout{border-left:3px solid var(--accent); background:var(--surface);
+  padding:16px 20px; margin:24px 0; font-size:16px}
+.callout p:last-child{margin-bottom:0}
+.callout.warn{border-left-color:var(--warn)}
+.grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:22px; margin:22px 0}
+.card{border:1px solid var(--line); background:var(--surface); padding:18px 20px}
+.card h4{font-family:var(--display); font-size:16.5px; color:var(--ink); margin:0 0 8px; font-weight:600}
+.card p{font-size:15px; margin:0; color:var(--muted); max-width:none}
+.card p+p{margin-top:.7em}
+footer{margin-top:64px; border-top:1px solid var(--line); padding-top:20px;
+  font-family:var(--mono); font-size:12.5px; color:var(--faint); line-height:1.7}
+@media (max-width:920px){ .tiles{grid-template-columns:repeat(2,1fr)} }
+@media (max-width:640px){
+  body{font-size:16px}
+  .frow{grid-template-columns:1fr; gap:5px}
+  .frow .lab{text-align:left}
+  .sec-sub{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Отчёт о работе · 1 сентября 2026</p>
+  <h1>Корпус OrthoLoC: из чужого датасета в обучаемый</h1>
+  <p class="lead">Внешний датасет занимал четверть терабайта и не годился для обучения:
+  сплиты дырявые, классов качества нет, приёмки нет. Сделано две вещи — хранение ужато
+  вшестеро без потери измеримости, и из данных собран корпус в том же виде, что свой.</p>
+  <div class="facts">
+    <span>ветка <b>feat/open_orto</b></span>
+    <span>поставка <b>ortholoc_dataset/</b></span>
+    <span>источник <b>OrthoLoC, CC BY-NC-SA</b></span>
+    <span>проверок <b>10 из 10</b></span>
+  </div>
+</header>
+
+<div class="tiles">
+  <div class="tile"><div class="k">12 831</div><div class="t">пара</div>
+    <div class="d">3717 боевых, 7482 лёгких боевых, 1632 контрольных</div></div>
+  <div class="tile"><div class="k">26.5<span>ГБ</span></div><div class="t">объём поставки</div>
+    <div class="d">51 сцена; сам датасет ужат 269.5 → 44.8 ГБ</div></div>
+  <div class="tile"><div class="k">1.52<span>px</span></div><div class="t">сдвиг привязки</div>
+    <div class="d">измерен впервые: расхождение источников ортофото</div></div>
+  <div class="tile"><div class="k">×6</div><div class="t">цена смены источника</div>
+    <div class="d">EPE лучшего ядра: 0.97 на своём против 5.86 на чужом</div></div>
+  <div class="tile"><div class="k">0.46</div><div class="t">база inl5</div>
+    <div class="d">RoMa v2 без дообучения, n = 919</div></div>
+</div>
+
+<section id="s1">
+  <div class="sec-head"><div class="sec-num">§ 1</div>
+    <h2>Что было и в чём проблема</h2>
+    <div class="sec-sub">исходное состояние</div></div>
+
+  <p>OrthoLoC — внешний датасет аэросъёмки над Германией: 16 427 сэмплов, каждый
+  самодостаточен. Кадр камеры, ортофото той же территории, попиксельная мировая
+  координата кадра, карта высот, матрицы камеры, меш сцены. На нём мы уже мерили
+  матчеры, а в августе из части сэмплов сделали пары канонического формата.</p>
+
+  <p>Обучаться на этих парах было нельзя по трём причинам, и все три не видны, пока
+  не заглянешь в состав: <strong>сплиты датасета дырявые</strong>, <strong>классов
+  качества и весов нет</strong>, <strong>приёмки нет</strong> — не с чем сравнивать
+  результат дообучения. Плюс четверть терабайта на диске под данные, где почти весь
+  объём уходил на точность, которую нечем измерить.</p>
+
+  <div class="callout">
+    <p><strong>Ключевая особенность датасета</strong>, из которой вырос весь корпус: у
+    одного кадра бывает до трёх вариантов стороны B — своё ортофото, ортофото другого
+    источника и другой даты, и вариант с другой картой высот. Кадр и его разметка при
+    этом общие.</p>
+  </div>
+</section>
+
+<section id="s2">
+  <div class="sec-head"><div class="sec-num">§ 2</div>
+    <h2>Хранение: 269.5 → 44.8 ГБ</h2>
+    <div class="sec-sub">первая линия работы</div></div>
+
+  <p>Сэмпл весил 16 МБ. Разбор показал, что объём уходит на данные, хранимые с
+  точностью, далеко превосходящей измеримую нашим протоколом.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>массив</th><th class="n">в файле</th><th>что с ним не так</th></tr></thead>
+    <tbody>
+      <tr><td><code>point_map</code></td><td class="n">7.2 МБ</td>
+        <td>мировые XYZ во <code>float32</code>, тогда как метрика считается в пикселях ортофото, а ошибка лучшего ядра — 2.6 px</td></tr>
+      <tr><td><code>dsm</code></td><td class="n">4.2 МБ</td>
+        <td>три канала, из которых X и Y — регулярная сетка: две полные карты хранят то, что описывается двумя векторами</td></tr>
+      <tr><td><code>image_dop</code>, <code>image_query</code></td><td class="n">4.5 МБ</td>
+        <td>сырые пиксели вместо сжатия</td></tr>
+      <tr><td><code>vertices</code>, <code>faces</code></td><td class="n">0.3 МБ</td>
+        <td>меш сцены; из него читалось одно число — медиана Z</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Сверх этого — <strong>дельта-кодирование</strong>: GT и высоты почти линейны, и
+  построчные разности жмутся вчетверо лучше значений (0.45 МБ против 1.98 на сэмпл).</p>
+
+  <h3>Профиля два, и это результат измерения</h3>
+  <p>Изображения и GT — не просто содержимое файла, а то, из чего считается метрика.
+  Матчеры недетерминированы: два прогона на одних и тех же данных совпадают точно лишь
+  на 6 сэмплах из 40. Поэтому форматы сравнивались <strong>парно по сэмплам</strong> —
+  медиана <code>|Δ inl1|</code> ванильной RoMa относительно исходных данных:</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>вариант хранения</th><th class="n">медиана |Δ inl1|</th><th>вывод</th></tr></thead>
+    <tbody>
+      <tr><td>повторный прогон на исходных данных</td><td class="n">0.0057</td>
+        <td>собственный шум матчера</td></tr>
+      <tr class="lead-row"><td><strong>профиль <code>eval</code></strong> (WebP lossless, GT 1/256 px)</td>
+        <td class="n"><strong>0.0040</strong></td><td>неотличимо от шума</td></tr>
+      <tr><td>без потерь, но GT 1/16 px</td><td class="n">0.0059</td><td>на границе шума</td></tr>
+      <tr><td>JPEG q95, GT 1/16 px</td><td class="n">0.0103</td><td>вдвое выше шума</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Отсюда решение: тестовые сплиты хранятся <strong>без потерь</strong> — пиксели
+  байт-в-байт, GT вчетверо мельче того шага, где эффект ещё был заметен; обучающие идут
+  JPEG q95, там изображения и так проходят через аугментации. Сжать всё одинаково было
+  бы ошибкой: изображение для матчера — не хранение, а вход.</p>
+
+  <p>Проверено полным прогоном пяти ядер на компактных тестовых сплитах: опубликованная
+  таблица бенчмарка воспроизвелась вся — RoMa 17.9 против 18.2, RoMa v2 2.6 против 2.6.
+  Побочно формат стал <strong>быстрее на чтение</strong>: 177 мс на сэмпл против 237.</p>
+
+  <div class="callout warn">
+    <p><strong>Полный прогон вскрыл два дефекта данных.</strong> У сцены L06
+    (440 сэмплов) в файлах вообще нет массива <code>scale</code> — конвертер пар это
+    знал и выводил шаг из сетки, а новый формат нет. У сэмпла <code>L33_xDOP0054</code>
+    сетка содержит <code>NaN</code> на 14 % площади, и проверка честно его отвергла
+    вместо того, чтобы молча испортить: оси теперь строятся по валидным элементам, но
+    лишь если в дырах нет высоты.</p>
+  </div>
+</section>
+
+<section id="s3">
+  <div class="sec-head"><div class="sec-num">§ 3</div>
+    <h2>Воронка корпуса</h2>
+    <div class="sec-sub">вторая линия работы</div></div>
+
+  <div class="funnel">
+    <div class="frow"><div class="lab">сэмплов<br>в датасете</div>
+      <div class="bar"><i style="width:100%"></i></div><div class="val">16 427</div></div>
+    <div class="frow"><div class="lab">взято<br>в конвертацию</div>
+      <div class="bar"><i class="hold" style="width:68.2%"></i></div><div class="val">11 199</div></div>
+    <div class="frow"><div class="lab">пар построено<br>(два режима)</div>
+      <div class="bar"><i style="width:100%"></i></div><div class="val">30 305</div></div>
+    <div class="frow"><div class="lab">сезонные<br>перекраски</div>
+      <div class="bar"><i class="drop" style="width:26.5%"></i></div><div class="val">−8 032</div></div>
+    <div class="frow"><div class="lab">лишние пары<br>rect</div>
+      <div class="bar"><i class="drop" style="width:31.2%"></i></div><div class="val">−9 442</div></div>
+    <div class="frow"><div class="lab">в поставке</div>
+      <div class="bar"><i style="width:42.3%"></i></div><div class="val">12 831</div></div>
+    <p class="fnote">В <code>train</code> конвертация шла с квотой <span class="num">200</span>
+    сэмплов на сцену: у крупной сцены 200 кадров против 72 у мелкой, и без ограничения
+    корпус учил бы преимущественно одну территорию. Сезонные перекраски отброшены
+    целиком — на своём корпусе замерено, что синтетическая перекраска почти не создаёт
+    разрыва во внешнем виде (корреляция яркости 0.99 против 0.99 у неперекрашенных).
+    Ось <code>rect</code> срезана до квоты по сценам: это лёгкая ось того же рода, что
+    <code>same_source</code>, и держать её половиной корпуса значит тратить эпоху на
+    нулевой градиент.</p>
+  </div>
+
+  <div class="tw"><table>
+    <thead><tr><th>вид пары</th><th class="n">пар</th><th>сторона B</th><th>роль</th></tr></thead>
+    <tbody>
+      <tr class="lead-row"><td><strong>frame_xdop</strong></td><td class="n">3717</td>
+        <td>ортофото <strong>другого источника</strong>, другая дата</td>
+        <td>боевой тип: к геометрии добавляется разрыв во внешнем виде</td></tr>
+      <tr><td><strong>frame_dop</strong></td><td class="n">7482</td>
+        <td>своё ортофото территории</td>
+        <td>остаётся только трудность наклонной съёмки против ортопроекции</td></tr>
+      <tr><td><strong>rect_ortho</strong></td><td class="n">1632</td>
+        <td>ортофото, кадр ректифицирован на его сетку</td>
+        <td>контроль забывания: обе стороны на одной геометрии</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s4">
+  <div class="sec-head"><div class="sec-num">§ 4</div>
+    <h2>Сплиты пришлось строить заново</h2>
+    <div class="sec-sub">утечка в исходном делении</div></div>
+
+  <p>Деление самого датасета использовать нельзя, и это видно сразу, если посмотреть на
+  территории: в OrthoLoC <code>train</code> и <code>val</code> — <strong>одни и те же
+  48 сцен</strong> (val держит отложенные кадры тех же мест), а <code>test_inPlace</code>
+  входит в <code>train</code> целиком. По правилу «делить по территориям» это утечка:
+  такая валидация меряет запоминание местности, а не перенос.</p>
+
+  <p>Честный held-out здесь ровно один — <code>test_outPlace</code>: сцены L08, L50 и
+  L51 не встречаются больше нигде. Он и стал приёмкой, <code>val</code> набран из восьми
+  отдельных сцен обучения, исходная метка сохранена колонкой <code>src_split</code>.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>сплит</th><th class="n">пар</th><th class="n">боевых</th><th class="n">сцен</th><th>назначение</th></tr></thead>
+    <tbody>
+      <tr><td><code>train</code></td><td class="n">9369</td><td class="n">8089</td><td class="n">40</td><td>обучение</td></tr>
+      <tr><td><code>val</code></td><td class="n">1951</td><td class="n">1695</td><td class="n">8</td><td>выбор чекпоинта</td></tr>
+      <tr><td><code>heldout</code></td><td class="n">1511</td><td class="n">1415</td><td class="n">3</td><td>приёмка, расходуется один раз</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s5">
+  <div class="sec-head"><div class="sec-num">§ 5</div>
+    <h2>Главное измерение: привязка источников</h2>
+    <div class="sec-sub">дефекта никто не знал</div></div>
+
+  <p>У вариантов «своё» и «чужое» ортофото <strong>общий кадр, общий</strong>
+  <code>point_map</code> <strong>и одинаковый масштаб</strong> — проверено побайтово.
+  Значит GT-карта у них одна и та же, и формула перевода мировых координат в пиксели
+  ортофото молча предполагает: <em>оба ортофото привязаны к мировой сетке идеально</em>.</p>
+
+  <p>Если чужое смещено, весь сдвиг уходит прямо в разметку. Пара выглядит нормальной,
+  глазами дефект не виден — тот же худший вид брака, что расхождение геопривязки
+  ортоплана и мозаики Esri в своём корпусе.</p>
+
+  <h3>Как измерено</h3>
+  <p>Два ортофото одной территории сводятся сильнейшим ядром, по его соответствиям
+  строится 4-DoF подобие — обе стороны ортографичны, модель применима, — и сдвиг этой
+  модели есть систематическая ошибка разметки. Матчер здесь измеритель, а не источник
+  разметки: его соответствия никуда не записываются.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>величина</th><th class="n">значение</th><th>что означает</th></tr></thead>
+    <tbody>
+      <tr class="lead-row"><td><strong>медиана сдвига</strong></td><td class="n"><strong>1.52 px</strong></td>
+        <td>0.30 м на земле при типичном GSD 0.2 м/пкс</td></tr>
+      <tr><td>по сценам</td><td class="n">0.64–5.14 px</td>
+        <td>у четырёх сцен из 28 больше 3 px — там разметка заметно смещена</td></tr>
+      <tr><td>90-й перцентиль</td><td class="n">4.15 px</td><td>хвост распределения</td></tr>
+      <tr><td>|поворот|</td><td class="n">0.05°</td>
+        <td rowspan="2">расхождение — <strong>чистый перенос</strong>, ровно как у нас с Esri</td></tr>
+      <tr><td>|масштаб − 1|</td><td class="n">0.12 %</td></tr>
+      <tr><td>сведений</td><td class="n">438 из 448</td>
+        <td>10 отбраковано: ложные сведения с долей инлайеров 0.02 против медианы 0.81 и поворотом до 178°</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Медиана по сцене стала <code>gt_sigma_px</code> всех её пар с чужим ортофото.
+  Сцены без замера понижены до класса <code>approx</code>: неизмеренная привязка — не то
+  же самое, что подтверждённая.</p>
+
+  <div class="callout">
+    <p><strong>Чего измерение не даёт.</strong> У пар со своим ортофото независимого
+    источника нет, и точность разметки проверить нечем — там стоит оценка сверху
+    (0.97 px, медиана EPE сильнейшего ядра, куда входит и ошибка модели). Поэтому в
+    манифесте есть колонка <code>gt_sigma_src</code>: <code>измерено</code> /
+    <code>оценка</code> / <code>аналитическая</code>. Без этой пометки оценка через
+    месяц читается как измерение, а на ней стоят и веса, и потолки приёмки.</p>
+  </div>
+
+  <p>Перекрёстная проверка другим измерителем — остаток фазовой корреляции: 0.41 px на
+  ректифицированных парах, 1.23 px на парах со своим ортофото, 1.59 px с чужим. Порядок
+  величин сходится с аудитом.</p>
+</section>
+
+<section id="s6">
+  <div class="sec-head"><div class="sec-num">§ 6</div>
+    <h2>База и потолки, записанные до обучения</h2>
+    <div class="sec-sub">n = 919</div></div>
+
+  <p>Приёмка стоит на парах <code>frame_xdop</code>: это боевой тип корпуса и
+  единственный, у которого ошибка разметки измерена, а не оценена. Потолок, посчитанный
+  из оценки сверху, был бы фикцией.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>ядро</th><th class="n">EPE, px</th><th class="n">inl5</th><th class="n">успех</th>
+      <th class="n">с/пару</th><th class="n">на своём ортофото</th></tr></thead>
+    <tbody>
+      <tr class="lead-row"><td><strong>RoMa v2</strong></td><td class="n">5.86</td>
+        <td class="n">0.46<span class="metre"><i style="width:46%"></i></span></td>
+        <td class="n">0.46</td><td class="n">0.39</td><td class="n"><strong>0.97</strong></td></tr>
+      <tr><td>RoMa v1</td><td class="n">53.51</td>
+        <td class="n">0.12<span class="metre"><i style="width:12%"></i></span></td>
+        <td class="n">0.35</td><td class="n">0.55</td><td class="n">1.37</td></tr>
+      <tr><td>MINIMA-RoMa</td><td class="n">92.47</td>
+        <td class="n">0.03<span class="metre"><i style="width:3%"></i></span></td>
+        <td class="n">0.30</td><td class="n">0.55</td><td class="n">1.35</td></tr>
+      <tr><td>MINIMA-LoFTR</td><td class="n">222.5</td>
+        <td class="n">0.00</td><td class="n">0.09</td><td class="n">0.03</td><td class="n">215.3</td></tr>
+      <tr><td>LoFTR</td><td class="n">281.8</td>
+        <td class="n">0.00</td><td class="n">0.15</td><td class="n">0.03</td><td class="n">266.8</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Последний столбец — главное число корпуса. <strong>Смена источника ортофото стоит
+  лучшему ядру ×6 по EPE</strong> (0.97 → 5.86 px) при том, что сдвиг привязки между
+  источниками всего 1.5 px. Трудность создаёт не геометрия, а разрыв во внешнем виде —
+  тот же вывод, что на своём корпусе, теперь на данных, где обе стороны ортофото.</p>
+
+  <p>Потолки: ошибка разметки пар приёмки 1.02 px, отсюда потолок EPE <strong>1.02</strong>,
+  <code>inl5</code> ≈ <strong>1.00</strong>. Порог различимости — <strong>0.023</strong>
+  по доле успеха. Запас хода велик именно потому, что разметка здесь точнее нашей.</p>
+
+  <div class="callout warn">
+    <p><strong>Разрезы по режиму съёмки на приёмке читать нельзя</strong> — проверено, а
+    не предположено. В held-out три сцены, и режим совпадает с территорией: наклон ≤ 15°
+    — это ровно L50 (114 пар из 114), а 1301 пара из 1397 с наклоном > 15° приходится на
+    L08. Такие строки сравнивают местность, а не ракурс. Свободен от оговорки только
+    разрез по виду пары: он делит одни и те же кадры одних и тех же территорий, меняя
+    лишь источник стороны B.</p>
+  </div>
+</section>
+
+<section id="s7">
+  <div class="sec-head"><div class="sec-num">§ 7</div>
+    <h2>Чем корпус дополняет свой</h2>
+    <div class="sec-sub">и чем от него отличается</div></div>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Высоты вдвое ниже</h4>
+      <p>18–194 м (медиана 94) против наших 175–300. Низкий режим, который мы
+      откладывали как «кропы однородны, учить нечему», здесь закрыт настоящей съёмкой,
+      а не синтетикой.</p>
+    </div>
+    <div class="card">
+      <h4>Ракурсы, которых у нас нет</h4>
+      <p>Наклон медиана 17° против наших 5°, хвост до 87° — почти горизонтальные кадры.
+      Это и плата, и материал: разрезы по <code>tilt_deg</code> позволяют брать только
+      нужный конверт.</p>
+    </div>
+    <div class="card">
+      <h4>Разметка точнее нашей</h4>
+      <p>Около 1 px против 4 px. Следствие практическое: на общих метриках корпус всегда
+      будет выглядеть «лучше», поэтому сравнивать корпуса между собой бессмысленно — у
+      каждого своя приёмка и свои потолки.</p>
+    </div>
+    <div class="card">
+      <h4>Сторона B — всегда ортофото</h4>
+      <p>Спутниковой подложки здесь нет, а наш боевой случай — именно она. Доля корпуса
+      в смеси остаётся решением, а не данностью.</p>
+    </div>
+    <div class="card">
+      <h4>Лицензия другая</h4>
+      <p>CC BY-NC-SA 4.0 — некоммерческое использование, и ограничение переходит на всё,
+      что из корпуса собрано. Поэтому поставка отдельная, а не дописана в общий манифест.</p>
+    </div>
+    <div class="card">
+      <h4>Формат общий</h4>
+      <p>Пара, колонки манифеста, классы и веса те же, что у своего корпуса, — загрузчик
+      и сэмплер из <code>TRAINING.md</code> работают без изменений. Приёмку каждого
+      корпуса вести на своём <code>heldout</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section id="s8">
+  <div class="sec-head"><div class="sec-num">§ 8</div>
+    <h2>Что передаётся</h2>
+    <div class="sec-sub">поставка и инструменты</div></div>
+
+  <div class="tw"><table>
+    <thead><tr><th>файл</th><th>что в нём</th></tr></thead>
+    <tbody>
+      <tr><td class="n">12 831 × .npz</td><td>сами пары, 26.5 ГБ</td></tr>
+      <tr><td class="n">manifest.csv</td><td>22 колонки: вид пары, сплит, класс и σ разметки с её происхождением, вес, сцена, параметры съёмки</td></tr>
+      <tr><td class="n">README.md</td><td>состав, сплиты, точность, как смешивать со своим корпусом</td></tr>
+      <tr><td class="n">METHODOLOGY.md</td><td>как корпус получен: воронка, конструкция пары, что отброшено, как измерена привязка</td></tr>
+      <tr><td class="n">ACCEPTANCE.md · baseline.json</td><td>решающие метрики, база пяти ядер, потолки, порог значимости</td></tr>
+      <tr><td class="n">MATCHERS_METRICS.md</td><td>ядра по видам пар и разрезам, с оговоркой о том, какие разрезы читать нельзя</td></tr>
+      <tr><td class="n">SUMMARY.html</td><td>распределения, галерея примеров каждого вида, контроль разметки глазами</td></tr>
+      <tr><td class="n">PAIR_ANATOMY.html</td><td>разбор одной пары массив за массивом</td></tr>
+      <tr><td class="n">explore.ipynb · requirements.txt</td><td>просмотрщик: загрузка, перемешивание, случайная пара со всеми проверками</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Инструменты в репозитории: <code>ortholoc_store.py</code> (формат хранения),
+  <code>shrink_ortholoc.py</code> (конвертация со сверкой), <code>audit_ortholoc.py</code>
+  (измерение привязки), <code>build_ortholoc_dataset.py</code> (сборка),
+  <code>ortholoc_summary.py</code> и <code>ortholoc_report.py</code> (сводка, приёмка,
+  проверки). Батарея проверок поставки — <strong>10 из 10</strong>.</p>
+</section>
+
+<section id="s9">
+  <div class="sec-head"><div class="sec-num">§ 9</div>
+    <h2>Что осталось и что честно сказать</h2>
+    <div class="sec-sub">ограничения</div></div>
+
+  <ul>
+    <li><strong>Приёмка узкая по территориям</strong> — три сцены. Статистики пар хватает
+    (919 боевых), разнообразия местности нет, и разрезы по режиму на ней не работают.</li>
+    <li><strong>Точность разметки пар со своим ортофото не измерена</strong> — стоит
+    оценка сверху. Измерить её нечем: независимого источника для этих пар не существует.</li>
+    <li><strong>Домен чужой.</strong> Наклонная съёмка против ортофото — не надир против
+    спутниковой подложки. Доля в смеси требует решения и проверки на своём held-out.</li>
+    <li><strong>Сезонной оси нет</strong>, как и в своём корпусе: перекраски отброшены как
+    не создающие разрыва, а настоящих кросс-сезонных пар здесь не бывает.</li>
+    <li><strong>Обратного поля B→A нет</strong> — симметричный режим RoMa потребует его
+    построения.</li>
+    <li><strong>Материал можно расширить</strong>: квота 200 сэмплов на сцену в
+    <code>train</code> отсекла 5228 сэмплов, исходные данные целы, конвертацию можно
+    повторить с большей квотой.</li>
+  </ul>
+</section>
+
+<footer>
+  Источники чисел: ortholoc_dataset/manifest.csv (12 831 строка), baseline.json,
+  eval_out/ortholoc_bench_heldout.csv, eval_out/ortholoc_audit.csv,
+  eval_out/ortholoc_shrink_*.csv.<br>
+  Все числа измерены на текущей поставке; где стоит оценка, это сказано словом «оценка».
+</footer>
+
+</div>
+</body>
+</html>
