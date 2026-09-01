@@ -153,14 +153,20 @@ def main() -> int:
                 started = time.perf_counter()
                 corr = matcher.match(a, b)
                 sec = time.perf_counter() - started
+                # мета читается мягко: формат пары общий для корпусов, а
+                # набор полей — нет (у OrthoLoC нет курса и раскладки, у нас
+                # нет режима ректификации). Отсутствующее поле — пустая
+                # клетка в разрезе, а не падение прогона
                 row = dict(
-                    pair=f.stem, scene=m["scene"], pair_kind=m["pair_kind"],
-                    layout=m["pair_layout"], matcher=name, config=cfg_str,
-                    height_m=m["height_m"], tilt_deg=m["tilt_deg"],
-                    yaw_deg=m["yaw_deg"], delta_yaw_deg=m.get("delta_yaw_deg", ""),
-                    scale_ratio=m["scale_ratio"], b_px=m["b_px"],
-                    covis_frac=m["covis_frac"], sec=round(sec, 2),
-                    **evaluate(corr, pair["warp"], pair["mask"], m["gsd_b"]))
+                    pair=f.stem, scene=m.get("scene", ""),
+                    pair_kind=m.get("pair_kind", ""),
+                    layout=m.get("pair_layout", m.get("mode", "")),
+                    matcher=name, config=cfg_str,
+                    height_m=m.get("height_m", ""), tilt_deg=m.get("tilt_deg", ""),
+                    yaw_deg=m.get("yaw_deg", ""), delta_yaw_deg=m.get("delta_yaw_deg", ""),
+                    scale_ratio=m.get("scale_ratio", ""), b_px=m.get("b_px", ""),
+                    covis_frac=m.get("covis_frac", ""), sec=round(sec, 2),
+                    **evaluate(corr, pair["warp"], pair["mask"], m.get("gsd_b", 1.0)))
                 writer.writerow(row)
                 n_done += 1
                 if n_done % 40 == 0:

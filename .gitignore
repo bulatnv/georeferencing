@@ -55,3 +55,4 @@ openaerialmap_dataset/MODALITY.html
 !openaerialmap_dataset/manifest.csv
 !openaerialmap_dataset/rasters_inventory.csv
 !openaerialmap_dataset/scene_modality.csv
+!ortholoc_dataset/manifest.csv
