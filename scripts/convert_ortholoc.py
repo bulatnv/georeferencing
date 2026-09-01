@@ -41,6 +41,9 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import ortholoc_store  # noqa: E402
 
 #: Минимальная ко-видимость пары и размеры окна B (§2.1 спеки). Верхней
 #: границы нет: если отпечаток A меньше окна, covis = 1.0 — это нормальная
@@ -125,12 +128,7 @@ def dop_scale(d) -> np.ndarray:
     восстанавливаем из ``dsm``: его каналы X/Y — мировые координаты сетки DOP,
     медианный шаг по столбцу/строке и есть масштаб (проверено на сэмплах со
     ``scale``: расхождение < 1e-3)."""
-    if "scale" in getattr(d, "files", ()):
-        return np.asarray(d["scale"], dtype=np.float64)
-    g = d["dsm"].astype(np.float64)
-    sx = float(np.nanmedian(np.diff(g[..., 0], axis=1)))
-    sy = float(np.nanmedian(np.diff(g[..., 1], axis=0)))
-    return np.array([sx, sy])
+    return ortholoc_store.dop_scale(d)
 
 
 def median_gsd(pm: np.ndarray) -> float:
@@ -365,7 +363,7 @@ def main() -> int:
             scene = f.stem.split("_")[0]
             if scenes and scene not in scenes:
                 continue
-            d = np.load(f)
+            d = ortholoc_store.open_sample(f)
             ext = d["extrinsics"]
             tilt = float(np.degrees(np.arccos(np.clip(-ext[2, 2], -1, 1))))
             if args.max_tilt and tilt > args.max_tilt:

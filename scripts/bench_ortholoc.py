@@ -23,14 +23,15 @@ import argparse
 import csv
 import sys
 import time
-import zipfile
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import ortholoc_store  # noqa: E402
 from aero_geoloc.matcher import create_matcher  # noqa: E402
 
 #: Боевые калибровки ядер (треки A/F/F2). Ключи create_matcher.
@@ -53,7 +54,9 @@ FIELDS = [
 
 
 def load_sample(path: Path):
-    d = np.load(path)
+    # оба формата датасета читаются одним интерфейсом: исходный сэмпл и
+    # компактный (scripts/ortholoc_store.py) отдают одни и те же величины
+    d = ortholoc_store.open_sample(path)
     q = cv2.cvtColor(d["image_query"], cv2.COLOR_RGB2GRAY)
     dop = cv2.cvtColor(d["image_dop"], cv2.COLOR_RGB2GRAY)
     pm = d["point_map"].astype(np.float64)
@@ -65,11 +68,9 @@ def load_sample(path: Path):
     gt_y = pm[..., 1] / sy + (hd - 1) / 2.0
     tilt = float(np.degrees(np.arccos(np.clip(-ext[2, 2], -1, 1))))
     R, t = ext[:, :3], ext[:, 3]
-    with zipfile.ZipFile(path) as zf:
-        names = zf.namelist()
-    height = np.nan
-    if "vertices.npy" in names:
-        height = float((-R.T @ t)[2] - np.median(d["vertices"][:, 2]))
+    # высота съёмки — над медианной вершиной меша сцены; в компактном формате
+    # меш не хранится, но его медиана Z сохранена отдельным числом
+    height = float((-R.T @ t)[2] - d.median_vertex_z)
     return q, dop, gt_x, gt_y, tilt, height, float(abs(sx))
 
 
