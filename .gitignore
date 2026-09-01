@@ -51,6 +51,11 @@ openaerialmap_dataset/MATCHERS_REPORT.html
 openaerialmap_dataset/PAIR_ANATOMY.html
 openaerialmap_dataset/DUPLICATES.html
 openaerialmap_dataset/MODALITY.html
+# то же для поставки из внешнего OrthoLoC: пары и тяжёлые сводки мимо истории
+ortholoc_dataset/*.npz
+ortholoc_dataset/SUMMARY.html
+ortholoc_dataset/PAIR_ANATOMY.html
+
 # опись поставки нужна в истории, несмотря на общее правило *.csv выше
 !openaerialmap_dataset/manifest.csv
 !openaerialmap_dataset/rasters_inventory.csv

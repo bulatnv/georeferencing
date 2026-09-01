@@ -32,6 +32,23 @@ svg{max-width:100%;height:auto}
 
 <p class="eyebrow">aero-geoloc · данные дообучения · 2026-08-25</p>
 <h1>OrthoLoC: что внутри и как это выглядит</h1>
+<div style="border-left:3px solid #2a78d6;background:#f4f3ee;padding:12px 16px;margin:18px 0;font-size:15px">
+<b>Актуализация 2026-09-01.</b> Документ описывает <i>исходный</i> датасет и в
+этой части верен. Что изменилось с момента написания:
+<ul style="margin:8px 0 0 0">
+<li>хранение переведено в компактный формат: <b>269.5 → 44.8 ГБ</b> без потерь,
+значимых для измерений (<code>scripts/ortholoc_store.py</code>, обоснование —
+<code>BENCH_ORTHOLOC.md</code> §5). Чтение обоих форматов идёт через
+<code>open_sample</code>, поэтому описанные ниже массивы отдаются как прежде;</li>
+<li>из датасета собран обучающий корпус <b><code>ortholoc_dataset/</code></b> —
+12 831 пара со своими сплитами без утечки, классами качества, весами и приёмкой
+(его собственные <code>README.md</code>, <code>METHODOLOGY.md</code>,
+<code>SUMMARY.html</code>);</li>
+<li>измерено расхождение привязки между источниками ортофото — <b>1.52 px</b>
+медиана: у пар <code>xDOP</code> этот сдвиг уходит прямо в разметку
+(<code>scripts/audit_ortholoc.py</code>).</li>
+</ul>
+</div>
 <p class="stand">Отчёт по датасету <a href="https://github.com/deepscenario/OrthoLoC">OrthoLoC</a>
 (NeurIPS 2025): 16 427 UAV-кадров с парными ортофото (DOP), DSM и плотной попиксельной
 3D-картой. Датасет скачан целиком (270 ГБ). Здесь — распределения по test-сплитам (§03–§06) и по полному train (§07) с примерами обучающих пар.</p>
