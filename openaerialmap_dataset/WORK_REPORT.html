@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Корпус OpenAerialMap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+:root{
+  --ground:#f4f6f4; --surface:#ffffff; --sunk:#eceff0;
+  --ink:#16211d; --body:#25322d; --muted:#5b6b64; --faint:#8a978f;
+  --line:#d8ded9; --line-soft:#e6eae6;
+  --accent:#2e6f5e; --accent-soft:#dfeae5;
+  --warn:#b4762a; --bad:#a8443a; --cool:#2c5a7a;
+  --display:"Fira Sans Condensed","Fira Sans",-apple-system,Segoe UI,sans-serif;
+  --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#101513; --surface:#161d1a; --sunk:#1b2320;
+    --ink:#e4ebe7; --body:#cfd9d4; --muted:#93a29b; --faint:#74837c;
+    --line:#26302c; --line-soft:#1f2825;
+    --accent:#6fbfa3; --accent-soft:#1d2f29;
+    --warn:#d29a4e; --bad:#d1705f; --cool:#6ea3c8;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#101513; --surface:#161d1a; --sunk:#1b2320;
+  --ink:#e4ebe7; --body:#cfd9d4; --muted:#93a29b; --faint:#74837c;
+  --line:#26302c; --line-soft:#1f2825;
+  --accent:#6fbfa3; --accent-soft:#1d2f29;
+  --warn:#d29a4e; --bad:#d1705f; --cool:#6ea3c8;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--body);
+  font-family:var(--serif); font-size:17px; line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px; margin:0 auto; padding:0 24px 96px}
+p{margin:0 0 1em; max-width:74ch}
+ul{margin:0 0 1em; padding-left:1.1em; max-width:74ch}
+li{margin-bottom:.35em}
+a{color:var(--accent)}
+strong{color:var(--ink); font-weight:600}
+code{font-family:var(--mono); font-size:.86em; background:var(--sunk);
+  padding:.1em .35em; border-radius:3px; color:var(--ink)}
+.num{font-family:var(--mono); font-variant-numeric:tabular-nums}
+
+/* ——— шапка ——— */
+header{padding:72px 0 40px; border-bottom:2px solid var(--ink)}
+.eyebrow{font-family:var(--mono); font-size:12px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--accent); margin:0 0 18px}
+h1{font-family:var(--display); font-weight:700; font-size:clamp(36px,5.2vw,56px);
+  line-height:1.04; letter-spacing:-.01em; color:var(--ink); margin:0 0 20px;
+  text-wrap:balance; max-width:22ch}
+.lead{font-size:20px; line-height:1.55; color:var(--body); max-width:66ch; margin:0 0 26px}
+.facts{display:flex; flex-wrap:wrap; gap:10px 26px; font-family:var(--mono);
+  font-size:12.5px; color:var(--muted); letter-spacing:.02em}
+.facts b{color:var(--ink); font-weight:500}
+
+/* ——— плитки сводки ——— */
+.tiles{display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin:40px 0 8px}
+.tile{background:var(--surface); border:1px solid var(--line); padding:20px 18px 18px}
+.tile .k{font-family:var(--display); font-weight:600; font-size:34px;
+  line-height:1; color:var(--ink); font-variant-numeric:tabular-nums}
+.tile .k span{font-size:16px; color:var(--muted); font-weight:500; margin-left:3px}
+.tile .t{font-family:var(--mono); font-size:11.5px; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--faint); margin-top:9px}
+.tile .d{font-size:14.5px; color:var(--muted); line-height:1.45; margin-top:7px}
+
+/* ——— разделы ——— */
+section{padding-top:56px}
+.sec-head{display:flex; gap:18px; align-items:baseline;
+  border-top:1px solid var(--line); padding-top:18px; margin-bottom:22px}
+.sec-num{font-family:var(--mono); font-size:12.5px; color:var(--accent);
+  letter-spacing:.08em; padding-top:6px; flex:none; width:34px}
+h2{font-family:var(--display); font-weight:600; font-size:29px; line-height:1.12;
+  color:var(--ink); margin:0; letter-spacing:-.01em; text-wrap:balance}
+.sec-sub{font-family:var(--mono); font-size:12.5px; color:var(--faint);
+  margin-left:auto; text-align:right; letter-spacing:.03em}
+h3{font-family:var(--display); font-weight:600; font-size:19px; color:var(--ink);
+  margin:34px 0 12px; letter-spacing:.005em}
+
+/* ——— воронка ——— */
+.funnel{border:1px solid var(--line); background:var(--surface); padding:22px 22px 8px; margin:24px 0}
+.frow{display:grid; grid-template-columns:130px 1fr 78px; gap:16px;
+  align-items:center; margin-bottom:14px}
+.frow .lab{font-family:var(--mono); font-size:12px; color:var(--muted);
+  text-align:right; line-height:1.35}
+.bar{height:26px; background:var(--sunk); position:relative}
+.bar i{display:block; height:100%; background:var(--accent); opacity:.85}
+.bar i.drop{background:var(--warn)}
+.bar i.hold{background:var(--cool)}
+.frow .val{font-family:var(--mono); font-size:14px; color:var(--ink);
+  font-variant-numeric:tabular-nums; font-weight:500}
+.fnote{font-size:14.5px; color:var(--muted); border-top:1px solid var(--line-soft);
+  padding-top:14px; margin:6px 0 14px; max-width:none}
+
+/* ——— таблицы ——— */
+.tw{overflow-x:auto; margin:22px 0; border:1px solid var(--line); background:var(--surface)}
+table{border-collapse:collapse; width:100%; font-size:15px}
+th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line-soft);
+  vertical-align:top}
+thead th{font-family:var(--mono); font-size:11.5px; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--faint); font-weight:500;
+  background:var(--sunk); border-bottom:1px solid var(--line); white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.n{font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+tr.lead-row td{background:var(--accent-soft)}
+tr.lead-row td.n,tr.lead-row td strong{color:var(--ink)}
+.metre{display:inline-block; width:74px; height:7px; background:var(--sunk);
+  vertical-align:middle; margin-left:9px}
+.metre i{display:block; height:100%; background:var(--accent)}
+.pill{font-family:var(--mono); font-size:11px; letter-spacing:.05em;
+  text-transform:uppercase; padding:2px 7px; border:1px solid currentColor;
+  border-radius:2px; white-space:nowrap}
+.pill.ok{color:var(--accent)} .pill.cut{color:var(--warn)} .pill.err{color:var(--bad)}
+
+/* ——— врезка ——— */
+.callout{border-left:3px solid var(--accent); background:var(--surface);
+  padding:16px 20px; margin:24px 0; font-size:16px}
+.callout p:last-child{margin-bottom:0}
+.callout.warn{border-left-color:var(--warn)}
+.grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:22px; margin:22px 0}
+.card{border:1px solid var(--line); background:var(--surface); padding:18px 20px}
+.card h4{font-family:var(--display); font-size:16.5px; color:var(--ink); margin:0 0 8px; font-weight:600}
+.card p{font-size:15px; margin:0; color:var(--muted); max-width:none}
+.card p+p{margin-top:.7em}
+footer{margin-top:64px; border-top:1px solid var(--line); padding-top:20px;
+  font-family:var(--mono); font-size:12.5px; color:var(--faint); line-height:1.7}
+@media (max-width:920px){ .tiles{grid-template-columns:repeat(2,1fr)} }
+@media (max-width:640px){
+  body{font-size:16px}
+  .frow{grid-template-columns:1fr; gap:5px}
+  .frow .lab{text-align:left}
+  .sec-sub{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Отчёт о работе · 1 сентября 2026</p>
+  <h1>Корпус OpenAerialMap: что построено и что доработано</h1>
+  <p class="lead">Из каталога чужих ортофотопланов собран обучающий корпус для матчеров
+  аэро-геолокализации: пары «вид виртуального борта ↔ спутниковая подложка» с плотной
+  разметкой, измеренной привязкой и зафиксированными до обучения метриками приёмки.</p>
+  <div class="facts">
+    <span>ветка <b>feat/open_orto</b></span>
+    <span>поставка <b>openaerialmap_dataset/</b></span>
+    <span>редакция <b>v2</b></span>
+    <span>проверок <b>13 из 13</b></span>
+  </div>
+</header>
+
+<div class="tiles">
+  <div class="tile"><div class="k">4053</div><div class="t">пары</div>
+    <div class="d">3216 боевых, 811 контрольных, 26 кросс-датных</div></div>
+  <div class="tile"><div class="k">612</div><div class="t">площадок</div>
+    <div class="d">282 географических кластера, 1755 км²</div></div>
+  <div class="tile"><div class="k">8.85<span>ГБ</span></div><div class="t">объём</div>
+    <div class="d">было 14.87 до сокращения контрольной оси</div></div>
+  <div class="tile"><div class="k">4.13<span>px</span></div><div class="t">шум разметки</div>
+    <div class="d">расхождение с независимым арбитром на боевых парах</div></div>
+  <div class="tile"><div class="k">0.43</div><div class="t">база inl5</div>
+    <div class="d">лучшее из пяти ядер без дообучения, потолок 0.73</div></div>
+</div>
+
+<section id="s1">
+  <div class="sec-head"><div class="sec-num">§ 1</div>
+    <h2>Что было на входе и что вышло</h2>
+    <div class="sec-sub">воронка</div></div>
+
+  <p>На входе — два каталога открытых ортофотопланов в GeoTIFF и спутниковая подложка
+  Esri World Imagery, которая тянется тайлами по мере надобности. Ничего, кроме растров,
+  не поставлялось: ни разметки, ни координатной сверки, ни сведений о датах съёмки.</p>
+
+  <div class="funnel">
+    <div class="frow"><div class="lab">растров на входе</div>
+      <div class="bar"><i style="width:100%"></i></div><div class="val">1157</div></div>
+    <div class="frow"><div class="lab">годных по паспорту</div>
+      <div class="bar"><i style="width:55.2%"></i></div><div class="val">639</div></div>
+    <div class="frow"><div class="lab">дали пары<br>«сам на себя»</div>
+      <div class="bar"><i style="width:52.9%"></i></div><div class="val">612</div></div>
+    <div class="frow"><div class="lab">прошли гейт<br>привязки</div>
+      <div class="bar"><i class="hold" style="width:37.9%"></i></div><div class="val">438</div></div>
+    <div class="frow"><div class="lab">подтверждены<br>арбитром</div>
+      <div class="bar"><i style="width:34.1%"></i></div><div class="val">394</div></div>
+    <p class="fnote">Отсев на паспорте: <span class="num">188</span> растров в неметрических
+    CRS (вся геометрия конвейера считает в метрах), <span class="num">307</span> мельче
+    0.5 км², <span class="num">24</span> грубее 0.1 м/пкс. Отказ гейта — <span class="num">152</span>
+    площадки, где привязка к подложке не измеряется по существу: сплошной лес, поле,
+    перестроенная территория.</p>
+  </div>
+
+  <p>Дальше воронка идёт уже в парах: сгенерировано около 6.5 тысяч, в поставку вошли
+  <strong>4053</strong>. Разница — карантин по аудиту (403 пары), отбраковка по
+  собственным проверкам пары и сокращение контрольной оси в редакции v2.</p>
+</section>
+
+<section id="s2">
+  <div class="sec-head"><div class="sec-num">§ 2</div>
+    <h2>Из чего состоит корпус</h2>
+    <div class="sec-sub">три оси, разные роли</div></div>
+
+  <div class="tw"><table>
+    <thead><tr><th>вид пары</th><th class="n">пар</th><th>сторона B</th><th>роль</th>
+      <th class="n">шум разметки</th></tr></thead>
+    <tbody>
+      <tr><td><strong>orto_basemap</strong></td><td class="n">3216</td>
+        <td>кроп спутниковой подложки Esri</td>
+        <td>боевой тип: перенос между источниками</td><td class="n">≈4 px</td></tr>
+      <tr><td><strong>same_source</strong></td><td class="n">811</td>
+        <td>второй вид того же ортоплана</td>
+        <td>контроль забывания и якорь геометрии</td><td class="n">0.023 px</td></tr>
+      <tr><td><strong>cross_date</strong></td><td class="n">26</td>
+        <td>ортоплан другого вылета той же территории</td>
+        <td>единственная честная кросс-датная ось</td><td class="n">0.94 px</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Пара — это <code>.npz</code>: две стороны готовыми JPEG, плотное соответствие
+  <code>warp_ab</code> (для каждого пикселя A его координата в B, <code>NaN</code> вне
+  зоны видимости), маска ко-видимости и метаданные съёмки. Виртуальный борт — 1024×576,
+  фокус 735 px, поле зрения 69.7°, высота 175–300 м, наклон до 10°, разница курсов
+  сторон до 25°: те же параметры, что у боевой камеры и боевого тракта.</p>
+
+  <p>Разметка выводится аналитически из той же геометрии, что рендерила кадр, — не
+  матчером. Матчер в этом конвейере работает <strong>измерителем, а не источником
+  разметки</strong>: иначе модель обучалась бы на собственных предсказаниях.</p>
+</section>
+
+<section id="s3">
+  <div class="sec-head"><div class="sec-num">§ 3</div>
+    <h2>Главная трудность: привязка ортоплана к подложке</h2>
+    <div class="sec-sub">и почему её нельзя пропустить</div></div>
+
+  <p>Геопривязка ортоплана и мозаика Esri расходятся — обычно на метры, иногда на
+  десятки. Некомпенсированный сдвиг целиком уходит в разметку: пара выглядит нормальной
+  и учит модель неверному соответствию. Это худший вид брака — в галерее глазами он не
+  виден.</p>
+
+  <p>Поэтому по каждой площадке строится <strong>поле сдвигов</strong>: сетка узлов,
+  в каждом узле сдвиг меряется фазовой корреляцией по картам градиента в две ступени,
+  с контролем остатка и проверкой соседями. Своя реализация, а не
+  <code>cv2.phaseCorrelate</code>: её субпиксельное уточнение на гладких текстурах
+  систематически врёт — замерено, сдвиг 0.5 px читался как 1.3.</p>
+
+  <div class="callout">
+    <p><strong>Гейт площадки.</strong> Меньше пяти валидных узлов — отказ с записью
+    причины. Пропущенная площадка стоит нам данных, принятая с непроверенной привязкой —
+    качества модели.</p>
+  </div>
+
+  <h3>Проверка независимым арбитром</h3>
+  <p>Фазовая корреляция годится для контроля <code>same_source</code> (там она даёт
+  0.023 px), но на парах с подложкой непригодна: при смене фактуры она вырождается в шум
+  — <strong>37 px там, где матчер уверенно давал 3</strong>. Поэтому боевые площадки
+  проверяет обученный матчер MINIMA-RoMa, и вердикт выносится по двум признакам:
+  согласован ли он сам с собой и расходится ли с нашей разметкой.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>вердикт аудита</th><th class="n">площадок</th><th>что это значит</th>
+      <th>решение</th></tr></thead>
+    <tbody>
+      <tr><td>разметка подтверждена</td><td class="n">394</td>
+        <td>арбитр согласен и с собой, и с нами; расхождение 4.13 px</td>
+        <td><span class="pill ok">в корпус</span></td></tr>
+      <tr><td>привязка сдвинута</td><td class="n">34</td>
+        <td>согласен с собой, расходится с нами больше 12 px</td>
+        <td><span class="pill err">карантин</span></td></tr>
+      <tr><td>без структуры</td><td class="n">23</td>
+        <td>не согласован сам с собой: поле, лес, вода</td>
+        <td><span class="pill cut">пониженный вес</span></td></tr>
+      <tr><td>проверено частично</td><td class="n">17</td>
+        <td>подтверждений меньше трети пар площадки</td>
+        <td><span class="pill cut">пониженный вес</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Разбор карантина показал, что расхождение — <strong>чистый перенос</strong>, а не
+  поворот или деформация: 18.2 px против 4.1 у подтверждённых при одинаковых повороте
+  (0.25° против 0.19°) и масштабе. Рельеф и неверная константа площадки как объяснения
+  проверены и отброшены. Осталось одно: поле сдвигов слишком редкое для своей
+  неоднородности — 8–9 узлов на площадку в 2–10 км² при размахе сдвигов 6.6–8.1 м.</p>
+
+  <div class="callout warn">
+    <p><strong>Предсказать этот брак заранее нельзя.</strong> Доля валидных узлов у
+    подтверждённых площадок 0.37, у сдвинутых 0.32 — распределения перекрываются, и порог
+    0.25 отсёк бы 44 % брака ценой 22 % годного. Апостериорный аудит незаменим.</p>
+  </div>
+</section>
+
+<section id="s4">
+  <div class="sec-head"><div class="sec-num">§ 4</div>
+    <h2>Что пришлось доработать по ходу сборки</h2>
+    <div class="sec-sub">дефекты и их цена</div></div>
+
+  <p>Каждый из этих дефектов выглядел содержательным результатом — «привязка не
+  строится», «данных мало» — и был следствием константы, выведенной на других данных.
+  Цена ошибки здесь считается в площадках, а не в строках кода.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>симптом</th><th>причина</th><th>исправление</th><th class="n">результат</th></tr></thead>
+    <tbody>
+      <tr><td>площадки массово не набирают пяти узлов</td>
+        <td>шаг сетки считался по паспортной площади растра, а узлы ставятся в рабочей
+        зоне — она втрое-вдесятеро меньше</td>
+        <td>шаг по рабочей зоне</td>
+        <td class="n">отказов 256 → 128</td></tr>
+      <tr><td>«мало данных ортоплана» там, где данные есть</td>
+        <td>окно замера 400/200 м не помещается в мелкую площадку</td>
+        <td>окно, отступ и шаг подгоняются под размер зоны</td>
+        <td class="n">валидных узлов 19 % → 68 %</td></tr>
+      <tr><td>привязка не сходится на смещённых площадках</td>
+        <td>потолок сдвига 20 м резал систематические расхождения 15–25 м</td>
+        <td>потолок поднят до 45 м</td>
+        <td class="n">отказов 128 → 71</td></tr>
+      <tr><td>падение на панхромных и четырёхканальных растрах</td>
+        <td>маска валидности собиралась из формы (576,) вместо (576, 1024)</td>
+        <td>приведение каналов в одном месте, тест на 1/3/4</td>
+        <td class="n">10 панхромных площадок</td></tr>
+      <tr><td>пара с виду нормальная не читается</td>
+        <td>запись оборвалась незаметно для генератора</td>
+        <td>проверка CRC встроена в слияние</td>
+        <td class="n">1 битый npz из 2195</td></tr>
+      <tr><td>дубли строк в манифесте</td>
+        <td>генератор дописывает файл, остался хвост упавшего слияния</td>
+        <td>пометка <code>.stale</code> и дедупликация</td>
+        <td class="n">217 строк</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Отдельная работа — <strong>параллелизация</strong>. Площадки раскладываются по
+  процессам жадной схемой по км², каждый пишет свой манифест, слияние проверяет CRC.
+  Счётные процессы привязываются к производительным ядрам гибридного CPU: на i7-12700
+  энергоэффективное ядро считает эту нагрузку на 32–37 % медленнее, а догнать отставшего
+  в пуле воркеров некому. Итог — 441 площадка за 67 минут в пять процессов.</p>
+</section>
+
+<section id="s5">
+  <div class="sec-head"><div class="sec-num">§ 5</div>
+    <h2>Редакция v2: доработка по итогам независимого разбора</h2>
+    <div class="sec-sub">восемь работ</div></div>
+
+  <p>Корпус разбирал другой агент; его замечания и решение владельца по каждому пункту
+  легли в задачу v2. Пары при этом <strong>не пересобирались</strong> — вся работа
+  прошла в манифесте, сплитах и файле приёмки.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>работа</th><th>что сделано</th><th class="n">результат</th></tr></thead>
+    <tbody>
+      <tr><td>координаты площадок</td>
+        <td>центр и габарит взяты прямо из растров; габарит нужен кластеризации отдельно
+        от центра</td><td class="n">177 → 612 из 612</td></tr>
+      <tr><td>дубли</td>
+        <td>прежняя проверка сравнивала новый набор со старыми, но не сам с собой; добавлена
+        внутренняя сверка и различение копия / повторный вылет / другая модальность</td>
+        <td class="n">17 групп, 35 площадок</td></tr>
+      <tr><td>модальность</td>
+        <td>часть «ортофото» оказалась картами высот; проверены все площадки, серые —
+        глазами по контрольному листу</td><td class="n">10 карт рельефа, 34 пары</td></tr>
+      <tr><td>кластеры и сплиты</td>
+        <td>ребро между площадками, если центры ближе 2 км или пересекаются габариты;
+        деление по кластерам, а не по площадкам</td><td class="n">282 кластера</td></tr>
+      <tr><td>классы и веса</td>
+        <td>построчная точность разметки <code>gt_class</code> / <code>gt_sigma_px</code>
+        и вес пары в смеси</td><td class="n">83 / 12 / 5 %</td></tr>
+      <tr><td>база и потолки</td>
+        <td>пять ядер на held-out, потолки из измеренного шума разметки, порог значимости
+        — всё до первого дообучения</td><td class="n">n = 749</td></tr>
+      <tr><td>правка спеки</td>
+        <td>правило перекрытия разделено по конструкции пары: «B вокруг A» — не
+        вырождение, а боевой случай</td><td class="n">§ 2.1</td></tr>
+      <tr><td>кросс-датные пары</td>
+        <td>из повторных вылетов собрана отдельная ось «ортоплан ↔ ортоплан другой даты»</td>
+        <td class="n">26 пар</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Три находки, которых никто не ждал</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>Карты высот под видом ортофото</h4>
+      <p>Автоматика уверенно отделяет цветной снимок от серого, но <strong>не отличает
+      панхром от карты рельефа</strong>: теневая отмывка даёт текстуру 1.24–1.72 — ровно
+      как у фотографии. Все двадцать серых площадок пришлось смотреть глазами.</p>
+      <p>Нашлось 10 карт рельефа, 34 пары. Не удалены: вес 0 и пометка среза — как
+      кросс-модальная ось материал редкий.</p>
+    </div>
+    <div class="card">
+      <h4>Один кластер чуть не съел оценку</h4>
+      <p>В первой раскладке кластер из 92 площадок целиком проваливался в оценочный
+      сплит, раздувал его втрое и забирал территории у обучения: <code>val</code> вышел
+      почти как <code>train</code> по числу боевых пар.</p>
+      <p>Ограничение «вклад одного кластера не больше трети цели» и выбор лучшей из 600
+      перестановок по близости профиля решили это.</p>
+    </div>
+    <div class="card">
+      <h4>Сезонная перекраска почти не создаёт разрыва</h4>
+      <p>Замер фотометрического расхождения сторон: у <code>same_source</code> с
+      перекраской корреляция яркости <strong>0.99</strong> — ровно как без неё. Цвет
+      меняется по вегетационной маске, яркостная структура остаётся.</p>
+      <p>Настоящий кросс-дат даёт 0.69, боевая пара с подложкой — 0.11. Отсюда и вывод,
+      что сезонная ось корпусом не покрыта.</p>
+    </div>
+  </div>
+</section>
+
+<section id="s6">
+  <div class="sec-head"><div class="sec-num">§ 6</div>
+    <h2>Сокращение контрольной оси</h2>
+    <div class="sec-sub">веса оказалось мало</div></div>
+
+  <p>Контрольная ось <code>same_source</code> занимала половину корпуса, а обучающего
+  сигнала в ней почти нет: линия RoMa решает её полностью, <code>inl3</code> = 1.00.
+  Вес опускает пары из градиента, но <strong>не с диска</strong> — 3218 пар грузились
+  каждую эпоху и занимали 8.05 ГБ из 14.87.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>показатель</th><th class="n">было</th><th class="n">стало</th><th>как выбирали, что оставить</th></tr></thead>
+    <tbody>
+      <tr><td>пар <code>same_source</code></td><td class="n">3218</td><td class="n"><strong>811</strong></td>
+        <td>по одной с площадки в <code>train</code>, по две в оценочных сплитах</td></tr>
+      <tr><td>объём оси</td><td class="n">8.05 ГБ</td><td class="n">2.03 ГБ</td>
+        <td>удалены жёсткие ссылки поставки, рабочий корпус цел</td></tr>
+      <tr><td>площадок покрыто</td><td class="n">612</td><td class="n">612</td>
+        <td>покрытие территорий сохранено полностью — иначе контроль забывания ослеп бы</td></tr>
+      <tr><td>вес в смеси</td><td class="n">0.15</td><td class="n">0.5</td>
+        <td>при 811 парах прежний вес дал бы 4 % — ось перестала бы работать</td></tr>
+      <tr><td>доля в смеси</td><td class="n">14 %</td><td class="n">12 %</td>
+        <td>внутри ограничения приёмки (не больше 15 %)</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Внутри площадки пары отбирались по разнообразию: сначала разные сезоны перекраски,
+  внутри сезона — наклон подальше от уже взятых. Поставка похудела с 14.87 до
+  <strong>8.85 ГБ</strong>.</p>
+</section>
+
+<section id="s7">
+  <div class="sec-head"><div class="sec-num">§ 7</div>
+    <h2>Что показали измерения</h2>
+    <div class="sec-sub">база и потолки</div></div>
+
+  <p>Базовая линия снята пятью ядрами на <code>heldout</code> и <strong>переснята после
+  сокращения оси</strong> — чтобы числа приёмки относились ровно к тому составу, который
+  передаётся. Решающие метрики: <code>inl5</code> и доля успешных пар на боевых парах.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>ядро</th><th class="n">EPE, px</th><th class="n">inl5</th><th class="n">успех</th>
+      <th class="n">с/пару</th><th class="n">кросс-дат, EPE</th></tr></thead>
+    <tbody>
+      <tr class="lead-row"><td><strong>RoMa v1</strong></td><td class="n">5.68</td>
+        <td class="n">0.43<span class="metre"><i style="width:59%"></i></span></td>
+        <td class="n">0.43</td><td class="n">0.55</td><td class="n">1.81</td></tr>
+      <tr><td>MINIMA-RoMa</td><td class="n">5.75</td>
+        <td class="n">0.43<span class="metre"><i style="width:59%"></i></span></td>
+        <td class="n">0.44</td><td class="n">0.56</td><td class="n">1.77</td></tr>
+      <tr><td>MINIMA-LoFTR</td><td class="n">13.45</td>
+        <td class="n">0.17<span class="metre"><i style="width:23%"></i></span></td>
+        <td class="n">0.09</td><td class="n">0.03</td><td class="n">2.88</td></tr>
+      <tr><td>LoFTR</td><td class="n">17.68</td>
+        <td class="n">0.13<span class="metre"><i style="width:18%"></i></span></td>
+        <td class="n">0.11</td><td class="n">0.03</td><td class="n">3.01</td></tr>
+      <tr><td>RoMa v2</td><td class="n">23.38</td>
+        <td class="n">0.08<span class="metre"><i style="width:11%"></i></span></td>
+        <td class="n">0.23</td><td class="n">0.39</td><td class="n"><strong>1.67</strong></td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Последний столбец объясняет сам себя: <strong>RoMa v2 — лучшая на кросс-датной оси
+  и худшая на подложке</strong>. Смена даты и сезона ей не мешает; ломает её именно вид
+  спутниковой мозаики. Это пятое независимое подтверждение того, что узкое место здесь —
+  разрыв во внешнем виде источников, а не геометрия.</p>
+
+  <h3>Потолки: сколько вообще можно выиграть</h3>
+  <p>У самой разметки есть измеренное расхождение с арбитром — 3.65 px на площадках
+  <code>heldout</code>. Если считать ошибку изотропной, её модуль распределён по Рэлею,
+  и отсюда следуют потолки: даже идеальная модель не покажет больше.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>метрика</th><th class="n">база</th><th class="n">потолок</th>
+      <th class="n">остаток хода</th><th>как читать</th></tr></thead>
+    <tbody>
+      <tr><td>EPE, px</td><td class="n">5.68</td><td class="n">3.65</td><td class="n">−36 %</td>
+        <td>истинная ошибка модели ≈ 4.35 px: она ближе к пределу корпуса, чем кажется</td></tr>
+      <tr><td><strong>inl5</strong></td><td class="n">0.43</td><td class="n">0.73</td><td class="n">×1.7</td>
+        <td>решающая метрика</td></tr>
+      <tr><td>inl3</td><td class="n">0.21</td><td class="n">0.37</td><td class="n">×1.8</td>
+        <td>запрещена к оптимизации: меряет преимущественно шум разметки</td></tr>
+      <tr><td><strong>успех</strong></td><td class="n">0.43</td><td class="n">~1.0</td><td class="n">×2.3</td>
+        <td>вторая решающая; порог различимости 0.025 при n = 749</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Прогресс считается нормированно — <code>(стало − база) / (потолок − база)</code>.
+  Без этой шкалы числа вводят в заблуждение в обе стороны: падение EPE на единицу звучит
+  скромно, а это заметная доля всего достижимого.</p>
+</section>
+
+<section id="s8">
+  <div class="sec-head"><div class="sec-num">§ 8</div>
+    <h2>Что передаётся</h2>
+    <div class="sec-sub">данные и документы</div></div>
+
+  <div class="tw"><table>
+    <thead><tr><th>файл</th><th>что в нём</th></tr></thead>
+    <tbody>
+      <tr><td class="n">4053 × .npz</td><td>сами пары, 8.85 ГБ</td></tr>
+      <tr><td class="n">manifest.csv</td><td>26 колонок: сплит, вес, класс и σ разметки, кластер, группа дублей, модальность, параметры съёмки</td></tr>
+      <tr><td class="n">TRAINING.md</td><td>как обучать: загрузчик с пересчётом warp, точки подмены GT во всех трёх тренерах, сэмплер по весам, чего не делать</td></tr>
+      <tr><td class="n">explore.ipynb</td><td>просмотрщик: загрузка, перемешивание, случайная пара со всеми массивами и проверками</td></tr>
+      <tr><td class="n">ACCEPTANCE.md · baseline.json</td><td>решающие метрики, база пяти ядер, потолки, порог значимости, запреты</td></tr>
+      <tr><td class="n">METHODOLOGY.md</td><td>как корпус получен: вход, отсев, привязка, аудит, что отброшено и почему</td></tr>
+      <tr><td class="n">DATASET_OAM_V2_REPORT.md</td><td>что доработано в редакции v2, с числами по каждой работе</td></tr>
+      <tr><td class="n">RASTERS.md · rasters_inventory.csv</td><td>судьба каждого из 1158 исходных растров</td></tr>
+      <tr><td class="n">SUMMARY · MATCHERS · PAIR_ANATOMY · DUPLICATES · MODALITY</td>
+        <td>наглядные листы: распределения и примеры, сравнение матчеров, разбор одной пары, контрольные листы дублей и модальности</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Батарея проверок поставки — <strong>13 из 13</strong>: площадка и кластер не в двух
+  сплитах, группа дублей не разорвана, боевых пар в <code>heldout</code> и <code>val</code>
+  достаточно для различимости, строк манифеста ровно столько же, сколько файлов, CRC
+  каждого читается, пары из карт рельефа не в обучающей смеси, контроль забывания
+  покрывает все 612 площадок.</p>
+</section>
+
+<section id="s9">
+  <div class="sec-head"><div class="sec-num">§ 9</div>
+    <h2>Что осталось и что известно про ограничения</h2>
+    <div class="sec-sub">честно</div></div>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Сезонная ось не покрыта</h4>
+      <p>26 кросс-датных пар — измерительная ось, а не обучающий сигнал, а синтетическая
+      перекраска разрыва почти не создаёт. Если сезонная устойчивость критична, материал
+      придётся искать снаружи.</p>
+    </div>
+    <div class="card">
+      <h4>Нет высот ниже 175 м</h4>
+      <p>Боевой трудный режим — 90–110 м. Срез отложен по решению владельца: сначала
+      нужно убедиться, что обучение работает на высотах 175–300 м. Учить на низких никто
+      и не предлагает — там кропы однородны.</p>
+    </div>
+    <div class="card">
+      <h4>Плоская модель земли</h4>
+      <p>Кадр рендерится на плоскость z = 0, метрического DSM нет. На пересечённой
+      местности это добавляет ошибку, растущую с наклоном; параллакс зданий измерен —
+      6.40 px на городской площадке против 0.05 на сельской.</p>
+    </div>
+    <div class="card">
+      <h4>190 растров ждут</h4>
+      <p>Неметрические CRS не поддержаны: вся геометрия конвейера считает в метрах.
+      Поддержка отложена, а не объявлена невозможной — это ещё около 190 площадок.</p>
+    </div>
+    <div class="card">
+      <h4>Обратного поля B→A нет</h4>
+      <p>Симметричный режим RoMa потребует его построения — из прямого рассеиванием либо
+      аналитически при генерации. Второе точнее, но требует перегенерации.</p>
+    </div>
+    <div class="card">
+      <h4>Адаптеры под тренеры</h4>
+      <p>У RoMa v1 разметка уже в нужном виде, нужен свой <code>Dataset</code> и подмена
+      одного вызова — код в <code>TRAINING.md</code>. У LoFTR и RoMa v2 обучающего кода в
+      установленных пакетах нет.</p>
+    </div>
+  </div>
+</section>
+
+<section id="s10">
+  <div class="sec-head"><div class="sec-num">§ 10</div>
+    <h2>Сверка документов при сборке этого отчёта</h2>
+    <div class="sec-sub">1 сентября 2026</div></div>
+
+  <p>Перед тем как писать отчёт, все числа сверены с фактическим манифестом. Нашлись
+  места, которые сокращение контрольной оси сделало устаревшими, — они исправлены, а не
+  переписаны в отчёте по-новому при старой документации.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>документ</th><th>было</th><th>стало</th></tr></thead>
+    <tbody>
+      <tr><td>METHODOLOGY § 8</td><td class="n">base 3257 / 438 площадок, плотность 8 и 3 пары</td>
+        <td class="n">3022 / 421, плотность 7 и 1</td></tr>
+      <tr><td>METHODOLOGY § 8</td><td class="n">перекраска 1728 из 2916</td><td class="n">389 из 811</td></tr>
+      <tr><td>METHODOLOGY § 9</td><td>«сплитов нет»</td><td>сплиты по кластерам готовы, делить самостоятельно нельзя</td></tr>
+      <tr><td>METHODOLOGY § 10</td><td class="n">14.8 ГБ, 86 % пар больше 1024, 52 % корпуса — same_source</td>
+        <td class="n">8.85 ГБ, 82 %, 20 % пар и 12 % смеси</td></tr>
+      <tr><td>V2-отчёт § 4</td><td class="n">пар по сплитам 3980 / 974 / 1480</td>
+        <td class="n">2393 / 620 / 1040, боевые не менялись</td></tr>
+      <tr><td>V2-отчёт § 6</td><td class="n">контрольная ось n = 731</td><td class="n">n = 272</td></tr>
+      <tr><td>README (и генератор)</td><td>«вес опускает долю до 14 % без удаления данных»</td>
+        <td>ось сокращена физически, вес держит 12 %</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Правки внесены и в генератор README, чтобы не вернулись при следующей пересборке
+  сводки.</p>
+</section>
+
+<footer>
+  Источники чисел: manifest.csv (4053 строки), open_orto/work/bench_heldout_v2.csv,
+  ACCEPTANCE.md, METHODOLOGY.md, DATASET_OAM_V2_REPORT.md, RASTERS.md.<br>
+  Все числа измерены на текущей поставке, а не перенесены из прошлых прогонов.
+</footer>
+
+</div>
+</body>
+</html>
